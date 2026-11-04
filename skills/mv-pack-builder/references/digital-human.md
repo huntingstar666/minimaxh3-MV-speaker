@@ -144,9 +144,16 @@
 1. 环境自检 → 选音频腔（mode 1/2/3）→ 完成设计/节拍/提示词。
 2. 产出 `.h3avatar.zip`（manifest + design/beats + 音频/参考图 + design.md），
    跑 `validate_avatar_pack.py --require-prompts`。
-3. 数字人工作台的导入接口待项目侧接入；在接口出现前交付包，不声称可直接拖入。
-4. 如项目侧已支持 avatar API，可按契约创建项目、上传音频/参考图、PATCH design、
-   写 beats/prompt 后出片（具体接口以项目侧实现为准）。
+3. 导入数字人工作台（import/export 已支持；页面暂无按钮，用脚本/HTTP）：
+
+   ```bash
+   python scripts/import_avatar_pack.py --pack my-avatar.h3avatar.zip
+   python scripts/import_avatar_pack.py --pack my-avatar.h3avatar.zip \
+       --export-out roundtrip.h3avatar.zip
+   ```
+
+4. 服务端会一次性落库并重算 prompt_meta；lint error 不阻断但需在页面修复；
+   overlay 包保留 beats，生成时由后端叠加。
 5. 先只生成第 1 段，确认形象/口型/图形；再批量生成 → 拼接 → 成片。
 
 ## 8. 不要用数字人口播模式的情况

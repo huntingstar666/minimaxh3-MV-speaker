@@ -79,6 +79,7 @@ mv-pack-builder/
    ├─ add_refs.py              把用户采纳的新参考图加入项目
    ├─ validate_digital_human_prompt.py  数字人 A/B/C 三腔 + Ref2VA 六段结构 lint
    ├─ validate_avatar_pack.py  数字人 .h3avatar.zip 包校验/打包
+   ├─ import_avatar_pack.py    数字人 .h3avatar.zip 导入/导出（avatar API）
    └─ import_pack.py           导入 / AI 扩写 / 生成 / 导出（MV）
 ```
 

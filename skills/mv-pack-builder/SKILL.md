@@ -16,7 +16,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 | 类型 | 默认包 | schema | 交付去向 |
 | --- | --- | --- | --- |
 | MV / 演唱 | `.h3pack.zip` | `h3-mv-pack` | MV 工作台 `/api/projects/import` |
-| 数字人 / 口播 | `.h3avatar.zip` | `h3-avatar-pack` | 数字人契约项目（`/avatar/api`，导入接口待项目侧接入） |
+| 数字人 / 口播 | `.h3avatar.zip` | `h3-avatar-pack` | 数字人工作台 `POST /avatar/api/projects/import`（已支持） |
 
 - 数字人旧格式 `.h3pack.zip`（`mode: speaking`）仍可用作兼容交付；只有用户明确要求
   “导入 MV 工作台/旧数字人包”时才用它。
@@ -239,14 +239,29 @@ python scripts/env_check.py --project <h3-workbench 目录>
        --zip my-avatar.h3avatar.zip
    ```
 
+5. 数字人工作台已支持 import/export，直接导入（页面暂无按钮，用 HTTP/脚本）：
+
+   ```bash
+   python scripts/import_avatar_pack.py --pack my-avatar.h3avatar.zip
+   # 导入并导出 roundtrip 校验
+   python scripts/import_avatar_pack.py --pack my-avatar.h3avatar.zip \
+       --export-out roundtrip.h3avatar.zip
+   ```
+
+6. 导出已有项目：`python scripts/import_avatar_pack.py --project-id <id> \
+   --export-out exported.h3avatar.zip`。
+
 注意：
 
-- 数字人工作台目前还没有 `import` 接口，`.h3avatar.zip` 是**设计交付物**；
-  不要声称能拖进现有页面导入。
+- 导入服务端会一次性落库，`prompt_meta` 由服务端重算（包内 lint 快照不权威）；
+  有 lint error 不阻断，但会进 warnings/页面红字；
+- mode1 包内 frames 会按累计帧比例映射到真实音频长度，总帧与音频时长差 >24 帧会 warning；
+  成片时长 = 音频实际时长；
+- `graphics_mode=overlay` 会保留 beats，生成时由后端 overlay 叠加；
+- 页面还没有「导入 .h3avatar.zip」按钮（前端契约未排），不要声称能拖入；
+  用 `import_avatar_pack.py` 或 curl；
 - 旧版数字人 `.h3pack.zip`（`mode: speaking`）仅作兼容；用户明确要 MV 导入时才用，
   且不能再混入 avatar 的 `design/beats/mode:1` 字段。
-- 三腔与实际工作流一致：mode 1=A/runtime/locked_audio、mode 2=B/reference/ref_native、
-  mode 3=C/generated/ref_native。
 
 ## 5. 包内容要求（两种格式）
 

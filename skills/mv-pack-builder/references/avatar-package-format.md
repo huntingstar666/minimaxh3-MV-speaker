@@ -185,14 +185,65 @@ python skills/mv-pack-builder/scripts/validate_avatar_pack.py 我的数字人.h3
   --require-prompts
 ```
 
-## 6. 导入状态
+## 6. 导入 / 导出（已支持）
 
-数字人工作台目前没有 `/avatar/api/projects/import` 接口；本格式先作为**设计交付物**，
-项目侧接入后可以直接按 manifest 创建项目（字段已对齐契约）。在导入接口出现前：
+数字人工作台 1.0.0 已提供 import/export：
 
-- 技能负责产出/校验 `.h3avatar.zip`；
-- 用户可以按包内 `manifest.json` 手动或在数字人页面重建项目；
-- 不要声称 `.h3avatar.zip` 已经能被现有页面“拖入导入”（那是 MV `.h3pack.zip` 的能力）。
+```text
+POST /avatar/api/projects/import      multipart: package（.h3avatar.zip/.zip，必填）、name（可选）
+GET  /avatar/api/projects/{id}/export 返回 .h3avatar.zip
+```
+
+导入返回：
+
+```json
+{"ok": true, "project": {"id": "..."}, "summary": {"mode": 1, "segments": 3, "refs": 2,
+ "design": {"effect_density": "medium", "graphics_mode": "generated"}}, "warnings": []}
+```
+
+技能脚本：
+
+```bash
+# 导入
+python scripts/import_avatar_pack.py --pack my-avatar.h3avatar.zip
+# 导入并立刻导出 roundtrip 校验
+python scripts/import_avatar_pack.py --pack my-avatar.h3avatar.zip --export-out roundtrip.h3avatar.zip
+# 已有项目导出
+python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3avatar.zip
+```
+
+### 导入端实际约束（服务端强制，失败返回 400）
+
+- `schema=h3-avatar-pack`、`version=1`；
+- `mode` 1/2/3，`workflow` 必须匹配（locked_audio / ref_native），`design.audio_mode` 匹配；
+- 每段 `frames` 必须是 H3 合法帧数 `5+17k`（124–362），`end_frame - start_frame == frames`；
+- mode1 必须有 `audio.file` 且包内存在；mode2 必须有 `voice.file`；mode3 不应有音频；
+- `refs[].file` 必须在包内且是图片、role 合法、≤9 张；
+- `segments ≤ 200`，每段 `prompt` 非空（导入不阻断 lint error，但会在 warnings / prompt_meta 里显示）。
+
+### 导入语义
+
+- **一次性落库**：mode/workflow/design/segments/beats/prompt 直接写入，不经过 create→PATCH；
+- **prompt_meta 由服务端重算**：保留 summary_line/task_types/route/audio_mode/effect_count，
+  lint 用工作台当前规则重算；包里的 lint 快照不作为权威；
+- lint 有 error 不阻断导入，返回 warnings，页面显示红字，可点「按 lint 修复」；
+- **mode1 帧数映射**：包内 frames 视为 H3 生成帧数；导入按包内累计帧数比例映射到真实
+  音频长度得到 edit_frames（generation_frames=包内 frames）。包内总帧与音频时长差
+  >24 帧会有 warning，但项目可用，成片时长=音频实际时长；
+- beats 原样保留（字段归一化，不丢 visible_copy/lifecycle 等）；
+- `generation` 目前只取 `aspect_ratio` / `output_fps`，其它字段忽略（生成参数用工作台
+  默认值 + 项目设置）。
+
+### overlay
+
+`design.graphics_mode="overlay"` 保留；beats 保留；提示词不画图形。之后「开始生成」时
+job 自动走 `backend/avatar/overlay.py`（ffmpeg drawtext/overlay）叠加，take.overlay=true；
+已支持 `POST /avatar/api/projects/{id}/overlay` 对已生成片段重跑叠加。
+
+### 页面入口
+
+数字人页面目前还没有「导入 .h3avatar.zip」按钮/拖拽入口（前端契约未排），
+技能请用 HTTP 接口/`import_avatar_pack.py` 导入；一键拖入是前端小改动，可另行排期。
 
 ## 7. 与 `.h3pack.zip` 的关系
 
