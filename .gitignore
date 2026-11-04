@@ -1,0 +1,8 @@
+data/*
+!data/creative-catalog.json
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+_tmp*

@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "project": "minimaxh3-long-video-seam",
+  "target": "ComfyUI 0.42.x (tested); custom node uses io.ComfyNode API",
+  "notes": [
+    "节点包源码开源，但版本/commit 可能变化；优先使用 tested_commit，或先跑 preflight。",
+    "本文件不替代各节点包自己的许可证；再分发时保留各自 LICENSE。",
+    "ComfyUI core 节点随 ComfyUI 本体提供，不是独立 custom node。"
+  ],
+  "packs": [
+    {
+      "id": "comfyui-core",
+      "name": "ComfyUI",
+      "repo": "https://github.com/comfyanonymous/ComfyUI",
+      "tested_version": "0.42.0",
+      "tested_commit": "fb3befd16",
+      "required": true,
+      "destination": "ComfyUI core (not custom_nodes)",
+      "nodes_used": [
+        "UNETLoader", "CLIPLoader", "VAELoader", "BasicGuider", "BasicScheduler",
+        "KSamplerSelect", "RandomNoise", "SamplerCustomAdvanced", "VAEDecode",
+        "VAEDecodeAudio", "LTXVConcatAVLatent", "LTXVSeparateAVLatent", "LoadImage",
+        "CreateVideo", "SaveVideo", "MiniMaxH3ReferenceToVideo", "EasyCache",
+        "ModelAttentionBackend", "PrimitiveStringMultiline", "ResolutionSelector",
+        "LoraLoaderModelOnly", "LoraLoaderBypassModelOnly"
+      ]
+    },
+    {
+      "id": "minimaxh3-long-video-seam",
+      "name": "MiniMax H3 Long Video Seam",
+      "repo": "https://github.com/huntingstar666/minimaxh3-long-video-seam",
+      "tested_version": "0.8.0-long-video-seam",
+      "tested_commit": "main",
+      "required": true,
+      "destination": "ComfyUI/custom_nodes/minimaxh3-long-video-seam",
+      "nodes_used": [
+        "MiniMaxH3TimelinePlanner", "MiniMaxH3TimelineEncoder",
+        "MiniMaxH3SingleSegmentSampler", "MiniMaxH3AVLatentSave",
+        "MiniMaxH3AVLatentLoad", "MiniMaxH3FiniteLatentContinuation",
+        "MiniMaxH3FiniteSegmentFinalize", "MiniMaxH3SilentAudioSlice",
+        "MiniMaxH3LockAudioLatent"
+      ],
+      "license": "GPL-3.0 (upstream derivative); keep LICENSE and FORK_NOTICE.md"
+    },
+    {
+      "id": "comfyui-easy-use",
+      "name": "ComfyUI-Easy-Use",
+      "repo": "https://github.com/yolain/ComfyUI-Easy-Use",
+      "tested_commit": "4ba22aa",
+      "required": true,
+      "destination": "ComfyUI/custom_nodes/ComfyUI-Easy-Use",
+      "nodes_used": ["easy cleanGpuUsed", "easy clearCacheAll"]
+    },
+    {
+      "id": "comfyui-kjnodes",
+      "name": "ComfyUI-KJNodes",
+      "repo": "https://github.com/kijai/ComfyUI-KJNodes",
+      "tested_commit": "f20bdd5",
+      "required": true,
+      "destination": "ComfyUI/custom_nodes/ComfyUI-KJNodes",
+      "nodes_used": ["ImageResizeKJv2", "INTConstant"]
+    },
+    {
+      "id": "comfyui-videohelpersuite",
+      "name": "ComfyUI-VideoHelperSuite",
+      "repo": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite",
+      "tested_commit": "4d907be",
+      "required": true,
+      "destination": "ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite",
+      "nodes_used": ["VHS_LoadVideo", "VHS_VideoCombine"]
+    },
+    {
+      "id": "comfyui-minimax-h3-latent-upscaler",
+      "name": "Comfyui_Minimax_h3_latent_Upscaler",
+      "repo": "https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler",
+      "tested_commit": "40316cf",
+      "required": false,
+      "destination": "ComfyUI/custom_nodes/Comfyui_Minimax_h3_latent_Upscaler",
+      "nodes_used": ["MinimaxH3LatentUpscaler3D"],
+      "notes": "标准 swap 二段式放大使用；seam 主流程不依赖。"
+    },
+    {
+      "id": "comfyui-comfyroll",
+      "name": "ComfyUI_Comfyroll_CustomNodes",
+      "repo": "https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes",
+      "tested_commit": "d78b780",
+      "required": false,
+      "destination": "ComfyUI/custom_nodes/ComfyUI_Comfyroll_CustomNodes",
+      "nodes_used": ["CR Text"],
+      "notes": "显存清理模板使用；可选。"
+    }
+  ]
+}

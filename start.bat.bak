@@ -1,0 +1,11 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+if not exist "data" mkdir data
+python -c "import fastapi, uvicorn, httpx, numpy, websockets, multipart" 2>nul
+if errorlevel 1 (
+  echo [H3WB] 正在安装依赖...
+  python -m pip install -r requirements.txt
+)
+python run.py
+pause

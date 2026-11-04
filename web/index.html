@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>H3 Studio · 无限时长数字人 / MV 工作台</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffd479"/><stop offset="100%" stop-color="#ff7a4d"/>
+    </linearGradient>
+  </defs>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4M23 12h-1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></symbol>
+  <symbol id="i-cut" viewBox="0 0 24 24"><circle cx="6.5" cy="18" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="17.5" cy="18" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8.3 15.9 18.6 4.4M15.7 15.9 5.4 4.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.8 20 8l-8 4.2L4 8l8-4.2zM4 12.3l8 4.2 8-4.2M4 16.4l8 4.2 8-4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24"><path d="M4 6l5 6-5 6M20 6l-5 6 5 6M9.5 12h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6M17.9 17.9l-1.6-1.6M7.7 7.7 6.1 6.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.8h6V7M6.5 7l1 13h9l1-13M10 10.5v6M14 10.5v6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4.5v5h-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M4 9h9a5 5 0 0 1 0 10H8M4 9l4-4M4 9l4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.4L19 10.2l-4.4 3.4L15.8 20 12 16.7 8.2 20l1.2-6.4L5 10.2l5.1-1.8z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4" stroke="currentColor" stroke-width="1.2"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="10" r="1.9" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 17l4.5-4.5 3 3 2.5-2.5L20 18" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5 21 20H3L12 3.5z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 9v5M12 17.2v.4" stroke="currentColor" stroke-width="1.6"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark"><svg><use href="#i-wave"/></svg></div>
+    <div class="brand-text">
+      <h1>H3 STUDIO</h1>
+      <p>无限时长数字人 · MV 工作台</p>
+    </div>
+  </div>
+  <div class="statusbar">
+    <span class="status-chip" id="comfy-chip"><i class="dot"></i><span>ComfyUI</span><b>检测中</b></span>
+    <span class="status-chip" id="gpu-chip"><i class="dot"></i><span>GPU</span><b>—</b></span>
+    <span class="status-chip" id="llm-chip"><i class="dot"></i><span>LLM</span><b>未启用</b></span>
+  </div>
+  <div class="top-actions">
+    <button class="btn ghost sm" id="btn-history"><svg><use href="#i-film"/></svg>历史作品</button>
+    <button class="btn ghost sm" id="btn-settings"><svg><use href="#i-settings"/></svg>设置</button>
+  </div>
+</header>
+
+<main class="workspace" id="workspace">
+  <aside class="rail rail-left">
+    <section class="panel" id="project-panel">
+      <div class="panel-head"><h2>作品设定</h2><span class="hint" id="project-id-label">未创建</span></div>
+      <label class="dropzone" id="audio-drop">
+        <input type="file" id="audio-input" accept="audio/*,video/*" hidden>
+        <svg><use href="#i-wave"/></svg>
+        <strong>拖入音频，或点击选择</strong>
+        <span>MP3 / WAV / M4A / FLAC · 视频自动提取音轨</span>
+        <em id="audio-file-label"></em>
+      </label>
+      <div class="field">
+        <label>作品名称</label>
+        <input id="project-name" class="input" maxlength="60" placeholder="例如：老港酒吧 · 双采数字人">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>表演模式</label>
+          <select id="mode-select" class="input">
+            <option value="singing">演唱 / MV</option>
+            <option value="speaking">口播 / 说话</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>目标段长 <b id="target-label">11.0s</b></label>
+          <input id="target-range" type="range" min="5" max="15" step="0.5" value="11">
+        </div>
+      </div>
+      <div class="field">
+        <label>最长段长 <b id="max-label">15.0s</b></label>
+        <input id="max-range" type="range" min="5" max="15" step="0.5" value="15">
+      </div>
+      <div class="field">
+        <label>歌词 / 台词 <span class="hint">可选，帮助分镜对齐内容</span></label>
+        <textarea id="script-input" class="input" rows="3" placeholder="粘贴歌词或口播稿，留空则由音频分析推断"></textarea>
+      </div>
+      <div class="switch-row">
+        <div>
+          <strong>语音识别辅助切分</strong>
+          <span id="asr-hint">识别词级时间戳，切点落在字与字之间</span>
+        </div>
+        <label class="switch"><input type="checkbox" id="asr-toggle"><i></i></label>
+      </div>
+      <div class="field-row asr-options hidden" id="asr-options">
+        <div class="field">
+          <label>识别模型</label>
+          <select id="asr-model" class="input">
+            <option value="tiny">tiny · 最快，仅试跑</option>
+            <option value="base">base · 快，准确率一般</option>
+            <option value="small" selected>small · 推荐，中文够用</option>
+            <option value="medium">medium · 更准，更慢</option>
+            <option value="large-v3">large-v3 · 最准，最慢</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>语言</label>
+          <select id="asr-lang" class="input">
+            <option value="">自动检测</option>
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+            <option value="yue">粤语</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn primary block" id="btn-analyze"><svg><use href="#i-spark"/></svg>分析音频并分段</button>
+      <div class="meta-grid" id="source-meta"></div>
+    </section>
+
+    <section class="panel" id="note-panel">
+      <div class="panel-head"><h2>创作要求</h2><span class="hint">发给 LLM 的素材说明</span></div>
+      <textarea id="note-input" class="input note-area" rows="4"
+        placeholder="例如：图1是女主，图2是雨夜霓虹街道；保持同一套白色西装；副歌要有抬头望向招牌的动作。"></textarea>
+      <p class="panel-note tiny">用 <code>@图1</code> 指定参考图（编号＝左侧参考图顺序），会被转成提示词里的 <code>&lt;Picture 1&gt;</code>。这段文字对<strong>每一段</strong>都生效。</p>
+    </section>
+
+    <section class="panel" id="style-panel">
+      <div class="panel-head"><h2>全局风格 / 滤镜</h2><span class="hint">全片统一</span></div>
+      <div class="style-row">
+        <button class="btn ghost sm style-btn" data-kind="style"><svg><use href="#i-spark"/></svg><span id="style-label">风格：未设置</span></button>
+        <button class="btn ghost sm style-btn" data-kind="filter"><svg><use href="#i-spark"/></svg><span id="filter-label">滤镜：未设置</span></button>
+      </div>
+      <p class="panel-note tiny">选择或自定义后，自动追加到每段提示词顶部；点 AI 重写时一并发给 LLM。</p>
+    </section>
+
+    <section class="panel" id="ref-panel">
+      <div class="panel-head"><h2>参考图</h2><span class="hint" id="ref-count">0 / 9</span></div>
+      <p class="panel-note">默认所有参考图都用于每一段；需要区分时，在分段卡片的「本段参考图」里单独勾选。</p>
+      <div class="ref-groups" id="ref-groups"></div>
+      <p class="panel-note tiny">提示词里的 <code>&lt;Picture N&gt;</code> 按本段实际使用的图片顺序从 1 开始编号。</p>
+    </section>
+  </aside>
+
+  <section class="stage">
+    <div class="stage-head">
+      <div class="stage-title">
+        <h2 id="stage-name">从一段声音开始</h2>
+        <p id="stage-sub">上传音频、锁定人物，剩下的交给导演编排</p>
+      </div>
+      <div class="stage-actions">
+        <button class="btn ghost sm" id="btn-write-all" disabled><svg><use href="#i-spark"/></svg>扩写全部分镜</button>
+        <button class="btn ghost sm" id="btn-regenerate-all" disabled><svg><use href="#i-refresh"/></svg>重新生成全部</button>
+        <button class="btn primary" id="btn-generate" disabled><svg><use href="#i-play"/></svg><span>开始生成</span></button>
+        <button class="btn danger hidden" id="btn-cancel">停止</button>
+      </div>
+    </div>
+
+    <div class="progress-strip hidden" id="progress-strip">
+      <div class="progress-top">
+        <span class="stage-label" id="run-stage">准备中</span>
+        <span class="stage-percent" id="run-percent">0%</span>
+      </div>
+      <div class="progress-track"><i id="progress-bar"></i></div>
+      <div class="progress-bottom">
+        <span id="run-message">—</span>
+        <button class="link" id="btn-log-toggle">运行日志</button>
+      </div>
+      <div class="run-log hidden" id="run-log"></div>
+    </div>
+
+    <div class="timeline-card">
+      <div class="timeline-head">
+        <div class="timeline-left">
+          <button class="play-btn" id="btn-preview-audio"><svg><use href="#i-play"/></svg></button>
+          <span class="time mono" id="play-time">00:00.0</span>
+          <span class="time-sep">/</span>
+          <span class="time mono dim" id="total-time">00:00.0</span>
+        </div>
+        <div class="timeline-right">
+          <button class="btn ghost sm" id="btn-undo" disabled title="撤回上一次切分/拖动/合并（Ctrl+Z）"><svg><use href="#i-undo"/></svg>撤回</button>
+          <button class="btn ghost sm" id="btn-split" disabled><svg><use href="#i-cut"/></svg>在播放头切分</button>
+          <div class="timeline-legend">
+            <span><i class="lg lg-vocal"></i>人声段</span>
+            <span><i class="lg lg-instrument"></i>空镜 / 器乐</span>
+            <span><i class="lg lg-cut"></i>切点（右键删除）</span>
+          </div>
+        </div>
+      </div>
+      <div class="wave-wrap" id="wave-wrap">
+        <canvas id="wave-canvas" height="132"></canvas>
+        <div class="wave-empty" id="wave-empty">上传音频后在这里显示波形与分段</div>
+      </div>
+      <div class="wave-tip">双击波形 = 在该处切分 · 拖动橙色切点 = 调整边界 · 右键橙色切点 = 删除分割线 · Ctrl+Z 撤回 · 每段至少 3 秒 · 段尾自动停止试听</div>
+      <audio id="audio-el" preload="metadata"></audio>
+    </div>
+
+    <div class="segments" id="segment-list"></div>
+    <div class="empty-stage" id="empty-stage">
+      <div class="empty-orb"><svg><use href="#i-film"/></svg></div>
+      <h3>三步做出无限时长数字人</h3>
+      <ol>
+        <li><b>01</b> 上传歌曲或台词音频，设定每段 5–15 秒。</li>
+        <li><b>02</b> 添加 1–9 张参考图，锁定人物与环境。</li>
+        <li><b>03</b> 生成全片分镜提示词，逐段渲染后自动拼成成片。</li>
+      </ol>
+    </div>
+  </section>
+
+  <aside class="rail rail-right">
+    <section class="panel" id="gen-panel">
+      <div class="panel-head"><h2>生成参数</h2><span class="hint">SelfLift 双采</span></div>
+      <div class="field-row">
+        <div class="field">
+          <label>画幅</label>
+          <select id="aspect-select" class="input"></select>
+        </div>
+        <div class="field">
+          <label>清晰度 <b id="mp-label">1.0MP</b></label>
+          <input id="mp-range" type="range" min="0.3" max="2" step="0.1" value="1">
+        </div>
+      </div>
+      <div class="field">
+        <label>输出帧率</label>
+        <select id="outfps-select" class="input">
+          <option value="24">24 fps（H3 时间基准）</option>
+          <option value="25">25 fps</option>
+          <option value="30">30 fps</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>拼接方式</label>
+        <select id="stitch-select" class="input">
+          <option value="hard">硬切（逐段生成）</option>
+          <option value="seam">接缝优化（latent 续接）</option>
+        </select>
+      </div>
+      <div class="switch-row" id="seam-secondpass-row">
+        <div><strong>seam 双采</strong><span>关闭后显存峰值更低，质量略降</span></div>
+        <label class="switch"><input type="checkbox" id="seam-secondpass-toggle" checked><i></i></label>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>采样步数</label>
+          <input id="steps-input" class="input mono" type="number" min="2" max="30" step="1" value="6">
+        </div>
+        <div class="field">
+          <label>CFG</label>
+          <input id="cfg-input" class="input mono" type="number" min="1" max="10" step="0.1" value="1">
+        </div>
+      </div>
+      <div class="field">
+        <label>UNET 模型</label>
+        <select id="unet-select" class="input"></select>
+      </div>
+      <div class="field">
+        <label>文本编码器</label>
+        <select id="clip-select" class="input"></select>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>视频 VAE</label><select id="vae-video-select" class="input"></select>
+        </div>
+        <div class="field">
+          <label>音频 VAE</label><select id="vae-audio-select" class="input"></select>
+        </div>
+      </div>
+      <div class="field">
+        <label>加速 LoRA</label>
+        <div class="inline">
+          <select id="lora-select" class="input"></select>
+          <input id="lora-strength" class="input mono tiny" type="number" min="0" max="1.5" step="0.05" value="0.65">
+        </div>
+      </div>
+      <details class="advanced" id="advanced-gen">
+        <summary><svg><use href="#i-chevron"/></svg>高级采样</summary>
+        <div class="adv-body">
+          <div class="field-row">
+            <div class="field"><label>过渡步</label><input id="transition-input" class="input mono" type="number" min="0" max="20" value="4"></div>
+            <div class="field"><label>低清比例</label><input id="lowres-input" class="input mono" type="number" min="0.2" max="1" step="0.05" value="0.5"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>w_min</label><input id="wmin-input" class="input mono" type="number" min="0" max="2" step="0.05" value="0.5"></div>
+            <div class="field"><label>w_max</label><input id="wmax-input" class="input mono" type="number" min="0" max="2" step="0.05" value="1"></div>
+          </div>
+          <div class="field"><label>潜空间放大器</label><select id="upscaler-select" class="input"></select></div>
+          <div class="field"><label>参考图尺寸</label>
+            <select id="ref-size-select" class="input"><option value="match">跟随输出分辨率</option><option value="max">使用原始大图</option></select>
+          </div>
+          <div class="switch-row">
+            <div><strong>高清分块</strong><span>高分辨率阶段自动分块，显存更稳</span></div>
+            <label class="switch"><input type="checkbox" id="tiling-toggle" checked><i></i></label>
+          </div>
+          <div class="switch-row">
+            <div><strong>Sigma Shift</strong><span>视频/音频分别偏移，增强运动</span></div>
+            <label class="switch"><input type="checkbox" id="shift-toggle"><i></i></label>
+          </div>
+          <div class="field-row" id="shift-row" hidden>
+            <div class="field"><label>视频 shift</label><input id="shift-video" class="input mono" type="number" step="0.5" value="12"></div>
+            <div class="field"><label>音频 shift</label><input id="shift-audio" class="input mono" type="number" step="0.5" value="3"></div>
+          </div>
+          <div class="switch-row">
+            <div><strong>Sigma Refiner</strong><span>末尾附加低噪重采样</span></div>
+            <label class="switch"><input type="checkbox" id="refiner-toggle"><i></i></label>
+          </div>
+          <div class="field"><label>种子（0 = 每段随机）</label><input id="seed-input" class="input mono" type="number" min="0" value="0"></div>
+        </div>
+      </details>
+    </section>
+
+    <section class="panel" id="llm-panel">
+      <div class="panel-head"><h2>LLM 扩写</h2><span class="hint" id="llm-model-label">未启用</span></div>
+      <div class="switch-row">
+        <div><strong>启用 AI 分镜扩写</strong><span>未启用时使用内置确定性六段合成</span></div>
+        <label class="switch"><input type="checkbox" id="llm-enable"><i></i></label>
+      </div>
+      <div class="field">
+        <label>服务地址</label>
+        <input id="llm-base" class="input mono" placeholder="https://api.openai.com/v1 或 http://127.0.0.1:11434/v1">
+        <div class="preset-row">
+          <button class="chip" data-llm-preset="ollama">Ollama 本地</button>
+          <button class="chip" data-llm-preset="openai">OpenAI</button>
+          <button class="chip" data-llm-preset="custom">自定义</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>模型</label><input id="llm-model" class="input mono" placeholder="qwen2.5:7b"></div>
+        <div class="field"><label>API Key</label><input id="llm-key" class="input mono" type="password" placeholder="sk-..."></div>
+      </div>
+      <div class="inline">
+        <button class="btn ghost sm" id="btn-llm-test">测试连接</button>
+        <span class="hint" id="llm-test-result"></span>
+      </div>
+    </section>
+
+    <section class="panel" id="final-panel">
+      <div class="panel-head"><h2>成片</h2><span class="hint" id="final-duration">—</span></div>
+      <div class="final-frame" id="final-frame">
+        <div class="final-empty"><svg><use href="#i-film"/></svg><span>生成完成后在此预览</span></div>
+      </div>
+      <div class="inline">
+        <a class="btn ghost sm" id="btn-download" href="#" download hidden><svg><use href="#i-download"/></svg>下载成片</a>
+        <button class="btn ghost sm" id="btn-rebuild" disabled><svg><use href="#i-refresh"/></svg>重新拼接</button>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<div class="modal" id="modal-settings" hidden>
+  <div class="modal-card">
+    <div class="modal-head"><h2>系统设置</h2><button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body">
+      <div class="section-label">连接</div>
+      <div class="field"><label>ComfyUI 地址</label><input id="set-comfy" class="input mono" placeholder="http://127.0.0.1:8188"></div>
+      <div class="field-row">
+        <div class="field"><label>ffmpeg</label><input id="set-ffmpeg" class="input mono"></div>
+        <div class="field"><label>ffprobe</label><input id="set-ffprobe" class="input mono"></div>
+      </div>
+      <div class="section-label">LLM 默认</div>
+      <div class="field-row">
+        <div class="field"><label>Base URL</label><input id="set-llm-base" class="input mono"></div>
+        <div class="field"><label>模型</label><input id="set-llm-model" class="input mono"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>API Key</label><input id="set-llm-key" class="input mono" type="password"></div>
+        <div class="field"><label>超时（秒）</label><input id="set-llm-timeout" class="input mono" type="number" min="10" value="180"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>temperature</label><input id="set-llm-temp" class="input mono" type="number" step="0.1" min="0" max="2" value="0.4"></div>
+        <div class="field"><label>max tokens</label><input id="set-llm-tokens" class="input mono" type="number" step="256" min="512" value="4096"></div>
+      </div>
+      <div class="switch-row">
+        <div><strong>视觉模式</strong><span>把参考图一起发给多模态模型</span></div>
+        <label class="switch"><input type="checkbox" id="set-llm-vision" checked><i></i></label>
+      </div>
+      <div class="settings-note">配置会写入 <code>data/settings.json</code>，也可用环境变量覆盖：<code>COMFYUI_URL</code>、<code>H3WB_LLM_BASE_URL</code>、<code>H3WB_LLM_MODEL</code>。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close>取消</button>
+      <button class="btn primary" id="btn-save-settings">保存设置</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-prompt" hidden>
+  <div class="modal-card wide">
+    <div class="modal-head">
+      <div>
+        <h2 id="prompt-title">分镜提示词</h2>
+        <p class="modal-sub" id="prompt-sub">—</p>
+      </div>
+      <button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="modal-body prompt-body">
+      <div class="prompt-left">
+        <div class="section-label">导演简报 <span class="hint">可编辑，保存后重写提示词</span></div>
+        <div class="brief-toolbar">
+          <select id="prompt-preset" class="input tiny-select"></select>
+          <button class="btn ghost sm" id="btn-apply-preset">导入模板</button>
+          <button class="btn ghost sm" id="btn-save-brief">保存简报</button>
+        </div>
+        <textarea class="brief-input" id="prompt-brief" rows="7" spellcheck="false"></textarea>
+        <div class="section-label">本段创作要求 <span class="hint">叠加在全片要求之上，只对本段生效</span></div>
+        <textarea class="brief-input" id="prompt-note" rows="2" spellcheck="false"
+          placeholder="用 @图2 指本段第 2 张参考图（左侧编号）；例如：本段主唱是 @图2，不要出现 @图1"></textarea>
+        <div class="section-label">本段歌词 <span class="hint">默认由语音识别填入，可手改；重写提示词时作为歌词参考</span></div>
+        <textarea class="brief-input" id="prompt-lyrics" rows="2" spellcheck="false"
+          placeholder="本段唱/说的词，例如：她眨眨眼说再吃一碗"></textarea>
+        <div class="section-label">镜头计划</div>
+        <div class="shot-chips" id="prompt-shot"></div>
+        <div class="section-label">本段运镜 <span class="hint">逐段单独设置</span></div>
+        <button class="btn ghost sm" id="btn-prompt-motion"><svg><use href="#i-spark"/></svg><span id="prompt-motion-label">运镜：未设置</span></button>
+        <div class="section-label">本段参考图 <span class="hint">@图N 就写这里的「图N」</span></div>
+        <ul class="ref-map" id="prompt-refs"></ul>
+        <div class="section-label">校验</div>
+        <ul class="check-list" id="prompt-check"></ul>
+      </div>
+      <div class="prompt-right">
+        <div class="prompt-toolbar">
+          <span class="hint" id="prompt-source">—</span>
+          <div class="inline">
+            <button class="btn ghost sm" id="btn-reset-prompt">恢复自动</button>
+            <button class="btn ghost sm" id="btn-ai-prompt"><svg><use href="#i-spark"/></svg>AI 重写</button>
+          </div>
+        </div>
+        <textarea id="prompt-text" class="prompt-area" spellcheck="false"></textarea>
+        <div class="prompt-hint">H3 官方六段结构：subject_definitions → summary → retention_analysis → detailed_description → overall_soundscape → non_diegetic_music；detailed_description 内只能有一个 [Shot 1]，标签写成 <code>&lt;Picture N&gt;</code> / <code>&lt;Subject N&gt;</code>。</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close>关闭</button>
+      <button class="btn primary" id="btn-save-prompt">保存提示词</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-segrefs" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h2 id="segref-title">本段参考图</h2>
+        <p class="modal-sub" id="segref-sub">—</p>
+      </div>
+      <button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p class="panel-note">全部勾选 = 继承全局参考图；只勾选部分 = 本段单独覆盖，编号从 1 重新排列。</p>
+      <div class="segref-list" id="segref-list"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close>取消</button>
+      <button class="btn ghost" id="btn-segref-inherit">继承全局</button>
+      <button class="btn primary" id="btn-segref-save">保存本段参考图</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-history" hidden>
+  <div class="modal-card wide">
+    <div class="modal-head"><h2>历史作品</h2><button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body"><div class="history-grid" id="history-grid"></div></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-confirm" hidden>
+  <div class="modal-card small">
+    <div class="modal-head"><h2 id="confirm-title">确认</h2><button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body"><p id="confirm-text">—</p></div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close>取消</button>
+      <button class="btn danger" id="btn-confirm-yes">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-creative" hidden>
+  <div class="modal-card wide">
+    <div class="modal-head">
+      <div><h2 id="creative-title">风格 / 运镜 / 滤镜</h2><p class="modal-sub" id="creative-sub">—</p></div>
+      <button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="creative-body">
+      <div class="creative-tabs">
+        <button class="creative-tab active" data-tab="style">风格</button>
+        <button class="creative-tab" data-tab="motion">运镜</button>
+        <button class="creative-tab" data-tab="filter">滤镜</button>
+        <button class="creative-tab" data-tab="custom">自定义</button>
+      </div>
+      <div class="creative-search"><input id="creative-search" class="input" placeholder="搜索…"></div>
+      <div class="creative-cats" id="creative-cats"></div>
+      <div class="creative-grid" id="creative-grid"></div>
+      <div class="creative-custom hidden" id="creative-custom">
+        <div class="section-label" id="creative-custom-label">自定义内容（直接作为提示词片段使用）</div>
+        <textarea id="creative-custom-text" class="input" rows="4" spellcheck="false"
+          placeholder="例如：电影感，2.39:1 宽画幅，冷色调，浅景深"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="creative-clear">清除</button>
+      <button class="btn primary" data-close>完成</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toasts"></div>
+<div class="busy-overlay" id="busy-overlay" hidden><div class="spinner"></div><span id="busy-text">处理中…</span></div>
+
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+[project]
+name = "minimaxh3-long-video-seam"
+version = "0.8.0"
+description = "Long-video seam fork of ComfyUI MiniMax H3 Timeline Director (dynamic FPS + single-segment AV latent cache)"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["comfyui", "minimax-h3", "reference-to-video", "timeline", "long-video", "seam"]
+
+[project.optional-dependencies]
+dev = []
+
+[tool.comfy]
+PublisherId = "local"
+DisplayName = "MiniMax H3 Long Video Seam"
+Icon = ""

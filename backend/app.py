@@ -1,0 +1,696 @@
+"""FastAPI 入口：工作台静态页 + REST API。"""
+from __future__ import annotations
+
+import shutil
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.staticfiles import StaticFiles
+
+from . import (asr, audio, comfy, director, frames, jobs, llm, presets, prompts,
+               seam_nodes, settings, store)
+
+APP_VERSION = "1.0.0"
+ALLOWED_AUDIO = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4", ".mov", ".mkv", ".webm"}
+ALLOWED_IMAGE = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+
+app = FastAPI(title="H3 数字人 · MV 工作台", version=APP_VERSION)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.middleware("http")
+async def static_no_cache(request: Request, call_next):
+    """静态脚本每次用 ETag 复验，避免浏览器继续用旧版 app.js。"""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+settings.ensure_dirs()
+app.mount("/static", StaticFiles(directory=str(settings.WEB_DIR)), name="static")
+app.mount("/creative-presets", StaticFiles(directory=str(settings.WEB_DIR / "creative-presets")), name="creative-presets")
+
+
+@app.get("/")
+def index() -> FileResponse:
+    return FileResponse(settings.WEB_DIR / "index.html")
+
+
+@app.on_event("startup")
+def _deploy_seam_nodes() -> None:
+    """启动时把项目 vendor 的 seam 节点复制到 ComfyUI custom_nodes。
+
+    只复制文件，不重启 ComfyUI；是否重启由用户自己决定。
+    """
+    try:
+        seam_nodes.deploy()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@app.get("/api/seam-nodes")
+def seam_nodes_status() -> dict[str, Any]:
+    return {"ok": True, **seam_nodes.status()}
+
+
+@app.post("/api/seam-nodes/deploy")
+def seam_nodes_deploy(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = payload or {}
+    result = seam_nodes.deploy(force=bool(data.get("force")), root=data.get("root"))
+    if not result.get("ok"):
+        raise HTTPException(400, str(result.get("error") or "部署失败"))
+    return result
+
+
+# ------------------------------- 系统 -------------------------------
+@app.get("/api/health")
+def health() -> dict[str, Any]:
+    comfy_status = comfy.ping()
+    ffmpeg_ok = shutil.which(str(settings.load().get("ffmpeg") or "ffmpeg")) is not None
+    return {
+        "ok": True,
+        "version": APP_VERSION,
+        "comfy": comfy_status,
+        "ffmpeg": ffmpeg_ok,
+        "asr": asr.available(),
+        "llm": bool((settings.load().get("llm") or {}).get("enabled")),
+        "seam_nodes": seam_nodes.status(),
+    }
+
+
+@app.get("/api/options")
+def options_api(force: bool = False) -> dict[str, Any]:
+    try:
+        values = comfy.options(force)
+        return {"ok": True, "options": values, "comfy": comfy.ping()}
+    except Exception as error:  # noqa: BLE001
+        # ComfyUI 暂时掉线时保留上一次的下拉选项，避免画幅/采样器变空
+        cached = comfy.last_options()
+        if cached:
+            return {
+                "ok": True, "options": cached, "stale": True,
+                "error": f"ComfyUI 未连接：{error}",
+                "comfy": comfy.ping(),
+            }
+        raise HTTPException(502, f"无法读取 ComfyUI 节点信息：{error}") from error
+
+
+@app.get("/api/settings")
+def get_settings() -> dict[str, Any]:
+    return {"ok": True, "settings": settings.public(), "director_defaults": director.default_config()}
+
+
+@app.post("/api/settings")
+def post_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    patch = dict(payload or {})
+    config = patch.get("llm")
+    if isinstance(config, dict) and isinstance(config.get("api_key"), str) \
+            and config["api_key"].startswith("••••"):
+        config.pop("api_key", None)
+    saved = settings.save(patch)
+    return {"ok": True, "settings": settings.public(), "raw": saved}
+
+
+@app.post("/api/llm/test")
+def test_llm(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = dict((payload or {}).get("llm") or settings.load().get("llm") or {})
+    if isinstance(config.get("api_key"), str) and config["api_key"].startswith("••••"):
+        config["api_key"] = (settings.load().get("llm") or {}).get("api_key", "")
+    try:
+        return {"ok": True, "result": llm.test(config)}
+    except Exception as error:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(error)})
+
+
+# ------------------------------- 项目 -------------------------------
+@app.get("/api/projects")
+def list_projects() -> dict[str, Any]:
+    return {"ok": True, "projects": store.list_projects()}
+
+
+@app.post("/api/projects")
+def create_project(name: str = Form("未命名作品"),
+                   audio_file: UploadFile = File(..., alias="audio")) -> dict[str, Any]:
+    suffix = Path(audio_file.filename or "").suffix.lower()
+    if suffix not in ALLOWED_AUDIO:
+        raise HTTPException(400, f"不支持的音频格式：{suffix or '未知'}")
+    settings.ensure_dirs()
+    project = store.create(name, audio_file.filename or "audio", 0, 44100, 0)
+    directory = store.project_dir(project["id"])
+    try:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp) / f"source{suffix}"
+            with temp_path.open("wb") as handle:
+                shutil.copyfileobj(audio_file.file, handle)
+            info = audio.decode_to_wav(temp_path, directory / "source.wav")
+    except Exception as error:  # noqa: BLE001
+        store.delete(project["id"])
+        raise HTTPException(400, f"音频解码失败：{error}") from error
+    project["source"] = {
+        "filename": audio_file.filename or "audio",
+        "duration": round(info["info"]["duration"], 3),
+        "sample_rate": 44100,
+        "samples": info["samples"],
+    }
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.get("/api/projects/{project_id}")
+def get_project(project_id: str) -> dict[str, Any]:
+    try:
+        project = store.get(project_id)
+    except FileNotFoundError as error:
+        raise HTTPException(404, "项目不存在。") from error
+    project["run"] = jobs.runner.snapshot(project_id)
+    return {"ok": True, "project": project}
+
+
+@app.patch("/api/projects/{project_id}")
+def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    project = store.get(project_id)
+    allowed = {"name", "mode", "script", "generation", "material_note", "prompt_rule", "style", "filter"}
+    labels = {"material_note": "创作要求", "prompt_rule": "提示词规则",
+              "style": "全局风格", "filter": "全局滤镜"}
+    changed_prompt: list[str] = []
+    overlay_changed = False
+    for key in allowed:
+        if key in payload:
+            if key == "generation":
+                project["generation"] = {**(project.get("generation") or {}), **(payload[key] or {})}
+            else:
+                value = payload[key]
+                if key in labels:
+                    value = str(value or "")
+                    if value != str(project.get(key) or ""):
+                        changed_prompt.append(labels[key])
+                        if key in {"style", "filter"}:
+                            overlay_changed = True
+                project[key] = value
+    if changed_prompt:
+        _invalidate_prompts(project, "、".join(changed_prompt) + "已修改", overlay_changed)
+    if "director" in payload and isinstance(payload["director"], dict):
+        project.setdefault("director", {}).update(payload["director"])
+        if project["director"].get("rule_config"):
+            project["director"]["rule_config"] = director.validate_config(project["director"]["rule_config"])
+            _invalidate_prompts(project, "导演规则已修改")
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.get("/api/brief-presets")
+def brief_presets() -> dict[str, Any]:
+    return {"ok": True, "presets": presets.all_presets()}
+
+
+@app.get("/api/creative-catalog")
+def creative_catalog() -> dict[str, Any]:
+    """风格 / 运镜 / 滤镜预设目录。"""
+    path = settings.DATA_DIR / "creative-catalog.json"
+    if not path.is_file():
+        return {"ok": True, "items": []}
+    import json
+    return {"ok": True, "items": json.loads(path.read_text(encoding="utf-8"))}
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: str) -> dict[str, Any]:
+    jobs.runner.cancel(project_id)
+    jobs.runner.wait(project_id, 60)
+    store.delete(project_id)
+    return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/analyze")
+def analyze_project(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    # 重新分析会重建分段：先中断并等任务线程停下，避免旧任务把旧分段/旧状态写回来
+    jobs.runner.cancel(project_id)
+    jobs.runner.wait(project_id, 60)
+    try:
+        project = jobs.analyze(project_id, payload or {})
+    except FileNotFoundError as error:
+        raise HTTPException(404, "项目不存在。") from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, str(error)) from error
+    project["run"] = jobs.runner.snapshot(project_id)
+    return {"ok": True, "project": project}
+
+
+def _current_cuts(project: dict[str, Any]) -> list[int]:
+    """内部切点一律是帧号。"""
+    cuts = []
+    for row in (project.get("segments") or [])[:-1]:
+        if row.get("end_frame") is not None:
+            cuts.append(int(row["end_frame"]))
+        else:  # 兼容旧项目：从秒换算一次
+            cuts.append(frames.to_frames(row["end"]))
+    return cuts
+
+
+@app.put("/api/projects/{project_id}/boundaries")
+def put_boundaries(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """整体设置内部切点；前端传秒，入口立刻换算成帧。"""
+    cuts = payload.get("cuts")
+    if not isinstance(cuts, list):
+        raise HTTPException(400, "cuts 必须是秒数数组。")
+    jobs.runner.cancel(project_id)
+    jobs.runner.wait(project_id, 60)
+    try:
+        cut_frames = [frames.to_frames(float(value)) for value in cuts]
+        project = jobs.apply_boundaries(project_id, cut_frames)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "project": project}
+
+
+@app.post("/api/projects/{project_id}/split")
+def split_segment(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """在指定时间点（秒）插入一个切点，内部按帧执行。"""
+    try:
+        time_value = float((payload or {}).get("time"))
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, "time 必须是秒数。") from error
+    project = store.get(project_id)
+    cuts = _current_cuts(project) + [frames.to_frames(time_value)]
+    jobs.runner.cancel(project_id)
+    jobs.runner.wait(project_id, 60)
+    try:
+        project = jobs.apply_boundaries(project_id, cuts)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "project": project}
+
+
+@app.post("/api/projects/{project_id}/segments/{index}/merge")
+def merge_segment(project_id: str, index: int) -> dict[str, Any]:
+    """把第 index 段与下一段合并（删除它们之间的切点）。"""
+    project = store.get(project_id)
+    cuts = _current_cuts(project)
+    if not 0 <= index < len(cuts):
+        raise HTTPException(404, "没有可合并的下一段。")
+    cuts.pop(index)
+    jobs.runner.cancel(project_id)
+    jobs.runner.wait(project_id, 60)
+    try:
+        project = jobs.apply_boundaries(project_id, cuts)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "project": project}
+
+
+# ------------------------------- 参考图 -------------------------------
+VALID_ROLES = {"performer", "environment", "appearance", "subject", "other"}
+
+
+def _invalidate_row_prompt(row: dict[str, Any], reason: str,
+                           overlays_changed: bool = False) -> None:
+    """单段输入变化：保留提示词原文，只标记过期（下次生成 /「AI 重写」时重建）。
+
+    overlays_changed 表示风格/滤镜/运镜本身变了：此时旧提示词里已合并的字段不再
+    对应当前设置，要清掉 baked 标记，界面上才会重新显示新前缀。
+    """
+    if not str(row.get("final_prompt") or "").strip():
+        return
+    row["prompt_key"] = ""
+    row["prompt_stale"] = True
+    row["prompt_stale_reason"] = reason
+    if overlays_changed:
+        row.pop("prompt_overlays", None)
+
+
+def _invalidate_prompts(project: dict[str, Any], reason: str = "素材或要求已修改",
+                        overlays_changed: bool = False) -> None:
+    """输入变化后不删除已经写好的提示词，只标记为过期。
+
+    旧逻辑在改参考图 / 改全局风格时会直接清空 final_prompt，导致用户已经写好
+    或 AI 扩写好的提示词无声消失；现在保留原文并记录 prompt_stale，下次生成或
+    点「AI 重写」时按新输入重建，界面上也会提示「可能已过期」。
+    """
+    for row in project.get("segments") or []:
+        _invalidate_row_prompt(row, reason, overlays_changed)
+
+
+def _segment_manifest(project: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    return prompts.build_manifest(prompts.effective_refs(project, row))
+
+
+@app.post("/api/projects/{project_id}/refs")
+def add_ref(project_id: str, role: str = Form("performer"), title: str = Form(""),
+            description: str = Form(""), image: UploadFile = File(...)) -> dict[str, Any]:
+    suffix = Path(image.filename or "").suffix.lower()
+    if suffix not in ALLOWED_IMAGE:
+        raise HTTPException(400, f"不支持的图片格式：{suffix or '未知'}")
+    if role not in VALID_ROLES:
+        raise HTTPException(400, f"未知的参考图类型：{role}")
+    project = store.get(project_id)
+    if len(project.get("refs") or []) >= 9:
+        raise HTTPException(400, "最多支持 9 张参考图。")
+    filename = f"ref_{len(project['refs']) + 1:02d}{suffix}"
+    target = store.project_dir(project_id) / "refs" / filename
+    with target.open("wb") as handle:
+        shutil.copyfileobj(image.file, handle)
+    project.setdefault("refs", []).append({
+        "filename": filename, "role": role, "title": title or f"参考图 {len(project['refs']) + 1}",
+        "description": description, "added": time.time(),
+    })
+    _invalidate_prompts(project, "参考图已变更")
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.delete("/api/projects/{project_id}/refs/{index}")
+def delete_ref(project_id: str, index: int) -> dict[str, Any]:
+    project = store.get(project_id)
+    refs = project.get("refs") or []
+    if not 0 <= index < len(refs):
+        raise HTTPException(404, "参考图不存在。")
+    removed = refs.pop(index)
+    path = store.project_dir(project_id) / "refs" / str(removed.get("filename") or "")
+    if path.is_file():
+        path.unlink()
+    # 同步修正分段覆盖里引用的下标，避免删图后指向错图
+    for row in project.get("segments") or []:
+        ids = row.get("ref_ids")
+        if not isinstance(ids, list):
+            continue
+        shifted = [value - 1 if value > index else value for value in ids if value != index]
+        row["ref_ids"] = shifted or None
+    _invalidate_prompts(project, "参考图已变更")
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.patch("/api/projects/{project_id}/refs/{index}")
+def patch_ref(project_id: str, index: int, payload: dict[str, Any]) -> dict[str, Any]:
+    project = store.get(project_id)
+    refs = project.get("refs") or []
+    if not 0 <= index < len(refs):
+        raise HTTPException(404, "参考图不存在。")
+    if "role" in payload:
+        if payload["role"] not in VALID_ROLES:
+            raise HTTPException(400, f"未知的参考图类型：{payload['role']}")
+        refs[index]["role"] = payload["role"]
+    for key in ("title", "description"):
+        if key in payload:
+            refs[index][key] = payload[key]
+    if refs[index].get("role") == "performer":
+        for position, ref in enumerate(refs):
+            if position != index and ref.get("role") == "performer":
+                ref["role"] = "appearance"
+    _invalidate_prompts(project, "参考图已变更")
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+# ------------------------------- 分段与提示词 -------------------------------
+@app.patch("/api/projects/{project_id}/segments/{index}")
+def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[str, Any]:
+    project = store.get(project_id)
+    row = store.find_segment(project, index)
+    changed: list[str] = []
+    motion_changed = False
+    if "ref_ids" in payload:
+        raw = payload["ref_ids"]
+        count = len(project.get("refs") or [])
+        if raw is None:
+            row["ref_ids"] = None
+        elif isinstance(raw, list):
+            cleaned: list[int] = []
+            for value in raw:
+                try:
+                    position = int(value)
+                except (TypeError, ValueError):
+                    raise HTTPException(400, "ref_ids 必须是参考图下标数组。") from None
+                if not 0 <= position < count:
+                    raise HTTPException(400, f"参考图下标越界：{position}")
+                if position not in cleaned:
+                    cleaned.append(position)
+            row["ref_ids"] = sorted(cleaned) or None
+        else:
+            raise HTTPException(400, "ref_ids 必须是参考图下标数组或 null。")
+        changed.append("本段参考图")
+    if "visual_type" in payload:
+        if payload["visual_type"] not in {"performance", "atmosphere", "environment"}:
+            raise HTTPException(400, "片段类型无效。")
+        if payload["visual_type"] != row.get("visual_type"):
+            changed.append("画面类型")
+        row["visual_type"] = payload["visual_type"]
+    if "brief" in payload:
+        new_brief = str(payload["brief"] or "")
+        if new_brief != str(row.get("brief") or ""):
+            row["brief"] = new_brief
+            changed.append("导演简报")
+    if "note" in payload:
+        new_note = str(payload["note"] or "")
+        if new_note != str(row.get("note") or ""):
+            row["note"] = new_note
+            changed.append("本段创作要求")
+    if "lyrics" in payload:
+        new_lyrics = str(payload["lyrics"] or "")
+        if new_lyrics != str(row.get("lyrics") or ""):
+            row["lyrics"] = new_lyrics
+            changed.append("本段歌词")
+    if "motion" in payload:
+        new_motion = str(payload["motion"] or "")
+        if new_motion != str(row.get("motion") or ""):
+            row["motion"] = new_motion
+            changed.append("本段运镜")
+            motion_changed = True
+    if changed:
+        # 只把本段提示词标记为过期，不清空；手写内容也不会再被无声删掉
+        _invalidate_row_prompt(row, "、".join(changed) + "已修改", motion_changed)
+    # 显式提交的提示词必须最后应用，否则同一次请求里的 brief/note 等字段会把刚保存的正文清掉
+    if "final_prompt" in payload:
+        text = str(payload["final_prompt"] or "").strip()
+        manifest = _segment_manifest(project, row)
+        row["final_prompt"] = text
+        row["prompt_source"] = "manual"
+        row["prompt_warnings"] = prompts.validate_prompt(text, manifest)["errors"]
+        row["prompt_key"] = ""
+        row.pop("prompt_stale", None)
+        row.pop("prompt_stale_reason", None)
+        # 默认按“正文不含前缀”保存；前端若声明这版正文已合并三个字段，会在下面写回标记
+        row.pop("prompt_overlays", None)
+    if "prompt_overlays" in payload:
+        cleaned = prompts.normalize_overlays(payload.get("prompt_overlays"))
+        current = prompts.overlay_values(project, row)
+        if cleaned is not None and cleaned == current:
+            row["prompt_overlays"] = cleaned
+        else:
+            row.pop("prompt_overlays", None)
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.post("/api/projects/{project_id}/segments/{index}/prompt")
+def generate_prompt(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    project = store.get(project_id)
+    row = store.find_segment(project, index)
+    manifest = _segment_manifest(project, row)
+    soundscape = str((project.get("director") or {}).get("soundscape") or "")
+    config = dict(settings.load().get("llm") or {})
+    config.update((payload or {}).get("llm") or {})
+    result: dict[str, Any] = {"ok": True, "source": "fallback", "text": "", "warnings": []}
+    if config.get("enabled"):
+        try:
+            vision = bool(config.get("vision", True))
+            messages, _ = prompts.build_expand_messages(project, row, manifest, soundscape, vision)
+            images = []
+            folder = store.project_dir(project_id) / "refs"
+            for ref in prompts.effective_refs(project, row):
+                path = folder / str(ref.get("filename") or "")
+                if path.is_file():
+                    images.append(path)
+            text = llm.chat(config, messages, images)
+            check = prompts.validate_prompt(text, manifest)
+            unused = prompts.unused_pictures(text, manifest)
+            if not check["ok"] or unused:
+                issues = list(check["errors"])
+                if unused:
+                    issues.append("正文没有引用 " + "、".join(f"<Picture {n}>" for n in unused))
+                messages.append({"role": "user", "content": "上一版问题：" + "；".join(issues)
+                                 + "。请只输出修正后的六段提示词。"})
+                text = llm.chat(config, messages, images)
+                check = prompts.validate_prompt(text, manifest)
+            result.update(source="llm", text=text, warnings=check["errors"] + check["warnings"])
+        except Exception as error:  # noqa: BLE001
+            result["warnings"] = [f"LLM 扩写失败：{error}"]
+    text = str(result.get("text") or "").strip()
+    check = prompts.validate_prompt(text, manifest) if text else {
+        "ok": False, "errors": ["提示词为空。"], "warnings": []}
+    if not check["ok"]:
+        # 「AI 重写」必须真的重写：即使已有旧提示词，也按当前输入重新合成
+        text = prompts.compose_prompt(project, row, manifest, soundscape)
+        check = prompts.validate_prompt(text, manifest)
+        result.update(text=text, source="fallback",
+                      warnings=check["errors"] + check["warnings"])
+    row["final_prompt"] = text
+    row["prompt_source"] = result["source"]
+    row["prompt_key"] = prompts.build_prompt_key(project, row, manifest, soundscape, config)
+    row["prompt_warnings"] = check["errors"]
+    if result["source"] == "llm":
+        # LLM 已经收到风格/滤镜/运镜，返回文本视为已合并，展示/生成时不再加前缀
+        row["prompt_overlays"] = prompts.overlay_values(project, row)
+    else:
+        row.pop("prompt_overlays", None)
+    row.pop("prompt_stale", None)
+    row.pop("prompt_stale_reason", None)
+    store.save(project)
+    return {**result, "project": project}
+
+
+@app.post("/api/projects/{project_id}/prompts")
+def generate_all_prompts(project_id: str) -> dict[str, Any]:
+    project = store.get(project_id)
+    soundscape = str((project.get("director") or {}).get("soundscape") or "")
+    config = dict(settings.load().get("llm") or {})
+    warnings: list[str] = []
+    for position, row in enumerate(project.get("segments") or []):
+        manifest = _segment_manifest(project, row)
+        if config.get("enabled"):
+            try:
+                messages, _ = prompts.build_expand_messages(
+                    project, row, manifest, soundscape, bool(config.get("vision", True)))
+                text = llm.chat(config, messages)
+                if not prompts.validate_prompt(text, manifest)["ok"]:
+                    text = prompts.compose_prompt(project, row, manifest, soundscape)
+                    row["prompt_source"] = "fallback"
+                else:
+                    row["prompt_source"] = "llm"
+            except Exception as error:  # noqa: BLE001
+                warnings.append(f"第 {position + 1} 段：{error}")
+                text = prompts.compose_prompt(project, row, manifest, soundscape)
+                row["prompt_source"] = "fallback"
+        else:
+            text = prompts.compose_prompt(project, row, manifest, soundscape)
+            row["prompt_source"] = "fallback"
+        row["final_prompt"] = text
+        row["prompt_warnings"] = prompts.validate_prompt(text, manifest)["errors"]
+        row["prompt_key"] = prompts.build_prompt_key(project, row, manifest, soundscape, config)
+        if row["prompt_source"] == "llm":
+            row["prompt_overlays"] = prompts.overlay_values(project, row)
+        else:
+            row.pop("prompt_overlays", None)
+        row.pop("prompt_stale", None)
+        row.pop("prompt_stale_reason", None)
+    store.save(project)
+    return {"ok": True, "project": project, "warnings": warnings}
+
+
+@app.post("/api/projects/{project_id}/recheck")
+def recheck_prompts(project_id: str) -> dict[str, Any]:
+    project = store.get(project_id)
+    for row in project.get("segments") or []:
+        manifest = _segment_manifest(project, row)
+        check = prompts.validate_prompt(row.get("final_prompt") or "", manifest)
+        row["prompt_warnings"] = check["errors"] + check["warnings"]
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+# ------------------------------- 生成 -------------------------------
+@app.post("/api/projects/{project_id}/generate")
+def generate(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = payload or {}
+    if payload.get("generation"):
+        project = store.get(project_id)
+        project["generation"] = {**(project.get("generation") or {}), **payload["generation"]}
+        store.save(project)
+    try:
+        state = jobs.runner.start(project_id, payload)
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "run": state}
+
+
+@app.post("/api/projects/{project_id}/cancel")
+def cancel(project_id: str) -> dict[str, Any]:
+    return {"ok": True, "run": jobs.runner.cancel(project_id)}
+
+
+@app.get("/api/projects/{project_id}/run")
+def run_state(project_id: str) -> dict[str, Any]:
+    return {"ok": True, "run": jobs.runner.snapshot(project_id)}
+
+
+@app.post("/api/projects/{project_id}/segments/{index}/regenerate")
+def regenerate(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        store.find_segment(store.get(project_id), index)
+    except FileNotFoundError as error:
+        raise HTTPException(404, "项目不存在。") from error
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+    try:
+        state = jobs.runner.start(project_id, {**(payload or {}), "only": [index], "force": [index]})
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "run": state}
+
+
+# ------------------------------- 媒体 -------------------------------
+@app.get("/api/projects/{project_id}/media/{path:path}")
+def project_media(project_id: str, path: str, request: Request) -> Response:
+    directory = store.project_dir(project_id).resolve()
+    target = (directory / path).resolve()
+    if directory not in target.parents and target != directory:
+        raise HTTPException(403, "越权路径。")
+    if not target.is_file():
+        raise HTTPException(404, "文件不存在。")
+    stat = target.stat()
+    file_size = stat.st_size
+    etag = f'"{stat.st_mtime_ns:x}-{file_size:x}"'
+    last_modified = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(stat.st_mtime))
+    # 源音频/封面不常变，长缓存；成片带版本参数，短缓存即可。
+    cache_control = ("public, max-age=604800, immutable"
+                     if target.suffix.lower() in {".wav", ".mp3", ".m4a", ".flac"}
+                     else "private, max-age=300")
+    common = {
+        "ETag": etag,
+        "Last-Modified": last_modified,
+        "Cache-Control": cache_control,
+        "Accept-Ranges": "bytes",
+    }
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=common)
+    range_header = request.headers.get("range")
+    media_type = {
+        ".mp4": "video/mp4", ".webm": "video/webm", ".mp3": "audio/mpeg", ".wav": "audio/wav",
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    }.get(target.suffix.lower(), "application/octet-stream")
+    if range_header and range_header.startswith("bytes="):
+        raw = range_header.split("=", 1)[1].split(",")[0]
+        start_text, _, end_text = raw.partition("-")
+        start = int(start_text or 0)
+        end = int(end_text) if end_text else file_size - 1
+        end = min(end, file_size - 1)
+        if start >= file_size:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{file_size}"})
+        length = end - start + 1
+        with target.open("rb") as handle:
+            handle.seek(start)
+            payload = handle.read(length)
+        return Response(payload, status_code=206, media_type=media_type, headers={
+            **common,
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(length),
+        })
+    return FileResponse(target, media_type=media_type, headers=common)
+
+
+@app.get("/api/projects/{project_id}/download")
+def download(project_id: str) -> FileResponse:
+    project = store.get(project_id)
+    final = (project.get("final") or {}).get("path")
+    if not final:
+        raise HTTPException(404, "成片尚未生成。")
+    target = store.project_dir(project_id) / final
+    if not target.is_file():
+        raise HTTPException(404, "成片文件不存在。")
+    return FileResponse(target, media_type="video/mp4",
+                        filename=f"{project.get('name') or 'h3-video'}.mp4")

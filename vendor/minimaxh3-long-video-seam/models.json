@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "project": "minimaxh3-long-video-seam",
+  "notes": [
+    "模型权重不随本仓库分发；请从原始发布者处获取，并遵守对应模型许可。",
+    "source 为 null 表示仓库无法提供权威下载地址，agent 必须向用户确认来源，不能自行猜测。",
+    "sha256 为 null 表示需要用户提供或下载后由 agent 计算并写入。",
+    "target 相对 ComfyUI 根目录；实际路径可按本机安装调整，但必须同步修改 person-swap-v2/assets/*.json。"
+  ],
+  "models": [
+    {
+      "id": "h3_hybrid_unet",
+      "file": "Cobijada_H3_Hybrid_Uncensored_pruned_hybrid_int8_convrot_pruned.safetensors",
+      "target": "models/diffusion_models/minimax_h3/",
+      "required": true,
+      "used_by": ["person-swap-v2/assets/h3-swap.json", "person-swap-v2/assets/h3-swap-seam.json"],
+      "source": null,
+      "sha256": null,
+      "license": "MiniMax H3 Community License 及该 finetune 发布者条款；需用户确认",
+      "notes": "标准 swap 与 seam 都使用；这是社区 finetune，不是官方唯一权重。"
+    },
+    {
+      "id": "h3_ref2va_unet",
+      "file": "minimax_h3_ref2va_pruned_w4a8_mixed.safetensors",
+      "target": "models/diffusion_models/minimax_h3/",
+      "required": false,
+      "used_by": ["person-swap-v2/assets/h3-swap.json"],
+      "source": null,
+      "sha256": null,
+      "license": "MiniMax H3 Community License 及该 finetune 发布者条款；需用户确认",
+      "notes": "标准 swap 工作流中与 hybrid unet 并列的参考权重；如果只跑 seam 可不装。"
+    },
+    {
+      "id": "qwen3vl_text_encoder_nvfp4",
+      "file": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "target": "models/text_encoders/MINIMAXH3/",
+      "required": true,
+      "used_by": ["person-swap-v2/assets/h3-swap.json", "person-swap-v2/assets/h3-swap-seam.json"],
+      "source": null,
+      "sha256": null,
+      "license": "MiniMax H3 Community License 及量化发布者条款；需用户确认",
+      "notes": "seam 工作流使用该文本编码器。"
+    },
+    {
+      "id": "qwen3vl_text_encoder_int8",
+      "file": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+      "target": "models/text_encoders/MINIMAXH3/",
+      "required": false,
+      "used_by": ["person-swap-v2/assets/h3-swap.json"],
+      "source": null,
+      "sha256": null,
+      "license": "MiniMax H3 Community License 及量化发布者条款；需用户确认",
+      "notes": "标准 swap 的可选文本编码器；按实际工作流/显存选择。"
+    },
+    {
+      "id": "video_vae_fp16",
+      "file": "minimax_h3_video_vae_fp16.safetensors",
+      "target": "models/vae/MINIMAXH3/",
+      "required": true,
+      "used_by": ["person-swap-v2/assets/h3-swap-seam.json"],
+      "source": null,
+      "sha256": null,
+      "license": "MiniMax H3 Community License；需用户确认",
+      "notes": "seam 工作流使用 fp16 视频 VAE。"
+    },
+    {
+      "id": "video_vae_int8",
+      "file": "minimax_h3_video_vae_int8_convrot.safetensors",
+      "target": "models/vae/MINIMAXH3/",
+      "required": false,
+      "used_by": ["person-swap-v2/assets/h3-swap.json"],
+      "source": null,
+      "sha256": null,
+      "license": "MiniMax H3 Community License；需用户确认",
+      "notes": "标准 swap 的可选 int8 视频 VAE。"
+    },
+    {
+      "id": "audio_vae_fp32",
+      "file": "minimax_h3_audio_vae_fp32.safetensors",
+      "target": "models/vae/MINIMAXH3/",
+      "required": true,
+      "used_by": ["person-swap-v2/assets/h3-swap.json", "person-swap-v2/assets/h3-swap-seam.json"],
+      "source": null,
+      "sha256": null,
+      "license": "MiniMax H3 Community License；需用户确认",
+      "notes": "音频 VAE；最终音轨仍由源音频外部合入。"
+    },
+    {
+      "id": "character_swap_lora",
+      "file": "h3_character_swap_v1.5.safetensors",
+      "target": "models/loras/minimax_h3/人物替换/",
+      "required": true,
+      "used_by": ["person-swap-v2/assets/h3-swap.json", "person-swap-v2/assets/h3-swap-seam.json"],
+      "source": null,
+      "sha256": null,
+      "license": "该 LoRA 发布者条款；需用户确认",
+      "notes": "人物替换 LoRA；不是官方模型，分发/商用前必须单独确认许可。"
+    },
+    {
+      "id": "acceleration_lora",
+      "file": "minimax_h3_dmad_full_dareties_v4_step600_comfy.safetensors",
+      "target": "models/loras/minimax_h3/加速/",
+      "required": true,
+      "used_by": ["person-swap-v2/assets/h3-swap.json", "person-swap-v2/assets/h3-swap-seam.json"],
+      "source": null,
+      "sha256": null,
+      "license": "该 LoRA 发布者条款；需用户确认",
+      "notes": "加速 LoRA；8 步采样依赖。"
+    },
+    {
+      "id": "latent_upscaler_3d",
+      "file": "minimax_h3_latent_upscaler_3d_fp16.safetensors",
+      "target": "models/latent_upscale_models/",
+      "required": false,
+      "used_by": ["person-swap-v2/assets/h3-swap.json"],
+      "source": null,
+      "sha256": null,
+      "license": "发布者条款；需用户确认",
+      "notes": "标准 swap 二段式放大的可选 upscaler；seam 主流程不依赖。"
+    }
+  ]
+}
