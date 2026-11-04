@@ -623,7 +623,7 @@ const api = {
 function readForm() {
   let cps = num($("#f-cps").value, 5);
   cps = clamp(cps, 1, 12);
-  let target = clamp(num($("#f-target").value, 8), 3, 15);
+  let target = clamp(num($("#f-target").value, 8), 5, 15);
   let max = clamp(num($("#f-max").value, 12), 5, 15);
   if (max < target) max = target;
   return {
@@ -2166,8 +2166,10 @@ function promptMetaInner(seg) {
         <div class="av-lint-list">${detailItems.join("")}</div>
       </details>`
     : "";
+  const stale = !!meta.stale;
   return `<div class="av-prompt-meta-top">
       <span class="prompt-source ${sourceClass}">${esc(source)}</span>
+      ${stale ? '<span class="pill av-stale-pill" title="节拍或设计已变更，提示词可能已过期；重新生成或按 lint 修复即可更新">可能已过期</span>' : ""}
       ${summary ? `<span class="av-summary-line">${esc(summary)}</span>` : ""}
     </div>
     <div class="av-prompt-stats">
@@ -2182,11 +2184,13 @@ function promptBlockHtml(seg) {
   if (!prompt) return "";
   const { cls, text } = lintSummary(seg);
   const overlay = state.designGraphicsMode === "overlay";
+  const stale = !!seg.prompt_meta?.stale;
   return `<details class="av-seg-prompt">
     <summary>
       <svg><use href="#i-chevron"/></svg>
       <span>提示词</span>
       <span class="lint-pill ${cls}">${esc(text)}</span>
+      ${stale ? '<span class="pill av-stale-pill" title="节拍或设计已变更，提示词可能已过期">可能已过期</span>' : ""}
       <span class="grow"></span>
       <span class="av-prompt-toggle">展开编辑</span>
     </summary>

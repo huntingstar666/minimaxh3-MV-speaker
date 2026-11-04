@@ -487,6 +487,10 @@
 .lint-pill.err{color:#ff9d9d;border-color:rgba(255,107,107,.35);background:rgba(255,107,107,.1)}
 .lint-pill.warn{color:#ffcf8a;border-color:rgba(255,207,138,.32);background:rgba(255,207,138,.09)}
 .lint-pill.idle{color:var(--faint)}
+.av-stale-pill{font-size:8.5px;color:#ffcf8a;border-color:rgba(255,207,138,.36);
+  background:rgba(255,207,138,.10);white-space:nowrap}
+.av-prompt-meta-top .av-stale-pill{font-size:8.5px;padding:1px 6px}
+.av-seg-prompt summary .av-stale-pill{font-size:8.5px;padding:1px 6px}
 .av-lint{border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.015)}
 .av-lint summary{list-style:none;display:flex;align-items:center;gap:6px;padding:5px 8px;
   font-size:9.5px;color:var(--faint);cursor:pointer;user-select:none}
