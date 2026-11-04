@@ -1,10 +1,11 @@
 """台词规划 + 数字人提示词。
 
-规划：台词按标点切句 → 合并成 5–12 秒的段（默认约 5 字/秒）→ 换算成 H3 合法帧数
+规划：台词按标点切句 → 合并成目标段长的段（默认约 5 字/秒）→ 换算成 H3 合法帧数
 （5 + 17k，124–362 帧），段与段首尾相接。H3 没有 fps 输入，生成固定 24fps。
 
-提示词：三种数字人模式各有一份可注入的「系统提示词」，现在先留空占位；填了就走
-LLM 扩写，没填就走下面的确定性合成器（保证页面永远能生成可提交的提示词）。
+提示词：三种数字人模式各有一份随仓库携带的系统提示词（A 音频驱动 / B 参考音色 /
+C 无音频参考，来自用户提供的《H3 三腔系统提示词》），按项目 mode 注入给 LLM；
+LLM 不可用时退回内置确定性合成器（保证页面永远能生成可提交的提示词）。
 """
 from __future__ import annotations
 
@@ -18,18 +19,22 @@ from .. import llm, settings
 from . import config
 
 # ---------------------------------------------------------------------------
-# 三种数字人模式对应的系统提示词（占位，留空 = 走内置合成器）
-# TODO(数字人): 按模式填入最终的系统提示词。注入逻辑已经实现：
-#   - 非空 → /segments/{i}/prompt 会把它作为 system 消息发给 LLM；
-#   - 空   → 跳过 LLM，直接用 compose_prompt() 生成。
-# 也可以在运行时写入 data/avatar/system_prompts.json（GET/PATCH /avatar/api/prompts）
-# 覆盖这里的占位，不需要改代码。
+# 三种数字人模式对应的系统提示词（A/B/C 三腔，文件随仓库携带）
+#   A 音频驱动   → 模式 1（平台提供驱动音频，提示词里不能有任何音频标签）
+#   B 参考音色   → 模式 2（<Audio 1> 绑定参考音频，重新生成台词语音）
+#   C 无音频参考 → 模式 3（H3 原生生成语音，必须写 10 维 voice card）
+# 注入逻辑：system_prompt(mode) 非空 → /segments/{i}/prompt 走 LLM；
+# 为空 → 跳过 LLM，直接用 compose_prompt() 的确定性模板。
+# 运行期可用 GET/PATCH /avatar/api/prompts 写入 data/avatar/system_prompts.json 覆盖，
+# 不需要改代码。
 # ---------------------------------------------------------------------------
-SYSTEM_PROMPT_PLACEHOLDERS: dict[int, str] = {
-    config.MODE_AUDIO_DRIVE: "",   # 模式 1：音频驱动（沿用 MV 工作流，本子系统不用）
-    config.MODE_VOICE_REF: "",     # 模式 2：参考音色（ref_audios 作为音色/语速/表达参考）
-    config.MODE_TEXT_ONLY: "",     # 模式 3：无音频参考（按场景与音色描述原生生成口播）
+SYSTEM_PROMPT_DIR = Path(__file__).resolve().parent / "system_prompts"
+SYSTEM_PROMPT_FILES: dict[int, str] = {
+    config.MODE_AUDIO_DRIVE: "A-音频驱动.md",
+    config.MODE_VOICE_REF: "B-参考音色.md",
+    config.MODE_TEXT_ONLY: "C-无音频参考.md",
 }
+PROMPT_MODES = tuple(SYSTEM_PROMPT_FILES)
 
 # ---------------------------------------------------------------------------
 # 台词切分
@@ -191,38 +196,80 @@ def total_frames(segments: list[dict[str, Any]]) -> int:
 
 
 # ---------------------------------------------------------------------------
-# 系统提示词（占位 + 运行期覆盖）
+# 系统提示词（A/B/C 随仓库携带 + 运行期覆盖）
 # ---------------------------------------------------------------------------
 def _prompts_path() -> Path:
     return settings.DATA_DIR / "avatar" / "system_prompts.json"
 
 
-def get_system_prompts() -> dict[str, str]:
-    values = {str(mode): text for mode, text in SYSTEM_PROMPT_PLACEHOLDERS.items()}
+_builtin_cache: dict[int, str] = {}
+
+
+def _strip_meta_comment(text: str) -> str:
+    """去掉三腔文档开头的 META 说明注释，只把正文交给模型。"""
+    return re.sub(r"^\s*<!--.*?-->\s*", "", str(text or ""), count=1, flags=re.S).strip()
+
+
+def builtin_system_prompt(mode: int) -> str:
+    mode = int(mode)
+    if mode not in _builtin_cache:
+        name = SYSTEM_PROMPT_FILES.get(mode)
+        text = ""
+        if name:
+            path = SYSTEM_PROMPT_DIR / name
+            try:
+                text = _strip_meta_comment(path.read_text(encoding="utf-8-sig"))
+            except OSError:
+                text = ""
+        _builtin_cache[mode] = text
+    return _builtin_cache[mode]
+
+
+def _read_overrides() -> dict[str, str]:
     path = _prompts_path()
-    if path.is_file():
-        try:
-            stored = json.loads(path.read_text(encoding="utf-8-sig"))
-        except (json.JSONDecodeError, OSError):
-            stored = {}
-        for mode in SYSTEM_PROMPT_PLACEHOLDERS:
-            if isinstance(stored.get(str(mode)), str):
-                values[str(mode)] = stored[str(mode)]
+    if not path.is_file():
+        return {}
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return {str(key): value for key, value in (stored or {}).items()
+            if isinstance(value, str) and value.strip()}
+
+
+def get_system_prompts() -> dict[str, str]:
+    values = {str(mode): builtin_system_prompt(mode) for mode in PROMPT_MODES}
+    for key, value in _read_overrides().items():
+        if key in values:
+            values[key] = value
     return values
+
+
+def prompt_source(mode: int) -> str:
+    key = str(int(mode))
+    if key in _read_overrides():
+        return "override"
+    return "builtin" if builtin_system_prompt(mode) else "placeholder"
 
 
 def set_system_prompts(patch: dict[str, Any]) -> dict[str, str]:
-    values = get_system_prompts()
-    for mode in SYSTEM_PROMPT_PLACEHOLDERS:
+    """写入覆盖；传空字符串表示删除该模式的覆盖（回退到仓库内置文件）。"""
+    overrides = _read_overrides()
+    for mode in PROMPT_MODES:
         key = str(mode)
-        if key in patch and isinstance(patch[key], str):
-            values[key] = patch[key]
+        if key not in patch or not isinstance(patch[key], str):
+            continue
+        value = patch[key].strip()
+        if value:
+            overrides[key] = value
+        else:
+            overrides.pop(key, None)
     path = _prompts_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps(values, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.write_text(json.dumps(overrides, ensure_ascii=False, indent=2), encoding="utf-8")
     temp.replace(path)
-    return values
+    return get_system_prompts()
 
 
 def system_prompt(mode: int) -> str:
@@ -233,11 +280,17 @@ def prompts_status() -> dict[str, Any]:
     values = get_system_prompts()
     return {
         "prompts": {
-            str(mode): {"text": text, "configured": bool(str(text).strip())}
+            str(mode): {
+                "text": text,
+                "configured": bool(str(text).strip()),
+                "source": prompt_source(mode),
+                "chars": len(str(text or "")),
+            }
             for mode, text in sorted(values.items(), key=lambda item: int(item[0]))
         },
-        "note": "三种数字人模式的系统提示词占位：configured=false 时走内置确定性模板；"
-                "填入后 /segments/{i}/prompt 会用 LLM 扩写。",
+        "note": "A 音频驱动 / B 参考音色 / C 无音频参考三份系统提示词随仓库携带 "
+                "（backend/avatar/system_prompts/）。configured=true 时 /segments/{i}/prompt "
+                "按项目 mode 注入对应提示词走 LLM；PATCH 可写入覆盖（传空字符串恢复内置）。",
     }
 
 
@@ -344,30 +397,73 @@ def _ref_note(ref: dict[str, Any]) -> str:
 
 
 def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]] | None:
-    """构造 LLM 消息；系统提示词为空（占位未填）时返回 None，表示走内置模板。"""
-    system = system_prompt(int(project.get("mode") or 0))
+    """构造 LLM 消息：三腔系统提示词 + 一段中文口播任务书。
+
+    系统提示词为空（三份文件缺失且无覆盖）时返回 None，表示走内置模板。
+    """
+    mode = int(project.get("mode") or 0)
+    system = system_prompt(mode)
     if not system:
         return None
-    packet = {
-        "mode": int(project.get("mode") or 0),
-        "mode_label": project.get("mode_label") or config.MODE_LABELS.get(
-            int(project.get("mode") or 0), ""),
-        "language": str(project.get("language") or config.DEFAULT_LANGUAGE),
-        "segment_text": str(row.get("text") or ""),
-        "segment_index": int(row.get("index") or 0),
-        "duration_seconds": float(row.get("seconds") or 0),
-        "generation_frames": int(row.get("frames") or 0),
-        "reference_audio": bool(project.get("voice")),
-        "voice_description": str(project.get("voice_description") or ""),
-        "pictures": [
-            {"picture": index + 1, "role": str(ref.get("role") or "other"),
-             "title": str(ref.get("title") or ""), "description": str(ref.get("description") or "")}
-            for index, ref in enumerate(project.get("refs") or [])
-        ],
+    language = str(project.get("language") or config.DEFAULT_LANGUAGE)
+    refs = list(project.get("refs") or [])
+    role_labels = {
+        "performer": "人物身份参考（S1）",
+        "environment": "场景参考",
+        "appearance": "服装/造型参考",
+        "subject": "配角或道具参考",
+        "other": "其他参考",
     }
+    pictures = []
+    for index, ref in enumerate(refs):
+        label = role_labels.get(str(ref.get("role") or "other"), "参考")
+        note = str(ref.get("title") or "").strip()
+        description = str(ref.get("description") or "").strip()
+        if description:
+            note = f"{note}，{description}" if note else description
+        pictures.append(f"<Picture {index + 1}> = {label}" + (f"：{note}" if note else ""))
+
+    mode_lines = {
+        config.MODE_AUDIO_DRIVE:
+            "A 腔 · 音频驱动：平台会提供成品口播音频（本模式走 MV 工作台的锁定音轨链路）。"
+            "提示词里禁止出现任何音频标签/音频任务类型，声音相关字段按 A 腔要求处理。",
+        config.MODE_VOICE_REF:
+            "B 腔 · 参考音色：已提供一段参考音频，作为 <Audio 1> 绑定音色/语速/表达参考；"
+            "本段台词以下面文案为准，不得复述参考音频里的原话。",
+        config.MODE_TEXT_ONLY:
+            "C 腔 · 无音频参考：没有参考音频，声音由 H3 原生生成；必须按 C 腔规则在 "
+            "detailed_description 写满 10 维 voice card，且不得出现任何 <Audio N> 标签。",
+    }
+    generation = project.get("generation") or {}
+    lines = [
+        "请严格按你的系统提示词规则，为下面这一段口播生成一条可直接送进 MiniMax H3 "
+        "Ref2VA 的完整提示词。",
+        "",
+        f"【音频腔】{mode_lines.get(mode, '')}",
+        f"【口播文案（必须原文使用，放进 <d>[{language}] …</d>，含原标点）】"
+        f"{str(row.get('text') or '').strip()}",
+        f"【本段时长】{float(row.get('seconds') or 0):.2f} 秒"
+        f"（{int(row.get('frames') or 0)} 帧 @ 24fps）",
+        f"【画幅】{generation.get('aspect_ratio') or '9:16 (Portrait Widescreen)'}",
+        f"【参考图】共 {len(refs)} 张" + ("：" + "；".join(pictures) if pictures else "：无"),
+        "【镜头】单镜头、固定机位、正面/微侧的中近景口播，人物始终是画面主角。",
+        "【参考音频】" + ("已提供，作为 <Audio 1>；不要复述原话。" if mode == config.MODE_VOICE_REF
+                          else "无。"),
+    ]
+    if mode == config.MODE_TEXT_ONLY:
+        lines.append("【音色描述（写 voice card 用）】"
+                     + (str(project.get("voice_description") or "").strip()
+                        or "未填写，请按 C 腔自行给出合理的 10 维 voice card。"))
+    lines += [
+        "【动态图形密度】适中：以人物为主，每个语义节拍最多一个主效果；"
+        "所有图形必须有入场 / 落定 / 可读停留 / 退场 / 干净恢复。",
+        "【输出要求】只输出提示词正文本身：六段结构（subject_definitions、summary、"
+        "retention_analysis、detailed_description、overall_soundscape、non_diegetic_music），"
+        "不要摘要、不要检查清单、不要代码围栏、不要额外解释。",
+    ]
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": json.dumps(packet, ensure_ascii=False)},
+        {"role": "user", "content": "\n".join(lines)},
     ]
 
 
@@ -392,26 +488,65 @@ def validate_prompt(text: str, project: dict[str, Any], row: dict[str, Any]) -> 
     return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
+def _prompt_issues(text: str, project: dict[str, Any]) -> list[str]:
+    """LLM 输出是否完整可用（用于决定重试还是回退）。
+
+    这些三腔提示词本身约 1.3 万字，本地小模型可能因为推理 token 用满而被截断，
+    表现出「没有 <d> 台词块 / 没有六段标题」；这里把这些情况当失败重试一次。
+    """
+    issues: list[str] = []
+    value = str(text or "")
+    if "<d>" not in value or "</d>" not in value:
+        issues.append("缺少 <d>[语言] 台词</d> 台词块")
+    if "overall_soundscape" not in value:
+        issues.append("缺少 overall_soundscape 段")
+    if "detailed_description" not in value:
+        issues.append("缺少 detailed_description 段")
+    mode = int(project.get("mode") or 0)
+    if mode == config.MODE_VOICE_REF:
+        if "<Audio 1>" not in value:
+            issues.append("B 腔必须定义并绑定 <Audio 1>")
+    elif "<Audio" in value:
+        issues.append("A/C 腔不得出现任何 <Audio N> 标签")
+    return issues
+
+
 def generate_prompt(project: dict[str, Any], row: dict[str, Any],
                     config_llm: dict[str, Any] | None = None,
                     images: list[Path] | None = None) -> dict[str, Any]:
-    """生成单段提示词：系统提示词已配置 → LLM；否则/失败 → 内置模板。"""
+    """生成单段提示词：三腔系统提示词非空 → LLM（失败重试一次）；否则/失败 → 内置模板。"""
     config_llm = dict(config_llm or {})
+    try:
+        config_llm["max_tokens"] = max(int(config_llm.get("max_tokens") or 8192), 12288)
+    except (TypeError, ValueError):
+        config_llm["max_tokens"] = 12288
     result: dict[str, Any] = {"source": "fallback", "text": "", "warnings": []}
     messages = build_messages(project, row)
     if config_llm.get("enabled") and messages is not None:
-        try:
-            text = llm.chat(config_llm, messages, images)
+        conversation = list(messages)
+        for attempt in (1, 2):
+            try:
+                text = llm.chat(config_llm, conversation, images if attempt == 1 else None)
+            except Exception as error:  # noqa: BLE001
+                result["warnings"] = [f"LLM 扩写失败，已回退内置模板：{error}"]
+                break
             check = validate_prompt(text, project, row)
-            if check["ok"]:
-                result.update(source="llm", text=text,
-                              warnings=check["errors"] + check["warnings"])
+            issues = check["errors"] + _prompt_issues(text, project)
+            if not issues:
+                result.update(source="llm", text=text, warnings=check["warnings"])
                 return result
-            result["warnings"] = check["errors"] + check["warnings"]
-        except Exception as error:  # noqa: BLE001
-            result["warnings"] = [f"LLM 扩写失败，已回退内置模板：{error}"]
+            result["warnings"] = issues
+            if attempt == 1:
+                conversation = conversation + [
+                    {"role": "assistant", "content": text},
+                    {"role": "user", "content":
+                        "上一版有这些问题：" + "；".join(issues)
+                        + "。请重新输出完整提示词：六段标题齐全、台词只放在 "
+                          "<d>[语言] …</d> 内、按对应音频腔的音频标签规则来写；"
+                          "不要摘要、不要检查清单、不要代码围栏。"},
+                ]
     text = compose_prompt(project, row)
     check = validate_prompt(text, project, row)
     result.update(source="fallback", text=text,
-                  warnings=check["errors"] + check["warnings"])
+                  warnings=(result.get("warnings") or []) + check["errors"] + check["warnings"])
     return result

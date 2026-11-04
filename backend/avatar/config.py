@@ -37,9 +37,9 @@ MODE_VOICE_REF = 2     # 模式 2：参考音色（ref_audios + 台词 → 重�
 MODE_TEXT_ONLY = 3     # 模式 3：无音频参考（音色描述 + 台词 → 原生生成口播）
 
 MODE_LABELS = {
-    MODE_AUDIO_DRIVE: "音频驱动",
-    MODE_VOICE_REF: "参考音色",
-    MODE_TEXT_ONLY: "无音频口播",
+    MODE_AUDIO_DRIVE: "A · 音频驱动",
+    MODE_VOICE_REF: "B · 参考音色",
+    MODE_TEXT_ONLY: "C · 无音频参考",
 }
 
 # 默认生成参数（来自用户提供的新工作流；模型名可在前端下拉里改）

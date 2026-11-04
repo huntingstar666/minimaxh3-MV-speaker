@@ -342,9 +342,9 @@ AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py`
   （Ref2VA `ref_audios` + 原生生成音轨）逐段生成口播视频。
 - **模式 3 无音频口播**：只给台词 + 音色描述，H3 原生生成口播音频（默认约 5 字/秒规划分段）。
 
-三种模式的系统提示词先在 `backend/avatar/plan.py` 顶部留空占位，注入逻辑已接好
-（非空走 LLM、空走内置模板），也可用 `GET/PATCH /avatar/api/prompts` 写入
-`data/avatar/system_prompts.json`。数据独立在 `data/avatar/`，不影响 MV 项目。
+三种模式的系统提示词已随仓库携带（`backend/avatar/system_prompts/` 的 A 音频驱动 /
+B 参考音色 / C 无音频参考），按项目 mode 自动注入；也可用 `GET/PATCH /avatar/api/prompts`
+写入 `data/avatar/system_prompts.json` 覆盖。数据独立在 `data/avatar/`，不影响 MV 项目。
 详见 [docs/数字人工作台.md](docs/数字人工作台.md)。测试：`python avatar_smoke_test.py`。
 
 ## 12. 许可与致谢

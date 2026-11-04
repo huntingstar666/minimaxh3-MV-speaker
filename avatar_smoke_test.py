@@ -4,7 +4,7 @@
 
 覆盖：
 - 数字人项目创建 / 台词分段（5 字/秒估算 + H3 合法帧数）/ 分段编辑重算时间轴
-- 模式 3（无音频）与模式 2（参考音色）的提示词模板、系统提示词占位与注入逻辑
+- 模式 3（无音频）与模式 2（参考音色）的提示词模板、三腔系统提示词与按模式注入
 - 新工作流图结构（模式 2 带 ref_audios，模式 3 不带；都不接 LTXV 音频链）
 - 参考图 / 参考音频上传、生成前置校验
 - 用 ffmpeg 伪造片段 → 合成成片 → Range 媒体 / 下载
@@ -179,22 +179,44 @@ def main() -> int:
         check("模式 3 提示词含台词块", "<d>[Chinese]" in text3)
         check("模式 3 提示词不声明 <Audio 1>", "<Audio" not in text3)
 
-        # 4) 系统提示词占位 + 注入逻辑
+        # 4) 三腔系统提示词：随仓库携带 + 按模式注入 + 运行期覆盖
         status = client.get("/avatar/api/prompts").json()["prompts"]
-        check("三种模式提示词默认占位（未配置）",
-              all(not item.get("configured") for item in status.values()), str(status))
-        client.patch("/avatar/api/prompts", json={"3": "只输出 H3 数字人提示词。"}).raise_for_status()
-        configured = client.get("/avatar/api/prompts").json()["prompts"]["3"]
-        check("系统提示词可写入", configured.get("configured"), configured.get("text", "")[:20])
+        check("三腔系统提示词已随仓库携带",
+              all(item.get("configured") for item in status.values()), str(status))
+        check("三腔提示词来源为内置文件",
+              all(item.get("source") == "builtin" for item in status.values()),
+              str({key: item.get("source") for key, item in status.items()}))
+        check("三腔提示词体量正确（各约 1.2–1.4 万字符）",
+              all(9000 < int(item.get("chars") or 0) < 16000 for item in status.values()),
+              str({key: item.get("chars") for key, item in status.items()}))
+        check("A/B/C 三腔内容可区分",
+              "音频驱动" in status["1"]["text"]
+              and ("<Audio 1>" in status["2"]["text"] or "audio reference" in status["2"]["text"])
+              and "voice card" in status["3"]["text"].lower(),
+              "signature check")
         fresh = client.get(f"/avatar/api/projects/{project_id}").json()["project"]
         messages = avatar_plan.build_messages(fresh, fresh["segments"][0])
-        check("注入逻辑：system 消息使用对应模式提示词",
+        check("注入逻辑：system 消息 = 模式 3 的 C 腔提示词",
               isinstance(messages, list) and messages[0]["role"] == "system"
-              and messages[0]["content"] == "只输出 H3 数字人提示词。",
+              and "voice card" in messages[0]["content"].lower(),
               str(messages[0] if messages else None)[:40])
+        user_text = str(messages[1]["content"]) if messages else ""
+        check("注入逻辑：user 消息是口播任务书（文案/时长/画幅/参考图）",
+              all(key in user_text for key in ("口播文案", "本段时长", "画幅", "参考图")),
+              user_text[:80])
+
+        client.patch("/avatar/api/prompts", json={"3": "只输出 H3 数字人提示词。"}).raise_for_status()
+        override = client.get("/avatar/api/prompts").json()["prompts"]["3"]
+        check("系统提示词可写入覆盖", override.get("configured")
+              and override.get("source") == "override", override.get("text", "")[:20])
+        messages_override = avatar_plan.build_messages(fresh, fresh["segments"][0])
+        check("覆盖后注入的是覆盖文本",
+              messages_override and messages_override[0]["content"] == "只输出 H3 数字人提示词。")
         client.patch("/avatar/api/prompts", json={"3": ""}).raise_for_status()
-        messages_empty = avatar_plan.build_messages(fresh, fresh["segments"][0])
-        check("注入逻辑：占位为空时不走 LLM", messages_empty is None)
+        restored = client.get("/avatar/api/prompts").json()["prompts"]["3"]
+        check("传空字符串恢复内置提示词",
+              restored.get("source") == "builtin" and restored.get("configured"),
+              str(restored.get("source")))
 
         # 5) 模式 2 项目：参考音频 / 参考图 / 提示词声明 <Audio 1>
         wav = DATA_DIR / "voice.wav"
