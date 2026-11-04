@@ -267,6 +267,8 @@ export function renderProject() {
   $("#btn-generate").disabled = !hasProject || segments.length === 0;
   $("#btn-regenerate-all").disabled = !hasProject || segments.length === 0;
   $("#btn-write-all").disabled = !hasProject || segments.length === 0;
+  const exportButton = $("#btn-export-pack");
+  if (exportButton) exportButton.disabled = !hasProject;
   $("#btn-rebuild").disabled = !hasProject || (segments.some((row) => row.status !== "completed"));
   const assembleButton = $("#btn-assemble");
   if (assembleButton) {

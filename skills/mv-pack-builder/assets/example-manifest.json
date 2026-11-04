@@ -1,0 +1,49 @@
+{
+  "schema": "h3-mv-pack",
+  "version": 1,
+  "name": "示例：月下独白 MV",
+  "created": "2026-11-05T00:00:00+08:00",
+  "mode": "singing",
+  "audio": "audio/source.mp3",
+  "refs": [
+    {
+      "file": "refs/ref_01.png",
+      "role": "performer",
+      "title": "女主角色设定",
+      "description": "黑发、白色连衣裙、红色发带"
+    },
+    {
+      "file": "refs/ref_02.jpg",
+      "role": "environment",
+      "title": "雨夜霓虹街道",
+      "description": "湿地面、蓝紫色霓虹、远处店铺招牌"
+    }
+  ],
+  "project": {
+    "target_seconds": 8,
+    "max_seconds": 12,
+    "script": "这里是歌词或口播稿……",
+    "material_note": "女主使用 @图1，场景严格参考 @图2；副歌要有抬头望向招牌的动作。",
+    "style": "",
+    "filter": "",
+    "generation": {
+      "output_fps": 24,
+      "aspect_ratio": "9:16 (Portrait Widescreen)",
+      "stitch": "hard"
+    }
+  },
+  "timeline": {
+    "cuts_seconds": [],
+    "use_asr": false
+  },
+  "segments": [
+    {
+      "index": 0,
+      "visual_type": "performance",
+      "brief": "画面任务：人物演唱\n声音关系：人物仅在本段可辨识人声出现时同步演唱口型，停顿和呼吸跟随音频\n开场构图：中景（腰部以上）正面开场，依表演朝向留出空间\n主体动作：自然且受控的音乐表演\n镜头运动：摄影机平稳后移，从中景拉远至全身景\n结束构图：结束于全身景正面，后移运镜保持进行至片段结束",
+      "lyrics": "",
+      "motion": "",
+      "final_prompt": ""
+    }
+  ]
+}

@@ -135,6 +135,45 @@ async function loadProjects() {
 }
 
 // ------------------------------- 项目 -------------------------------
+function isPackFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  return name.endsWith(".zip") || name.endsWith(".h3pack");
+}
+
+async function importPack(file) {
+  if (!file) return;
+  const zone = $("#pack-drop");
+  zone?.classList.add("busy");
+  busy("正在解析 MV 包…");
+  try {
+    const data = await api.importProject(file);
+    await loadProjects();
+    renderHistory();
+    await loadProject(data.project.id, false);
+    const summary = data.summary || {};
+    toast(`已导入「${data.project.name}」 · ${summary.segments || 0} 段 · ${summary.refs || 0} 张参考图`, "ok", 6000);
+    (summary.warnings || []).forEach((text) => toast(text, "warn", 6000));
+  } catch (error) {
+    toast(error.message, "err", 9000);
+  } finally {
+    zone?.classList.remove("busy");
+    busy("", false);
+    const input = $("#pack-input");
+    if (input) input.value = "";
+  }
+}
+
+function exportPack() {
+  if (!state.project) return;
+  toast("正在生成 MV 包…", "ok");
+  const link = document.createElement("a");
+  link.href = api.exportProject(state.project.id);
+  link.download = "";
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
 async function loadProject(id, announce = true) {
   const data = await api.project(id);
   stopAudition();
@@ -1258,9 +1297,31 @@ async function testLlm() {
 // ------------------------------- 事件 -------------------------------
 function bindEvents() {
   $("#audio-input").addEventListener("change", (event) => {
-    createProject(event.target.files?.[0]);
+    const file = event.target.files?.[0];
+    if (isPackFile(file)) importPack(file);
+    else createProject(file);
     event.target.value = "";
   });
+  $("#pack-input").addEventListener("change", (event) => {
+    importPack(event.target.files?.[0]);
+    event.target.value = "";
+  });
+  const packZone = $("#pack-drop");
+  if (packZone) {
+    ["dragenter", "dragover"].forEach((type) => packZone.addEventListener(type, (event) => {
+      event.preventDefault();
+      packZone.classList.add("drag");
+    }));
+    ["dragleave", "drop"].forEach((type) => packZone.addEventListener(type, (event) => {
+      event.preventDefault();
+      packZone.classList.remove("drag");
+    }));
+    packZone.addEventListener("drop", (event) => {
+      const file = event.dataTransfer?.files?.[0];
+      if (isPackFile(file)) importPack(file);
+      else toast("请拖入 .h3pack.zip 包（音频请拖到上方区域）。", "warn");
+    });
+  }
   const dropzone = $("#audio-drop");
   ["dragenter", "dragover"].forEach((type) => dropzone.addEventListener(type, (event) => {
     event.preventDefault();
@@ -1270,7 +1331,11 @@ function bindEvents() {
     event.preventDefault();
     dropzone.classList.remove("drag");
   }));
-  dropzone.addEventListener("drop", (event) => createProject(event.dataTransfer?.files?.[0]));
+  dropzone.addEventListener("drop", (event) => {
+    const file = event.dataTransfer?.files?.[0];
+    if (isPackFile(file)) importPack(file);
+    else createProject(file);
+  });
 
   $("#ref-groups").addEventListener("change", (event) => {
     const uploader = event.target.closest("[data-ref-upload]");
@@ -1333,6 +1398,7 @@ function bindEvents() {
     generate({ force: Array.from({ length: total }, (_, index) => index) });
   });
   $("#btn-write-all").addEventListener("click", writeAllPrompts);
+  $("#btn-export-pack").addEventListener("click", exportPack);
   $("#btn-cancel").addEventListener("click", cancelRun);
   $("#btn-rebuild").addEventListener("click", assembleProject);
   $("#btn-history").addEventListener("click", async () => {

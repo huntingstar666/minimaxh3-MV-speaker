@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import shutil
@@ -16,6 +18,7 @@ import sys
 import tempfile
 import time
 import wave
+import zipfile
 from pathlib import Path
 
 import httpx
@@ -322,6 +325,64 @@ def main() -> int:
             check("换选片段后成片标记过期", bool((state.get("final") or {}).get("stale")))
         else:
             print("SKIP 重新合成测试（未找到 ffmpeg）")
+
+        # 12) 导出 / 导入 MV 包
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")
+        client.post(f"/api/projects/{project_id}/refs",
+                    data={"role": "performer", "title": "测试角色"},
+                    files={"image": ("ref.png", png, "image/png")}).raise_for_status()
+        exported = client.get(f"/api/projects/{project_id}/export")
+        check("导出 MV 包", exported.status_code == 200 and exported.content[:2] == b"PK",
+              f"{len(exported.content)} bytes")
+        with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
+            names = archive.namelist()
+            manifest = json.loads(archive.read("manifest.json"))
+        check("包内含 manifest / 音频 / 参考图",
+              "manifest.json" in names
+              and any(name.startswith("audio/") for name in names)
+              and any(name.startswith("refs/") for name in names),
+              str(names[:6]))
+        check("manifest schema 正确", manifest.get("schema") == "h3-mv-pack")
+
+        imported = client.post("/api/projects/import", files={
+            "package": ("roundtrip.h3pack.zip", exported.content, "application/zip")})
+        check("导入导出的 MV 包", imported.status_code == 200,
+              str(imported.json().get("detail") if imported.status_code != 200 else ""))
+        if imported.status_code == 200:
+            new_project = imported.json()["project"]
+            expected_prompts = [str(item.get("final_prompt") or "")
+                                for item in manifest.get("segments") or []]
+            imported_prompts = [str(row.get("final_prompt") or "")
+                                for row in new_project.get("segments") or []]
+            check("导入项目保留分段/参考图/提示词",
+                  len(new_project.get("segments") or []) == len(state["segments"])
+                  and len(new_project.get("refs") or []) == 1
+                  and imported_prompts == expected_prompts,
+                  f"segments={len(new_project.get('segments') or [])} "
+                  f"refs={len(new_project.get('refs') or [])}")
+            check("导入项目带波形数据",
+                  bool(((new_project.get("analysis") or {}).get("waveform") or {}).get("original")))
+
+        material = io.BytesIO()
+        with zipfile.ZipFile(material, "w") as archive:
+            archive.writestr("manifest.json", json.dumps({
+                "schema": "h3-mv-pack", "version": 1, "name": "素材包",
+                "mode": "singing", "audio": "audio/source.wav",
+                "refs": [{"file": "refs/ref.png", "role": "performer", "title": "测试角色"}],
+                "project": {"target_seconds": 8, "max_seconds": 12, "script": ""},
+            }, ensure_ascii=False))
+            archive.writestr("audio/source.wav", (DATA_DIR / "smoke.wav").read_bytes())
+            archive.writestr("refs/ref.png", png)
+        material_resp = client.post("/api/projects/import", files={
+            "package": ("material.h3pack.zip", material.getvalue(), "application/zip")})
+        check("导入纯素材包并自动分段", material_resp.status_code == 200
+              and len(material_resp.json()["project"].get("segments") or []) >= 1, 
+              str(material_resp.json().get("detail") if material_resp.status_code != 200 else ""))
+
+        bad = client.post("/api/projects/import", files={
+            "package": ("bad.zip", b"not a zip", "application/zip")})
+        check("非法包被拒绝", bad.status_code == 400, str(bad.status_code))
     finally:
         if client:
             client.close()

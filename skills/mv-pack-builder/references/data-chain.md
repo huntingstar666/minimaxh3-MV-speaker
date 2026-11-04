@@ -1,0 +1,79 @@
+# 数据链路与已知限制
+
+这份文档给后续维护（包括 AI 辅助改动）一个“哪里会写、怎么写、哪里不能乱动”的索引。
+
+## 1. 数据真源
+
+- 每个项目一个目录：`data/projects/<id>/`，`project.json` 是唯一真源。
+- 媒体文件在 `source.wav`、`refs/`、`takes/`、`final/`；`project.json` 只存索引与运行状态。
+- `data/settings.json` 存全局配置（含 LLM key，不要提交、不要外发）。
+- 写盘统一走 `backend/store.py`：
+  - `save()`：同目录临时文件 + `replace` 原子替换；
+  - `get()` / `save()` 都拿同一把按项目区分的 `RLock`；
+  - `mutate(project_id, fn)`：在同一把锁内完成读-改-写，**只改部分字段时必须用它**，不要 `get()` 之后再 `save()` 整份。
+
+## 2. 生成任务写盘规则
+
+生成任务（`backend/jobs.py` 的 `JobRunner`）启动时加载一份 `project` 快照，运行中多次写盘。为避免覆盖用户同时在页面上的编辑：
+
+- `_commit()` 只把任务负责的字段合并回磁盘上的最新项目：
+  - 项目级：`generation`、`refs`（只回写 ComfyUI 上传名）、`final`；
+  - 分段级：`status/error/output/started/finished/prompt_id/prompt_text/generation_frames/generation_seconds/fps/edit_frames`。
+- 提示词字段（`final_prompt/prompt_source/prompt_key/prompt_warnings/prompt_overlays/prompt_stale`）：
+  只有在磁盘上的正文仍等于本段“开始生成前”的基线时才写回；用户中途改过就保留用户版本。
+- 运行状态 `run` 由 `_update()` 通过 `store.mutate()` 单独更新。
+- 分段结构（起止帧）与任务快照不一致时（边界被改过 / 重新分析），本次任务的旧结果直接丢弃，不回写。
+
+## 3. 结构性操作
+
+重新分析、切点调整、切分、合并、删除项目会重建分段。这类操作：
+
+1. 先 `runner.cancel()` 并 `runner.wait()` 等任务线程停下；
+2. 由 `app._structural_lock` 串行化，避免两个请求交错；
+3. 重新分析前如果已有提示词，自动备份 `project.json.bak-analyze-<时间>`（保留最近 5 份）。
+
+## 4. 提示词字段生命周期
+
+| 字段 | 含义 |
+| --- | --- |
+| `final_prompt` | 提示词正文（不含风格/滤镜/运镜前缀，除非是 AI 合并版本） |
+| `prompt_key` | 输入指纹；简报/参考图/风格/运镜/模型变化 → 不匹配 → 自动提示词待重建 |
+| `prompt_source` | `manual` / `llm` / `fallback`；`manual` 永远不被自动覆盖 |
+| `prompt_overlays` | 这版正文“已合并”的风格/滤镜/运镜快照；匹配当前字段时不再追加前缀 |
+| `prompt_stale` / `prompt_stale_reason` | 输入变了但正文还保留着，界面提示“可能已过期” |
+
+- 展示 / 生成用提示词由 `prompts.effective_prompt()` 计算：未合并时把三个字段追加到正文最上面；已合并则原样使用。
+- AI 重写（单段 / 全部）会把三个字段随素材包发给 LLM；返回文本作为新正文，并写 `prompt_overlays`。
+- 输入变化只标记过期，不删除正文；「恢复自动」才会清空正文。
+
+## 4.1 分段片段（take）
+
+- 每次单段生成写一条新 take：`takes/seg_XXXX/t_000N.mp4` + `.jpg` 缩略图；`segment.takes[]` 记录元数据，`segment.selected_take` / `segment.output` 指向当前使用的一条。
+- 新 take 自动选用；旧 take 保留，每段最多 10 条（星标与当前选中不删），超出删最旧的未选中项。
+- take 绑定 `segment_signature = start_frame-end_frame`：切点或重新分析后旧 take 不再展示/可选用，避免时长错位的片段被拼进成片。
+- 选用/删除片段只改选择与文件，不触发生成；成片用 `final.take_signature` 判断选材是否变更，变更后由 `POST /api/projects/{id}/assemble` 用 ffmpeg 重新拼接（不跑 ComfyUI）。
+- 旧项目首次读取时 `ensure_takes()` 把原来的 `clip.mp4` 懒迁移为 `t_0001`，缺失的缩略图在后台补生成。
+
+## 5. 已知限制 / 剩余风险
+
+1. **多标签页同时编辑同一项目**：服务端没有跨请求版本号，仍是最后写入者覆盖。建议一次只开一个编辑页面。
+2. **重新分析必然重建分段**：现有提示词会失效；有确认弹窗与自动备份，但不会自动把旧提示词映射到新分段。
+3. **`data/` 不进 git**：提示词、参考图、成片都不受版本管理；重要项目请自行复制 `data/projects/<id>/` 备份。`project.json.bak-*` 是部分覆盖操作前的兜底。
+4. **生成中途 ComfyUI 崩溃/重启**：任务会标记失败，已完成的段保留，可续跑；未完成的段需要重新提交。
+5. **旧项目兼容**：没有 `prompt_text` 的项目无法从生成记录恢复提示词；没有 `prompt_overlays` 的项目会按“正文未合并”处理。
+6. **LLM 结果不确定**：`prompt_key` 能避免输入未变时反复扩写，但换模型/参数后会重写。
+7. **seam 模式一次生成整条**：不支持单段重生成/断点续跑，改切点后必须整条重跑。
+8. **project.json 体积**：包含波形峰值、逐段信息与 take 元数据，长项目会到几百 KB～数 MB。
+9. **前端状态非实时**：页面持有 `state.project`，其他客户端/API 直接改盘后需要刷新页面才能看到。
+10. **可选节点自动跳过**：`sigma_shift` / `sigma_refiner` 现在按 ComfyUI `/object_info` 检测结果决定是否加进工作流；但模型名仍以设置面板为准。
+11. **take 磁盘占用**：按 10 条/段上限，13 段大约 0.5～1GB；生成大量长段前注意磁盘空间。
+12. **换选片段后必须重新合成**：选片不会自动改已有成片，需要在成片区点「重新合成成片」。
+
+## 6. 改动后的固定流程
+
+```bash
+git status && git diff      # 看改了什么
+python smoke_test.py        # 关键链路冒烟（独立临时数据，不碰真实项目）
+```
+
+全部通过后重启 `start.bat`，再刷新浏览器验证。

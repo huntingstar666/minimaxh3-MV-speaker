@@ -34,6 +34,7 @@ python run.py          # Windows 可直接双击 start.bat
 7. **导演简报与提示词**：段卡「提示词」弹窗里，简报可直接编辑，也能从 8 个类别模板（舞台 / 叙事 MV / 特写 / 空镜 / 讲解 / 带货 / 独白 / 风光）导入再改；保存后点「AI 重写」即可按新简报扩写。改简报 / 参考图 / 全局风格 / 本段运镜后，已经写好的提示词**不会被删除**，只会在段卡上提示「可能已过期」；手写提示词永不自动覆盖，自动扩写的提示词在下次生成或点「AI 重写」时按新输入重建。
 8. **开始生成**：逐段提交 ComfyUI（seam 模式为整条一次提交），实时进度与日志；可随时停止、单段重生成（仅硬切）、断点续跑。画幅在右栏「画幅」下拉里选（8 种比例），输出帧率选 24 / 25 / 30（默认 24），拼接方式选硬切 / seam。每段的结果会存成独立片段（take），不会覆盖旧版本：段卡右侧「选片台」可预览历史片段并选用；换选后点成片区「重新合成成片」即可用新选片段重新拼接（只跑 ffmpeg，不重新生成）。
 9. **成片**：自动按输出帧率封装每段、拼接、混入**原始完整音轨**、生成封面；可在线预览与下载。段卡「试听」按一次播放本段、再按一次停止，播到段尾会自动停。如果换选过片段，成片区会出现「选材已变更」提示，点「重新合成成片」刷新。
+10. **导入 / 导出 MV 包**：左栏「导入 MV 包」可拖入 `.h3pack.zip`，自动创建项目并导入音频、参考图、分段、提示词/参数；顶部「导出 MV 包」把当前项目导出成同格式，便于分享或交给别人继续做。格式见 [docs/MV包格式.md](docs/MV包格式.md)，配套创作技能见 [skills/mv-pack-builder/SKILL.md](skills/mv-pack-builder/SKILL.md)。
 
 ## 2. 环境要求
 
@@ -111,6 +112,7 @@ h3-workbench/
 │  ├─ comfy.py            ComfyUI 客户端（上传/排队/WS 进度/历史/中断）
 │  ├─ workflow.py         参数化 API 工作流（单段 SelfLift 双采）
 │  ├─ media.py            ffmpeg 归一化 / 拼接 / 封面 / 时长
+│  ├─ pack.py             MV 包（.h3pack.zip）导入 / 导出
 │  └─ jobs.py             任务编排（逐段生成、落盘、续跑、拼接）
 ├─ web/                   零构建前端
 │  ├─ index.html
@@ -119,9 +121,13 @@ h3-workbench/
 ├─ data/                  运行期数据（gitignore）
 │  ├─ settings.json
 │  └─ projects/<id>/…
+├─ skills/
+│  └─ mv-pack-builder/     配套 MV 包创作技能（含环境自检 / 包校验 / 导入脚本）
 └─ docs/
    ├─ 工作流拆解.md        原工作流逐节点拆解与移植对照
-   └─ 移植说明.md          移植到其他项目的完整步骤
+   ├─ 移植说明.md          移植到其他项目的完整步骤
+   ├─ MV包格式.md          .h3pack.zip 格式说明
+   └─ 数据链路与已知限制.md 数据流、并发写入规则与限制
 ```
 
 单个项目的数据布局：
@@ -250,6 +256,8 @@ detailed_description: → overall_soundscape: → non_diegetic_music:
 | GET/POST | `/api/settings` | 读写全局配置（密钥掩码） |
 | POST | `/api/llm/test` | 测试 LLM 连通性 |
 | GET/POST | `/api/projects` | 项目列表 / 创建（multipart：`name` + `audio`） |
+| POST | `/api/projects/import` | 导入 MV 包（multipart：`package` = `.h3pack.zip`，可选 `name`） |
+| GET | `/api/projects/{id}/export` | 导出项目的 MV 包（音频 + 参考图 + 分段简报/提示词/参数） |
 | GET/PATCH/DELETE | `/api/projects/{id}` | 读取 / 局部更新（`name`、`mode`、`script`、`generation`、`material_note`、`prompt_rule`、`style`、`filter`）/ 删除 |
 | POST | `/api/projects/{id}/analyze` | 重新分析（`mode`、`target_seconds`、`max_seconds`、`script`、`use_asr`） |
 | POST/DELETE/PATCH | `/api/projects/{id}/refs[/{index}]` | 参考图增删改（`role`：performer / environment / appearance / subject / other） |

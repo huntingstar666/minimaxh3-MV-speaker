@@ -11,10 +11,11 @@ from typing import Any
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
-from . import (asr, audio, comfy, director, frames, jobs, llm, presets, prompts,
-               seam_nodes, settings, store)
+from . import (asr, audio, comfy, director, frames, jobs, llm, pack, presets,
+               prompts, seam_nodes, settings, store)
 
 APP_VERSION = "1.0.0"
 ALLOWED_AUDIO = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4", ".mov", ".mkv", ".webm"}
@@ -163,6 +164,42 @@ def create_project(name: str = Form("未命名作品"),
     }
     store.save(project)
     return {"ok": True, "project": project}
+
+
+@app.post("/api/projects/import")
+def import_project_package(package: UploadFile = File(...),
+                           name: str | None = Form(None)) -> dict[str, Any]:
+    """导入 MV 包（zip：manifest.json + audio/ + refs/ [+ timeline/segments]）。"""
+    filename = package.filename or "package.zip"
+    if not filename.lower().endswith((".zip", ".h3pack")):
+        raise HTTPException(400, "请上传 .zip 或 .h3pack.zip 包。")
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    temp_path = Path(handle.name)
+    try:
+        with handle:
+            shutil.copyfileobj(package.file, handle)
+        result = pack.import_pack(temp_path, name=name)
+    except pack.PackError as error:
+        raise HTTPException(400, str(error)) from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, f"导入失败：{error}") from error
+    finally:
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+    project = result["project"]
+    return {
+        "ok": True,
+        "project": project,
+        "summary": {
+            "name": project.get("name"),
+            "segments": result["segments"],
+            "refs": result["refs"],
+            "applied_segments": result["applied_segments"],
+            "warnings": result["warnings"],
+        },
+    }
 
 
 @app.get("/api/projects/{project_id}")
@@ -807,3 +844,27 @@ def download(project_id: str) -> FileResponse:
         raise HTTPException(404, "成片文件不存在。")
     return FileResponse(target, media_type="video/mp4",
                         filename=f"{project.get('name') or 'h3-video'}.mp4")
+
+
+@app.get("/api/projects/{project_id}/export")
+def export_project_package(project_id: str) -> FileResponse:
+    """把项目导出成可分享的 MV 包（音频 + 参考图 + 分段简报/提示词/参数）。"""
+    try:
+        project = store.get(project_id)
+    except FileNotFoundError as error:
+        raise HTTPException(404, "项目不存在。") from error
+    try:
+        target = pack.export_pack(project_id)
+    except pack.PackError as error:
+        raise HTTPException(400, str(error)) from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, f"导出失败：{error}") from error
+    safe_name = "".join(ch for ch in str(project.get("name") or "mv")
+                        if ch not in '\\/:*?"<>|').strip() or "mv"
+
+    def cleanup() -> None:
+        shutil.rmtree(target.parent, ignore_errors=True)
+
+    return FileResponse(
+        target, media_type="application/zip",
+        filename=f"{safe_name}.h3pack.zip", background=BackgroundTask(cleanup))

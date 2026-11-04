@@ -65,6 +65,12 @@
         <span>MP3 / WAV / M4A / FLAC · 视频自动提取音轨</span>
         <em id="audio-file-label"></em>
       </label>
+      <label class="pack-dropzone" id="pack-drop" title="导入包含 manifest.json、音频和参考图的 MV 包">
+        <input type="file" id="pack-input" accept=".zip,.h3pack,application/zip" hidden>
+        <svg><use href="#i-download"/></svg>
+        <strong>导入 MV 包</strong>
+        <span>拖入 .h3pack.zip，自动解析音频 / 参考图 / 提示词 / 参数</span>
+      </label>
       <div class="field">
         <label>作品名称</label>
         <input id="project-name" class="input" maxlength="60" placeholder="例如：老港酒吧 · 双采数字人">
@@ -157,6 +163,7 @@
       <div class="stage-actions">
         <button class="btn ghost sm" id="btn-write-all" disabled><svg><use href="#i-spark"/></svg>扩写全部分镜</button>
         <button class="btn ghost sm" id="btn-regenerate-all" disabled><svg><use href="#i-refresh"/></svg>重新生成全部</button>
+        <button class="btn ghost sm" id="btn-export-pack" disabled><svg><use href="#i-download"/></svg>导出 MV 包</button>
         <button class="btn primary" id="btn-generate" disabled><svg><use href="#i-play"/></svg><span>开始生成</span></button>
         <button class="btn danger hidden" id="btn-cancel">停止</button>
       </div>
