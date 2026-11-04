@@ -3,7 +3,7 @@ import { api } from "./api.js";
 import { state, setProject } from "./store.js";
 import { Waveform } from "./waveform.js";
 import {
-  $, $$, busy, clamp, confirmDialog, debounce, escapeHtml, formatTime, formatDuration,
+  $, $$, busy, clamp, confirmDialog, debounce, escapeHtml, formatDate, formatTime, formatDuration,
   openModal, closeModal, settleConfirm, toast,
 } from "./ui.js";
 import {
@@ -712,11 +712,149 @@ async function regenerateSegment(index) {
 
 function previewSegment(index) {
   const row = state.project?.segments?.[index];
-  if (!row?.output) {
-    toast("这一段还没有可预览的视频。", "warn");
+  if (!row) return;
+  if (row.selected_take) openTakeModal(index, row.selected_take);
+  else if (row.output) openTakeModal(index, null);
+  else toast("这一段还没有可预览的视频。", "warn");
+}
+
+// ------------------------------- 选片 / 重新合成 -------------------------------
+let takeModalState = { index: null, takeId: null };
+
+function takeSignature(row) {
+  return `${Number(row.start_frame || 0)}-${Number(row.end_frame || 0)}`;
+}
+
+function visibleTakes(row) {
+  const signature = takeSignature(row);
+  return (Array.isArray(row.takes) ? row.takes : [])
+    .filter((take) => !take.segment_signature || take.segment_signature === signature);
+}
+
+function takeMedia(project, path) {
+  return `/api/projects/${project.id}/media/${String(path || "").replace(/^\/+/, "")}`;
+}
+
+function openTakeModal(index, takeId = null) {
+  if (!state.project) return;
+  const row = state.project.segments?.[index];
+  if (!row) return;
+  const takes = visibleTakes(row);
+  if (!takes.length) {
+    toast("这一段还没有生成过片段。", "warn");
     return;
   }
-  window.open(api.media(state.project.id, row.output), "_blank", "noopener");
+  takeModalState = {
+    index,
+    takeId: takeId || row.selected_take || takes[takes.length - 1].take_id,
+  };
+  renderTakeModal();
+  openModal("modal-take");
+}
+
+function renderTakeModal() {
+  const { index, takeId } = takeModalState;
+  const project = state.project;
+  const row = project?.segments?.[index];
+  if (!row) return;
+  const takes = visibleTakes(row);
+  const take = takes.find((item) => item.take_id === takeId) || takes[takes.length - 1];
+  if (!take) return;
+  takeModalState.takeId = take.take_id;
+  const current = take.take_id === row.selected_take;
+  const selectedIndex = takes.findIndex((item) => item.take_id === row.selected_take);
+  $("#take-title").textContent = `第 ${index + 1} 段 · 选片`;
+  $("#take-sub").textContent = `${formatTime(row.start)} – ${formatTime(row.end)} · ${takes.length} 条片段 · ${current ? "当前使用中" : selectedIndex >= 0 ? `当前使用第 ${selectedIndex + 1} 条` : "尚未选用"}`;
+  const video = $("#take-video");
+  const source = takeMedia(project, take.file);
+  video.src = source;
+  video.poster = take.thumb ? takeMedia(project, take.thumb) : "";
+  video.load();
+  const bytes = Number(take.bytes || 0);
+  const sizeText = bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)}MB`
+    : `${Math.max(1, Math.round(bytes / 1024))}KB`;
+  const info = [
+    ["状态", current ? "使用中" : "历史片段"],
+    ["生成时间", formatDate(take.created)],
+    ["时长 / 帧数", `${Number(take.duration || 0).toFixed(2)}s · ${take.frames || 0} 帧`],
+    ["文件大小", take.legacy ? "旧片段（迁移）" : sizeText],
+    ["提示词来源", { manual: "手工编辑", llm: "AI 扩写", fallback: "内置合成", legacy: "旧片段" }[take.prompt_source || (take.legacy ? "legacy" : "")] || "—"],
+    ["生成提示词", escapeHtml(String(take.prompt_text || "").replace(/\s+/g, " ").slice(0, 160)) || "—"],
+  ];
+  $("#take-info").innerHTML = info.map(([label, value]) =>
+    `<div class="take-info-row"><span>${label}</span><b>${value}</b></div>`).join("");
+  $("#take-modal-strip").innerHTML = takes.map((item, order) => `
+    <button class="take-thumb ${item.take_id === take.take_id ? "active" : ""} ${item.take_id === row.selected_take ? "selected" : ""}"
+      data-take="${escapeHtml(item.take_id)}" title="第 ${order + 1} 条 · ${Number(item.duration || 0).toFixed(1)}s">
+      ${item.thumb ? `<img src="${takeMedia(project, item.thumb)}" alt="" loading="lazy">`
+        : '<span class="take-thumb-empty"><svg><use href="#i-film"/></svg></span>'}
+      <b>${order + 1}</b>
+      ${item.take_id === row.selected_take ? '<i class="take-check">✓</i>' : ""}
+    </button>`).join("");
+  const selectBtn = $("#btn-take-select");
+  selectBtn.disabled = current;
+  selectBtn.textContent = current ? "当前使用中" : "选用此片段";
+  $("#btn-take-delete").disabled = current && takes.length > 1;
+  $("#btn-take-delete").title = current && takes.length > 1 ? "请先选用其他片段再删除" : "";
+}
+
+async function selectTakeFromModal() {
+  const { index, takeId } = takeModalState;
+  if (!state.project || index == null || !takeId) return;
+  if (["queued", "running"].includes(state.run?.status)) {
+    toast("任务运行中，请等待完成后再切换片段。", "warn");
+    return;
+  }
+  try {
+    const data = await api.selectTake(state.project.id, index, takeId);
+    setProject(data.project);
+    renderProject();
+    renderFinal();
+    closeModal("modal-take");
+    toast("已选用该片段，成片需要重新合成", "ok", 5000);
+  } catch (error) {
+    toast(error.message, "err", 6000);
+  }
+}
+
+async function deleteTakeFromModal() {
+  const { index, takeId } = takeModalState;
+  if (!state.project || index == null || !takeId) return;
+  const confirmed = await confirmDialog("删除片段", "删除这条片段文件？不可恢复。", "删除");
+  if (!confirmed) return;
+  try {
+    const data = await api.deleteTake(state.project.id, index, takeId);
+    setProject(data.project);
+    const row = state.project.segments[index];
+    renderProject();
+    renderFinal();
+    if (visibleTakes(row).length) renderTakeModal();
+    else closeModal("modal-take");
+    toast("片段已删除", "ok");
+  } catch (error) {
+    toast(error.message, "err", 6000);
+  }
+}
+
+async function assembleProject() {
+  if (!state.project) return;
+  if (["queued", "running"].includes(state.run?.status)) {
+    toast("任务运行中，请等待完成后再合成。", "warn");
+    return;
+  }
+  busy("正在重新合成成片…");
+  try {
+    const data = await api.assemble(state.project.id);
+    state.run = data.run;
+    renderRun();
+    startPolling();
+    toast("已开始重新合成成片", "ok");
+  } catch (error) {
+    toast(error.message, "err", 6000);
+  } finally {
+    busy("", false);
+  }
 }
 
 async function deleteProject(id) {
@@ -1169,11 +1307,22 @@ function bindEvents() {
     if (!target || target.disabled) return;
     const index = Number(target.dataset.index);
     if (target.dataset.act === "open-prompt") openPrompt(index);
+    if (target.dataset.act === "open-take") openTakeModal(index, target.dataset.take || null);
     if (target.dataset.act === "regen") regenerateSegment(index);
     if (target.dataset.act === "preview") previewSegment(index);
     if (target.dataset.act === "audition") toggleAudition(index);
     if (target.dataset.act === "refs") openSegRefs(index);
     if (target.dataset.act === "merge") mergeSegment(index);
+  });
+
+  $("#btn-assemble").addEventListener("click", assembleProject);
+  $("#btn-take-select").addEventListener("click", selectTakeFromModal);
+  $("#btn-take-delete").addEventListener("click", deleteTakeFromModal);
+  $("#take-modal-strip").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-take]");
+    if (!button) return;
+    takeModalState.takeId = button.dataset.take;
+    renderTakeModal();
   });
 
   $("#btn-analyze").addEventListener("click", analyzeProject);
@@ -1185,7 +1334,7 @@ function bindEvents() {
   });
   $("#btn-write-all").addEventListener("click", writeAllPrompts);
   $("#btn-cancel").addEventListener("click", cancelRun);
-  $("#btn-rebuild").addEventListener("click", () => generate({ rebuild: true }));
+  $("#btn-rebuild").addEventListener("click", assembleProject);
   $("#btn-history").addEventListener("click", async () => {
     await loadProjects();
     renderHistory();

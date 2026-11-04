@@ -268,6 +268,10 @@ export function renderProject() {
   $("#btn-regenerate-all").disabled = !hasProject || segments.length === 0;
   $("#btn-write-all").disabled = !hasProject || segments.length === 0;
   $("#btn-rebuild").disabled = !hasProject || (segments.some((row) => row.status !== "completed"));
+  const assembleButton = $("#btn-assemble");
+  if (assembleButton) {
+    assembleButton.disabled = !hasProject || segments.some((row) => row.status !== "completed");
+  }
   $("#empty-stage").hidden = segments.length > 0;
 }
 
@@ -373,17 +377,79 @@ export function renderSegments() {
           </div>
           ${warning}
         </div>
-        <div class="seg-actions">
-          <button class="btn ghost" data-act="open-prompt" data-index="${index}"><svg><use href="#i-spark"/></svg>提示词</button>
-          <button class="btn ghost ${refOverride ? "active" : ""}" data-act="refs" data-index="${index}"><svg><use href="#i-layers"/></svg>本段参考图</button>
-          <button class="btn ghost ${state.auditionSegment === index ? "active" : ""}" data-act="audition" data-index="${index}"><svg><use href="#${state.auditionSegment === index ? "i-stop" : "i-play"}"/></svg>${state.auditionSegment === index ? "停止" : "试听"}</button>
-          ${row.output ? `<button class="btn ghost" data-act="preview" data-index="${index}"><svg><use href="#i-film"/></svg>预览片段</button>` : ""}
-          <button class="btn ghost" data-act="merge" data-index="${index}" ${index === segments.length - 1 ? "disabled" : ""}><svg><use href="#i-merge"/></svg>合并下段</button>
-          <button class="btn ghost" data-act="regen" data-index="${index}" ${isSeam ? 'disabled title="seam 模式一次生成整条，不能单段重生成"' : ""}><svg><use href="#i-refresh"/></svg>重生成</button>
-        </div>
+        <aside class="seg-side">
+          ${takeRail(project, row, index, isSeam, status)}
+          <div class="seg-actions">
+            <button class="btn ghost" data-act="open-prompt" data-index="${index}"><svg><use href="#i-spark"/></svg>提示词</button>
+            <button class="btn ghost ${refOverride ? "active" : ""}" data-act="refs" data-index="${index}"><svg><use href="#i-layers"/></svg>参考图</button>
+            <button class="btn ghost ${state.auditionSegment === index ? "active" : ""}" data-act="audition" data-index="${index}"><svg><use href="#${state.auditionSegment === index ? "i-stop" : "i-play"}"/></svg>${state.auditionSegment === index ? "停止" : "试听"}</button>
+            <button class="btn ghost" data-act="merge" data-index="${index}" ${index === segments.length - 1 ? "disabled" : ""}><svg><use href="#i-merge"/></svg>合并下段</button>
+            <button class="btn ghost" data-act="regen" data-index="${index}" ${isSeam ? 'disabled title="seam 模式一次生成整条，不能单段重生成"' : ""}><svg><use href="#i-refresh"/></svg>重生成</button>
+          </div>
+        </aside>
       </article>
     `;
   }).join("");
+}
+
+function segmentSignature(row) {
+  return `${Number(row.start_frame || 0)}-${Number(row.end_frame || 0)}`;
+}
+
+function visibleTakes(project, row) {
+  const signature = segmentSignature(row);
+  return (Array.isArray(row.takes) ? row.takes : [])
+    .filter((take) => !take.segment_signature || take.segment_signature === signature);
+}
+
+function takeMedia(project, path) {
+  return `/api/projects/${project.id}/media/${String(path || "").replace(/^\/+/, "")}`;
+}
+
+function takeRail(project, row, index, isSeam, status) {
+  if (isSeam) {
+    return `<div class="take-rail take-disabled"><span>seam 模式整条生成，不支持单段选片</span></div>`;
+  }
+  const takes = visibleTakes(project, row);
+  const selected = takes.find((take) => take.take_id === row.selected_take)
+    || takes[takes.length - 1];
+  const running = status === "running" || state.currentSegment === index;
+  const poster = selected?.thumb
+    ? `<img src="${takeMedia(project, selected.thumb)}" alt="" loading="lazy" decoding="async">`
+    : `<span class="take-poster-empty"><svg><use href="#i-film"/></svg></span>`;
+  const current = selected ? `
+    <div class="take-current ${running ? "busy" : ""}" data-act="open-take" data-index="${index}" data-take="${escapeHtml(selected.take_id)}" title="点击预览 / 切换片段">
+      <div class="take-poster">
+        ${poster}
+        <span class="take-play"><svg><use href="#i-play"/></svg></span>
+        <span class="take-label">${takes.length > 1 ? `第 ${takes.indexOf(selected) + 1} / ${takes.length} 条` : "已生成片段"}</span>
+        <span class="take-selected">使用中</span>
+      </div>
+      ${running ? '<div class="take-busy"><span class="spinner"></span>生成中…</div>' : ""}
+    </div>` : `
+    <div class="take-current empty ${running ? "busy" : ""}">
+      <div class="take-poster">
+        <span class="take-poster-empty"><svg><use href="#i-film"/></svg></span>
+        <span class="take-label">尚未生成片段</span>
+      </div>
+      ${running ? '<div class="take-busy"><span class="spinner"></span>生成中…</div>'
+        : `<button class="btn ghost sm take-generate" data-act="regen" data-index="${index}">生成这一段</button>`}
+    </div>`;
+  const strip = takes.length > 1 ? `
+    <div class="take-strip">
+      ${takes.map((take, order) => `
+        <button class="take-thumb ${take.take_id === selected?.take_id ? "active" : ""}"
+          data-act="open-take" data-index="${index}" data-take="${escapeHtml(take.take_id)}"
+          title="第 ${order + 1} 条 · ${Number(take.duration || 0).toFixed(1)}s · 点击预览 / 选用">
+          ${take.thumb ? `<img src="${takeMedia(project, take.thumb)}" alt="" loading="lazy" decoding="async">`
+            : '<span class="take-thumb-empty"><svg><use href="#i-film"/></svg></span>'}
+          <b>${order + 1}</b>
+          ${take.take_id === selected?.take_id ? '<i class="take-check">✓</i>' : ""}
+        </button>`).join("")}
+      <span class="take-count">共 ${takes.length} 条</span>
+    </div>` : (takes.length === 1
+      ? `<div class="take-strip single"><span class="take-count">共 1 条 · 重新生成会保留旧片段</span></div>` : "");
+  return `<div class="take-rail">${current}${strip}</div>`;
 }
 
 export function renderFinal() {
@@ -391,10 +457,12 @@ export function renderFinal() {
   const final = project?.final;
   const frame = $("#final-frame");
   const download = $("#btn-download");
+  const stale = $("#final-stale");
   if (!project || !final?.path) {
     frame.innerHTML = `<div class="final-empty"><svg><use href="#i-film"/></svg><span>生成完成后在此预览</span></div>`;
     download.hidden = true;
     $("#final-duration").textContent = "—";
+    if (stale) stale.hidden = true;
     return;
   }
   const source = `/api/projects/${project.id}/media/${final.path}?v=${Math.round(final.created || 0)}`;
@@ -402,6 +470,11 @@ export function renderFinal() {
   download.hidden = false;
   download.href = `/api/projects/${project.id}/download`;
   $("#final-duration").textContent = `${final.duration || 0}s · ${(final.bytes / 1024 / 1024).toFixed(1)}MB`;
+  if (stale) {
+    stale.hidden = !final.stale;
+    const text = $("#final-stale-text");
+    if (text) text.textContent = final.stale_reason || "分段选材已变更";
+  }
 }
 
 export function renderRun() {

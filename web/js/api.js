@@ -70,6 +70,11 @@ export const api = {
   mergeSegment: (id, index) => post(`/api/projects/${id}/segments/${index}/merge`, {}),
   generatePrompt: (id, index, llm) => post(`/api/projects/${id}/segments/${index}/prompt`, { llm }),
   generateAllPrompts: (id) => post(`/api/projects/${id}/prompts`, {}),
+  selectTake: (id, index, takeId) =>
+    post(`/api/projects/${id}/segments/${index}/takes/${encodeURIComponent(takeId)}/select`, {}),
+  deleteTake: (id, index, takeId) =>
+    del(`/api/projects/${id}/segments/${index}/takes/${encodeURIComponent(takeId)}`),
+  assemble: (id) => post(`/api/projects/${id}/assemble`, {}),
   recheck: (id) => post(`/api/projects/${id}/recheck`, {}),
   generate: (id, body) => post(`/api/projects/${id}/generate`, body),
   regenerate: (id, index, body) => post(`/api/projects/${id}/segments/${index}/regenerate`, body),

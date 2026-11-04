@@ -344,9 +344,13 @@
       <div class="final-frame" id="final-frame">
         <div class="final-empty"><svg><use href="#i-film"/></svg><span>生成完成后在此预览</span></div>
       </div>
+      <div class="final-stale hidden" id="final-stale">
+        <span id="final-stale-text">分段选材已变更</span>
+        <button class="btn primary sm" id="btn-assemble">重新合成成片</button>
+      </div>
       <div class="inline">
         <a class="btn ghost sm" id="btn-download" href="#" download hidden><svg><use href="#i-download"/></svg>下载成片</a>
-        <button class="btn ghost sm" id="btn-rebuild" disabled><svg><use href="#i-refresh"/></svg>重新拼接</button>
+        <button class="btn ghost sm" id="btn-rebuild" disabled><svg><use href="#i-refresh"/></svg>重新合成成片</button>
       </div>
     </section>
   </aside>
@@ -504,6 +508,33 @@
     <div class="modal-foot">
       <button class="btn ghost" id="creative-clear">清除</button>
       <button class="btn primary" data-close>完成</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-take" hidden>
+  <div class="modal-card wide take-modal-card">
+    <div class="modal-head">
+      <div>
+        <h2 id="take-title">选片</h2>
+        <p class="modal-sub" id="take-sub">—</p>
+      </div>
+      <button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="modal-body take-body">
+      <div class="take-player-wrap">
+        <video id="take-video" controls playsinline preload="metadata"></video>
+      </div>
+      <aside class="take-side">
+        <div class="take-info" id="take-info">—</div>
+        <div class="section-label">本段所有片段</div>
+        <div class="take-strip modal-strip" id="take-modal-strip"></div>
+        <div class="take-modal-actions">
+          <button class="btn primary" id="btn-take-select">选用此片段</button>
+          <button class="btn ghost" id="btn-take-delete">删除</button>
+        </div>
+        <p class="panel-note tiny">选用后成片不会自动重跑，点右侧「重新合成成片」用新选片段重新拼接；重新生成会保留旧片段。</p>
+      </aside>
     </div>
   </div>
 </div>

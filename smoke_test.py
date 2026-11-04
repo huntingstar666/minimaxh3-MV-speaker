@@ -28,6 +28,7 @@ os.environ["H3WB_DATA"] = str(DATA_DIR)
 sys.path.insert(0, str(ROOT))
 
 from backend import jobs as backend_jobs  # noqa: E402
+from backend import store as backend_store  # noqa: E402
 
 failures: list[str] = []
 
@@ -233,6 +234,94 @@ def main() -> int:
         ).raise_for_status()
         backups = list((DATA_DIR / "projects" / project_id).glob("project.json.bak-analyze-*"))
         check("重新分析前自动备份 project.json", bool(backups), f"{len(backups)} 份")
+
+        # 11) take 版本库：旧片段迁移、选用、删除、重新合成
+        project_dir = DATA_DIR / "projects" / project_id
+
+        def write_clip(index, name, payload=b"fake"):
+            folder = project_dir / "takes" / f"seg_{index:04d}"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / name
+            path.write_bytes(payload)
+            return str(path.relative_to(project_dir))
+
+        def add_take(take_id):
+            def apply(latest):
+                row = latest["segments"][0]
+                row.setdefault("takes", []).append({
+                    "take_id": take_id, "file": write_clip(0, f"{take_id}.mp4", b"fake"),
+                    "thumb": "", "created": time.time(),
+                    "frames": row.get("edit_frames") or 0,
+                    "generation_frames": row.get("generation_frames") or 0,
+                    "fps": row.get("fps") or 24, "duration": row.get("duration") or 0,
+                    "bytes": 4, "prompt_source": "manual", "prompt_text": take_id,
+                    "prompt_id": "", "seed": 1,
+                    "segment_signature": backend_jobs.segment_signature(row), "starred": False,
+                })
+            backend_store.mutate(project_id, apply)
+
+        def seed_legacy(latest):
+            for index, row in enumerate(latest.get("segments") or []):
+                row["output"] = write_clip(index, "clip.mp4")
+                row["takes"] = []
+                row.pop("selected_take", None)
+                row["status"] = "completed"
+            latest["final"] = None
+        backend_store.mutate(project_id, seed_legacy)
+        state = client.get(f"/api/projects/{project_id}").json()["project"]
+        check("旧 clip.mp4 迁移为 take_0001",
+              all(len(row.get("takes") or []) == 1 and row.get("selected_take") == "t_0001"
+                  for row in state["segments"]))
+
+        # 缩略图必须按段归属，不能被相同 take_id 串到别的段
+        for index in range(len(state["segments"])):
+            (project_dir / "takes" / f"seg_{index:04d}" / "clip.jpg").write_bytes(b"jpg")
+
+        def wrong_thumb(latest):
+            latest["segments"][0]["takes"][0]["thumb"] = "takes/seg_0001/clip.jpg"
+        backend_store.mutate(project_id, wrong_thumb)
+        state = client.get(f"/api/projects/{project_id}").json()["project"]
+        thumb = str(state["segments"][0]["takes"][0].get("thumb") or "").replace("\\", "/")
+        check("take 缩略图按段修正", thumb.endswith("seg_0000/clip.jpg"), thumb)
+
+        add_take("t_0002")
+        resp = client.post(f"/api/projects/{project_id}/segments/0/takes/t_0002/select")
+        check("选用历史片段", resp.status_code == 200
+              and resp.json()["project"]["segments"][0]["selected_take"] == "t_0002")
+        resp = client.delete(f"/api/projects/{project_id}/segments/0/takes/t_0002")
+        check("不能直接删除使用中的片段", resp.status_code == 400, str(resp.status_code))
+        resp = client.delete(f"/api/projects/{project_id}/segments/0/takes/t_0001")
+        check("可删除未使用的片段", resp.status_code == 200)
+
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg:
+            state = client.get(f"/api/projects/{project_id}").json()["project"]
+            for index, row in enumerate(state["segments"]):
+                path = project_dir / str(row["output"])
+                seconds = float(row.get("duration") or 1) + 1
+                subprocess.run([
+                    ffmpeg, "-y", "-v", "error", "-f", "lavfi",
+                    "-i", "color=c=0x202830:s=64x64:r=24", "-t", f"{seconds:.3f}",
+                    "-pix_fmt", "yuv420p", str(path)], check=True)
+            resp = client.post(f"/api/projects/{project_id}/assemble")
+            check("启动重新合成", resp.status_code == 200
+                  and resp.json()["run"]["status"] in {"running", "queued"})
+            run = {}
+            for _ in range(180):
+                run = client.get(f"/api/projects/{project_id}/run").json()["run"]
+                if run.get("status") in {"completed", "failed", "cancelled"}:
+                    break
+                time.sleep(0.5)
+            check("重新合成成功", run.get("status") == "completed",
+                  str(run.get("error") or run.get("message")))
+            state = client.get(f"/api/projects/{project_id}").json()["project"]
+            check("成片记录 take 指纹", bool((state.get("final") or {}).get("take_signature")))
+            add_take("t_0003")
+            client.post(f"/api/projects/{project_id}/segments/0/takes/t_0003/select").raise_for_status()
+            state = client.get(f"/api/projects/{project_id}").json()["project"]
+            check("换选片段后成片标记过期", bool((state.get("final") or {}).get("stale")))
+        else:
+            print("SKIP 重新合成测试（未找到 ffmpeg）")
     finally:
         if client:
             client.close()

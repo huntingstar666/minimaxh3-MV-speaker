@@ -171,6 +171,20 @@ def get_project(project_id: str) -> dict[str, Any]:
         project = store.get(project_id)
     except FileNotFoundError as error:
         raise HTTPException(404, "项目不存在。") from error
+    # 旧项目：把已有的 clip.mp4 迁移成第 1 条 take（只写一次）
+    if jobs.ensure_takes(project, project_id):
+        store.mutate(project_id, lambda latest: jobs.ensure_takes(latest, project_id))
+        project = store.get(project_id)
+    if jobs.fix_take_thumbs(project, project_id):
+        store.mutate(project_id, lambda latest: jobs.fix_take_thumbs(latest, project_id))
+        project = store.get(project_id)
+    if jobs.missing_take_thumbs(project, project_id):
+        jobs.schedule_take_thumbs(project_id)
+    final = project.get("final")
+    if isinstance(final, dict) and final.get("take_signature"):
+        if final["take_signature"] != jobs.take_signature(project):
+            final["stale"] = True
+            final["stale_reason"] = "分段选材已变更，请重新合成成片"
     project["run"] = jobs.runner.snapshot(project_id)
     return {"ok": True, "project": project}
 
@@ -643,6 +657,90 @@ def regenerate(project_id: str, index: int, payload: dict[str, Any] | None = Non
         raise HTTPException(404, str(error)) from error
     try:
         state = jobs.runner.start(project_id, {**(payload or {}), "only": [index], "force": [index]})
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "run": state}
+
+
+def _mark_final_stale(project: dict[str, Any]) -> None:
+    final = project.get("final")
+    if isinstance(final, dict):
+        final["stale"] = True
+        final["stale_reason"] = "分段选材已变更，请重新合成成片"
+
+
+@app.post("/api/projects/{project_id}/segments/{index}/takes/{take_id}/select")
+def select_take(project_id: str, index: int, take_id: str) -> dict[str, Any]:
+    """选用某一段的历史片段；成片标记为待重新合成。"""
+    project = store.get(project_id)
+    try:
+        row = store.find_segment(project, index)
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+    take = next((item for item in row.get("takes") or []
+                 if str(item.get("take_id")) == take_id), None)
+    if take is None:
+        raise HTTPException(404, "片段不存在。")
+    if str(take.get("segment_signature") or "") not in {"", jobs.segment_signature(row)}:
+        raise HTTPException(400, "切点已变更，这条历史片段不再适用。")
+    base = store.project_dir(project_id)
+    if not (base / str(take.get("file") or "")).is_file():
+        raise HTTPException(404, "片段文件已丢失。")
+
+    def apply(latest: dict[str, Any]) -> None:
+        target = store.find_segment(latest, index)
+        target["selected_take"] = take_id
+        target["output"] = take.get("file")
+        _mark_final_stale(latest)
+
+    saved = store.mutate(project_id, apply)
+    return {"ok": True, "project": saved}
+
+
+@app.delete("/api/projects/{project_id}/segments/{index}/takes/{take_id}")
+def delete_take(project_id: str, index: int, take_id: str) -> dict[str, Any]:
+    project = store.get(project_id)
+    try:
+        row = store.find_segment(project, index)
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+    takes = row.get("takes") or []
+    take = next((item for item in takes if str(item.get("take_id")) == take_id), None)
+    if take is None:
+        raise HTTPException(404, "片段不存在。")
+    if take_id == row.get("selected_take") and len(takes) > 1:
+        raise HTTPException(400, "请先选用其他片段，再删除当前使用的片段。")
+
+    def apply(latest: dict[str, Any]) -> None:
+        target = store.find_segment(latest, index)
+        target["takes"] = [item for item in target.get("takes") or []
+                           if str(item.get("take_id")) != take_id]
+        if target.get("selected_take") == take_id:
+            target["selected_take"] = None
+            target["output"] = None
+            if not target["takes"]:
+                target["status"] = "idle"
+                target["finished"] = None
+        _mark_final_stale(latest)
+
+    saved = store.mutate(project_id, apply)
+    for key in ("file", "thumb"):
+        path = store.project_dir(project_id) / str(take.get(key) or "")
+        try:
+            if str(take.get(key) or ""):
+                path.unlink()
+        except OSError:
+            pass
+    return {"ok": True, "project": saved}
+
+
+@app.post("/api/projects/{project_id}/assemble")
+def assemble_project(project_id: str) -> dict[str, Any]:
+    """按当前选中的片段重新拼接成片（不跑 ComfyUI，只走 ffmpeg）。"""
+    try:
+        state = jobs.runner.assemble(project_id)
+    except FileNotFoundError as error:
+        raise HTTPException(404, "项目不存在。") from error
     except Exception as error:  # noqa: BLE001
         raise HTTPException(400, str(error)) from error
     return {"ok": True, "run": state}

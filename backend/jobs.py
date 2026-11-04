@@ -22,6 +22,165 @@ from . import (audio, comfy, director, frames, llm, media, prompts, seam, segmen
 
 GPU_LOCK = threading.Lock()
 
+MAX_TAKES_PER_SEGMENT = 10
+_thumb_jobs: set[str] = set()
+_thumb_lock = threading.Lock()
+
+
+def segment_signature(row: dict[str, Any]) -> str:
+    """分段身份：起止帧。切点变了旧 take 就不再适用。"""
+    return f"{int(row.get('start_frame') or 0)}-{int(row.get('end_frame') or 0)}"
+
+
+def take_signature(project: dict[str, Any]) -> str:
+    """当前所有段选中 take 的指纹，用来判断成片是否已过期。"""
+    parts = [f"{index}:{row.get('selected_take') or ''}"
+             for index, row in enumerate(project.get("segments") or [])]
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def _take_paths(project_id: str, take: dict[str, Any]) -> list[Path]:
+    base = store.project_dir(project_id)
+    paths = []
+    for key in ("file", "thumb"):
+        value = str(take.get(key) or "").strip()
+        if value:
+            paths.append(base / value)
+    return paths
+
+
+def _trim_takes(project_id: str, row: dict[str, Any], keep_id: str | None = None) -> None:
+    """每段最多保留 MAX_TAKES_PER_SEGMENT 条：不删选中项和星标项。"""
+    takes = row.get("takes") or []
+    while len(takes) > MAX_TAKES_PER_SEGMENT:
+        selected = row.get("selected_take") or keep_id
+        victim = next((take for take in takes
+                       if take.get("take_id") not in {selected, keep_id}
+                       and not take.get("starred")), None)
+        if victim is None:
+            return
+        takes.remove(victim)
+        for path in _take_paths(project_id, victim):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def ensure_takes(project: dict, project_id: str) -> bool:
+    """旧项目兼容：把已有 clip.mp4 迁移成第 1 条 take。返回是否有改动。"""
+    changed = False
+    base = store.project_dir(project_id)
+    for index, row in enumerate(project.get("segments") or []):
+        takes = row.get("takes")
+        if isinstance(takes, list) and takes:
+            continue
+        output = str(row.get("output") or "").strip()
+        candidate = base / output if output else base / "takes" / f"seg_{index:04d}" / "clip.mp4"
+        if not candidate.is_file():
+            continue
+        relative = str(candidate.relative_to(base))
+        thumb = candidate.with_suffix(".jpg")
+        row["takes"] = [{
+            "take_id": "t_0001",
+            "file": relative,
+            "thumb": str(thumb.relative_to(base)) if thumb.is_file() else "",
+            "created": candidate.stat().st_mtime,
+            "frames": int(row.get("edit_frames") or 0),
+            "generation_frames": int(row.get("generation_frames") or 0),
+            "fps": int(row.get("fps") or frames.FPS),
+            "duration": float(row.get("duration") or 0),
+            "bytes": candidate.stat().st_size,
+            "prompt_source": str(row.get("prompt_source") or ""),
+            "prompt_text": str(row.get("prompt_text") or ""),
+            "prompt_id": str(row.get("prompt_id") or ""),
+            "seed": None,
+            "segment_signature": segment_signature(row),
+            "starred": False,
+            "legacy": True,
+        }]
+        row["selected_take"] = "t_0001"
+        row["output"] = relative
+        changed = True
+    final = project.get("final")
+    if changed and isinstance(final, dict) and not final.get("take_signature"):
+        final["take_signature"] = take_signature(project)
+    return changed
+
+
+def missing_take_thumbs(project: dict, project_id: str) -> bool:
+    base = store.project_dir(project_id)
+    for row in project.get("segments") or []:
+        for take in row.get("takes") or []:
+            if not take.get("thumb") or not (base / str(take["thumb"])).is_file():
+                return True
+    return False
+
+
+def schedule_take_thumbs(project_id: str) -> None:
+    """后台给旧片段补缩略图，避免在 GET 项目时阻塞。"""
+    with _thumb_lock:
+        if project_id in _thumb_jobs:
+            return
+        _thumb_jobs.add(project_id)
+    threading.Thread(target=_generate_take_thumbs, args=(project_id,),
+                     name=f"thumbs-{project_id[:8]}", daemon=True).start()
+
+
+def _generate_take_thumbs(project_id: str) -> None:
+    try:
+        project = store.get(project_id)
+        base = store.project_dir(project_id)
+        updates: dict[tuple[int, str], str] = {}
+        for index, row in enumerate(project.get("segments") or []):
+            for take in row.get("takes") or []:
+                if take.get("thumb") and (base / str(take["thumb"])).is_file():
+                    continue
+                source = base / str(take.get("file") or "")
+                if not source.is_file():
+                    continue
+                thumb = source.with_suffix(".jpg")
+                try:
+                    media.thumbnail(source, thumb, 0.5)
+                except Exception:  # noqa: BLE001
+                    continue
+                if thumb.is_file():
+                    updates[(index, str(take.get("take_id")))] = str(thumb.relative_to(base))
+        if not updates:
+            return
+
+        def apply(latest: dict[str, Any]) -> None:
+            for index, row in enumerate(latest.get("segments") or []):
+                for take in row.get("takes") or []:
+                    thumb = updates.get((index, str(take.get("take_id"))))
+                    if thumb:
+                        take["thumb"] = thumb
+        store.mutate(project_id, apply)
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        with _thumb_lock:
+            _thumb_jobs.discard(project_id)
+
+
+def fix_take_thumbs(project: dict, project_id: str) -> bool:
+    """历史上 take_id 在每个段内都从 t_0001 开始，修正旧版按 take_id 全局映射写错的缩略图。"""
+    base = store.project_dir(project_id)
+    changed = False
+    for row in project.get("segments") or []:
+        for take in row.get("takes") or []:
+            if not take.get("legacy"):
+                continue
+            source = base / str(take.get("file") or "")
+            expected = source.with_suffix(".jpg")
+            if not expected.is_file():
+                continue
+            value = str(expected.relative_to(base))
+            if str(take.get("thumb") or "") != value:
+                take["thumb"] = value
+                changed = True
+    return changed
+
 
 class JobRunner:
     def __init__(self) -> None:
@@ -60,7 +219,8 @@ class JobRunner:
     RUNNER_PROJECT_FIELDS = ("generation", "refs", "final")
     RUNNER_SEGMENT_FIELDS = ("status", "error", "output", "started", "finished",
                              "prompt_id", "prompt_text", "generation_frames",
-                             "generation_seconds", "fps", "edit_frames")
+                             "generation_seconds", "fps", "edit_frames",
+                             "takes", "selected_take")
     RUNNER_PROMPT_FIELDS = ("final_prompt", "prompt_source", "prompt_key",
                             "prompt_warnings", "prompt_overlays", "prompt_stale",
                             "prompt_stale_reason")
@@ -211,6 +371,8 @@ class JobRunner:
             self.active_project = project_id
             self._update(project_id, status="running", stage="prepare", message="准备素材")
             project = store.get(project_id)
+            if ensure_takes(project, project_id):
+                store.save(project)
             self._generation_baseline[project_id] = json.loads(
                 json.dumps(project.get("generation") or {}))
             generation = self._resolve_generation(project, options)
@@ -235,15 +397,15 @@ class JobRunner:
             results: dict[int, Path] = {}
             for index, row in enumerate(segments):
                 if only and int(index) not in force:
-                    results[int(index)] = self._existing_clip(project_id, int(index))
+                    results[int(index)] = self._selected_clip(project_id, project, int(index))
                     continue
                 if row.get("status") == "completed" and int(index) not in force:
-                    results[int(index)] = self._existing_clip(project_id, int(index))
+                    results[int(index)] = self._selected_clip(project_id, project, int(index))
                     continue
                 if self.cancel_events[project_id].is_set():
                     raise comfy.ComfyError("任务已取消。")
                 self._generate_segment(project_id, project, int(index), generation, refs, total)
-                results[int(index)] = self._existing_clip(project_id, int(index))
+                results[int(index)] = self._selected_clip(project_id, project, int(index))
             missing = [index + 1 for index in range(total) if not results.get(index)]
             if missing:
                 self._update(project_id, status="partial", stage="assemble",
@@ -392,7 +554,7 @@ class JobRunner:
                           total: int) -> None:
         row = store.find_segment(project, index)
         prompt_before = str(row.get("final_prompt") or "")
-        row.update(status="running", error=None, output=None, started=time.time())
+        row.update(status="running", error=None, started=time.time())
         self._commit(project_id, project)
         base = index / total
         span = 1 / total
@@ -454,17 +616,87 @@ class JobRunner:
         if not video_file:
             raise comfy.ComfyError("ComfyUI 没有返回视频文件。")
         data = comfy.view(video_file["filename"], video_file["subfolder"], video_file["kind"])
-        clip_path = folder / "clip.mp4"
-        clip_path.write_bytes(data)
-        row.update(status="completed", output=str(clip_path.relative_to(store.project_dir(project_id))),
-                   finished=time.time(), prompt_id=prompt_id, prompt_text=prompt_text)
+        take = self._store_take(project_id, project, index, row, data, prompt_text)
+        row.update(status="completed", output=take["file"], finished=time.time(),
+                   prompt_id=prompt_id, prompt_text=prompt_text)
         self._commit(project_id, project, {index: prompt_before})
         self._log(project_id, f"第 {index + 1} 段完成（{len(data) / 1024 / 1024:.1f} MB）")
         self._update(project_id, progress=round(base + span, 4))
 
-    def _existing_clip(self, project_id: str, index: int) -> Path | None:
-        folder = store.project_dir(project_id) / "takes" / f"seg_{index:04d}" / "clip.mp4"
-        return folder if folder.is_file() else None
+    def _store_take(self, project_id: str, project: dict, index: int, row: dict,
+                    data: bytes, prompt_text: str) -> dict[str, Any]:
+        """把本次生成的视频存成独立 take，并自动选用最新一条（旧 take 保留可选）。"""
+        base = store.project_dir(project_id)
+        folder = base / "takes" / f"seg_{index:04d}"
+        folder.mkdir(parents=True, exist_ok=True)
+        existing = {str(item.get("take_id") or "") for item in row.get("takes") or []}
+        number = len(row.get("takes") or []) + 1
+        while f"t_{number:04d}" in existing:
+            number += 1
+        take_id = f"t_{number:04d}"
+        file = folder / f"{take_id}.mp4"
+        temp = folder / f"{take_id}.part"
+        temp.write_bytes(data)
+        temp.replace(file)
+        thumb = folder / f"{take_id}.jpg"
+        thumb_rel = ""
+        try:
+            media.thumbnail(file, thumb, 0.6)
+            if thumb.is_file():
+                thumb_rel = str(thumb.relative_to(base))
+        except Exception:  # noqa: BLE001  缩略图失败不影响 take 本身
+            thumb_rel = ""
+        record = {
+            "take_id": take_id,
+            "file": str(file.relative_to(base)),
+            "thumb": thumb_rel,
+            "created": time.time(),
+            "frames": int(row.get("edit_frames") or 0),
+            "generation_frames": int(row.get("generation_frames") or 0),
+            "fps": int(row.get("fps") or frames.FPS),
+            "duration": float(row.get("duration") or 0),
+            "bytes": len(data),
+            "prompt_source": str(row.get("prompt_source") or ""),
+            "prompt_text": prompt_text,
+            "prompt_id": str(row.get("prompt_id") or ""),
+            "seed": int((project.get("generation") or {}).get("seed") or 0),
+            "segment_signature": segment_signature(row),
+            "starred": False,
+        }
+
+        def apply(latest: dict[str, Any]) -> None:
+            segments = latest.get("segments") or []
+            if not 0 <= index < len(segments):
+                return
+            target = segments[index]
+            if segment_signature(target) != record["segment_signature"]:
+                return  # 分段已被重建，这条 take 不对应当前切点，不写入
+            takes = target.setdefault("takes", [])
+            takes.append(record)
+            target["selected_take"] = take_id
+            target["output"] = record["file"]
+            _trim_takes(project_id, target)
+
+        store.mutate(project_id, apply)
+        row.setdefault("takes", []).append(record)
+        row["selected_take"] = take_id
+        row["output"] = record["file"]
+        return record
+
+    def _selected_clip(self, project_id: str, project: dict, index: int) -> Path | None:
+        """当前选中 take 的文件；旧项目回退到 clip.mp4。"""
+        base = store.project_dir(project_id)
+        try:
+            row = store.find_segment(project, index)
+        except ValueError:
+            return None
+        output = str(row.get("output") or "").strip()
+        if output:
+            path = base / output
+            if path.is_file():
+                return path
+        legacy = base / "takes" / f"seg_{index:04d}" / "clip.mp4"
+        return legacy if legacy.is_file() else None
 
     def _seam_materials(self, project: dict, ref_names: dict[int, str]) -> tuple[
             list[dict[str, Any]], list[list[str]]]:
@@ -594,9 +826,51 @@ class JobRunner:
         self._update(project_id, status="completed", stage="done", progress=1.0,
                      message="成片已完成（seam）", finished=time.time())
 
-    def _assemble(self, project_id: str, project: dict) -> None:
+    def assemble(self, project_id: str) -> dict[str, Any]:
+        """只重新拼接成片（不跑 ComfyUI）；用于换选片段后快速重合成。"""
+        with self.lock:
+            existing = self.jobs.get(project_id)
+            if existing and existing.get("status") in {"queued", "running"}:
+                raise RuntimeError("该项目已有任务在运行，请先等待或停止。")
+            if self.active_project and self.active_project != project_id:
+                raise RuntimeError("GPU 正在处理其他项目，请稍后再合成。")
+            project = store.get(project_id)
+            segments = project.get("segments") or []
+            if not segments:
+                raise ValueError("没有可合成的分段。")
+            job = {
+                "job_id": hashlib.sha1(f"{project_id}assemble{time.time()}".encode()).hexdigest()[:12],
+                "project_id": project_id, "status": "running", "stage": "assemble",
+                "progress": 0.0, "segment": -1, "message": "准备重新合成",
+                "logs": [], "started": time.time(), "finished": None, "error": None,
+                "options": {"assemble": True},
+            }
+            self.jobs[project_id] = job
+            self.cancel_events[project_id] = threading.Event()
+        self._update(project_id, status="running", stage="assemble", segment=-1,
+                     message="准备重新合成")
+        threading.Thread(target=self._run_assemble, args=(project_id,),
+                         name=f"assemble-{project_id[:8]}", daemon=True).start()
+        return self.snapshot(project_id)
+
+    def _run_assemble(self, project_id: str) -> None:
+        try:
+            project = store.get(project_id)
+            ensure_takes(project, project_id)
+            segments = project.get("segments") or []
+            for index in range(len(segments)):
+                if not self._selected_clip(project_id, project, index):
+                    raise ValueError(f"第 {index + 1} 段缺少已选片段，请先生成。")
+            self._assemble(project_id, project)
+        except Exception as error:  # noqa: BLE001
+            self._update(project_id, status="failed", stage="error", error=str(error),
+                         finished=time.time(), message=str(error)[:300])
+
+    def _assemble(self, project_id: str, project: dict | None = None) -> None:
         self._update(project_id, stage="assemble", status="running", message="归一化并拼接分段",
                      progress=0.92)
+        # 用磁盘上的最新数据，保证用的是用户刚选中的 take
+        project = store.get(project_id)
         directory = store.project_dir(project_id)
         segments = project.get("segments") or []
         output_fps = int((project.get("generation") or {}).get("output_fps") or frames.FPS)
@@ -607,7 +881,7 @@ class JobRunner:
         total_frames = 0
         previous_out = 0
         for index, row in enumerate(segments):
-            source = self._existing_clip(project_id, index)
+            source = self._selected_clip(project_id, project, index)
             if not source:
                 raise ValueError(f"第 {index + 1} 段缺少视频。")
             target = work / f"seg_{index:04d}.mp4"
@@ -634,6 +908,7 @@ class JobRunner:
             "bytes": final_path.stat().st_size,
             "created": time.time(),
             "segments": len(segments),
+            "take_signature": take_signature(project),
         }
         self._commit(project_id, project)
         self._log(project_id, "成片拼接完成")
@@ -823,7 +1098,8 @@ def apply_boundaries(project_id: str, cut_frames: list[int]) -> dict[str, Any]:
     keep_fields = ("brief", "final_prompt", "prompt_source", "prompt_key",
                    "prompt_warnings", "prompt_text", "prompt_stale",
                    "prompt_stale_reason", "prompt_overlays", "note", "lyrics", "motion",
-                   "output", "status", "prompt_id", "finished")
+                   "output", "status", "prompt_id", "finished",
+                   "takes", "selected_take")
     for row in rows:
         span = (row["start_frame"], row["end_frame"])
         old = by_range.get(span)
