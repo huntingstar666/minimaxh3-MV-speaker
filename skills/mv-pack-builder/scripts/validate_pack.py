@@ -162,10 +162,12 @@ def main() -> int:
         target = numbered(project.get("target_seconds", 11), "project.target_seconds")
         maximum = numbered(project.get("max_seconds", 15), "project.max_seconds")
         if target is not None and maximum is not None:
-            if not 5 <= target <= 15 or not 5 <= maximum <= 15:
-                fail("target_seconds / max_seconds 必须在 5–15")
+            if not 5 <= target <= 30 or not 5 <= maximum <= 30:
+                fail("target_seconds / max_seconds 必须在 5–30")
             elif target > maximum:
                 fail("target_seconds 不能大于 max_seconds")
+            elif maximum > 15:
+                warn("最长段长超过 15s：H3 推荐单段 ≤15s，仅高配置机器在用户确认后使用")
     timeline = manifest.get("timeline") or {}
     cuts = timeline.get("cuts_seconds") or []
     if not isinstance(cuts, list):
@@ -180,8 +182,7 @@ def main() -> int:
                 fail("cuts_seconds 必须严格递增")
             if value < 3:
                 fail(f"cut {value}s 太早（首段至少 3 秒）")
-            last = value
-    if getattr(args, "require_cuts", False) and not cuts:
+            last = value    if getattr(args, "require_cuts", False) and not cuts:
         fail("设计稿模式要求 timeline.cuts_seconds 不为空")
     segments = manifest.get("segments") or []
     if not isinstance(segments, list):

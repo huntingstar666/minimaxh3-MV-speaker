@@ -1,4 +1,5 @@
-"""动态规划分段：优先落在低人声区/分句间隙/段落边界，并保证 3–15 秒完整覆盖。
+"""动态规划分段：优先落在低人声区/分句间隙/段落边界，并保证 3–30 秒完整覆盖
+（默认建议单段 15 秒以内，高配置可放宽到 30 秒）。
 
 逻辑移植自 H3 长视频节点的分段器，去掉了对 ComfyUI 运行时与 ASR 的强依赖：
 没有 ASR 时只使用声学证据，仍然可以正常切分。
@@ -38,8 +39,8 @@ def _script_lines(script: str) -> list[str]:
 def segment(audio: np.ndarray, sr: int, transcript: dict[str, Any] | None,
             mode: str, maximum: float, target: float,
             script: str = "") -> tuple[list[dict], dict[str, Any]]:
-    if not 5 <= maximum <= 15 or not 5 <= target <= maximum:
-        raise ValueError("请设置 5 ≤ 目标时长 ≤ 最长时长 ≤ 15 秒。")
+    if not 5 <= maximum <= 30 or not 5 <= target <= maximum:
+        raise ValueError("请设置 5 ≤ 目标时长 ≤ 最长时长 ≤ 30 秒（单段建议 15 秒以内，高配置可放宽）。")
     duration = len(audio) / sr
     starts, db = audio_utils.envelope(audio, sr)
     transcript = transcript or {}

@@ -416,6 +416,23 @@ def main() -> int:
         bad = client.post("/api/projects/import", files={
             "package": ("bad.zip", b"not a zip", "application/zip")})
         check("非法包被拒绝", bad.status_code == 400, str(bad.status_code))
+
+        # 13) 最长段长上限从 15s 放宽到 30s
+        long_project = client.post("/api/projects", data={"name": "长段测试"}, files={
+            "audio": ("long.wav", (DATA_DIR / "smoke.wav").read_bytes(), "audio/wav")}).json()["project"]
+        long_resp = client.post(f"/api/projects/{long_project['id']}/analyze", json={
+            "mode": "singing", "target_seconds": 15, "max_seconds": 30,
+            "script": "", "use_asr": False})
+        check("支持 30s 最长段长",
+              long_resp.status_code == 200
+              and long_resp.json()["project"].get("max_seconds") == 30,
+              f"{long_resp.status_code} {long_resp.text[:160]}")
+        too_long = client.post(f"/api/projects/{long_project['id']}/analyze", json={
+            "mode": "singing", "target_seconds": 15, "max_seconds": 31,
+            "script": "", "use_asr": False})
+        check("超过 30s 的最长段长被拒绝", too_long.status_code == 400,
+              f"{too_long.status_code} {too_long.text[:160]}")
+        client.delete(f"/api/projects/{long_project['id']}")
     finally:
         if client:
             client.close()

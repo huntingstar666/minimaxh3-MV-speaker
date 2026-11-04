@@ -154,9 +154,9 @@ def validate_manifest(manifest: Any) -> dict[str, Any]:
     if not isinstance(project, dict):
         raise PackError("project 必须是对象。")
     if "target_seconds" in project:
-        _number(project["target_seconds"], "project.target_seconds", 3, 30)
+        _number(project["target_seconds"], "project.target_seconds", 5, 30)
     if "max_seconds" in project:
-        _number(project["max_seconds"], "project.max_seconds", 3, 60)
+        _number(project["max_seconds"], "project.max_seconds", 5, 30)
     segments = manifest.get("segments") or []
     if not isinstance(segments, list) or len(segments) > 200:
         raise PackError("segments 必须是最多 200 条的数组。")
@@ -196,8 +196,8 @@ def _apply_project_fields(project: dict[str, Any], manifest: dict[str, Any]) -> 
     for key in ("script", "material_note", "prompt_rule", "style", "filter"):
         if key in source:
             project[key] = str(source.get(key) or "")
-    target = _number(source.get("target_seconds", 11), "project.target_seconds", 5, 15)
-    maximum = _number(source.get("max_seconds", max(target, 15)), "project.max_seconds", 5, 15)
+    target = _number(source.get("target_seconds", 11), "project.target_seconds", 5, 30)
+    maximum = _number(source.get("max_seconds", max(target, 15)), "project.max_seconds", 5, 30)
     if target > maximum:
         raise PackError("project.target_seconds 不能大于 max_seconds。")
     project["target_seconds"], project["max_seconds"] = round(target, 3), round(maximum, 3)

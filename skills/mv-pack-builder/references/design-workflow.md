@@ -23,12 +23,13 @@
   `dump_design.py` 导出草稿后**人工调整切点**，让切点落在乐句、鼓点、气口、段落交界。
 - 离线：用户给 LRC/时间戳最好；没有就按歌词句数与歌曲结构估算，但要在确认阶段
   给用户看时间表。
-- 分段规则：3–15 秒（建议 5–15）；不要切在字中间；长音/副歌可以保留完整乐句；
-  段落交界优先落在低能量/气口。
+- 分段规则：一般 3–15 秒（推荐 5–15）；特殊段落可放宽到 30 秒，但必须在设计审阅时
+  与用户确认；不要切在字中间；长音/副歌可以保留完整乐句；段落交界优先落在低能量/气口。
 
 ### 数字人（speaking）
 
-- 按口播稿的**语义段落/句群/停顿**分段，3–15 秒；长句可拆，但不要断在词中间。
+- 按口播稿的**语义段落/句群/停顿**分段，一般 3–15 秒；特殊长句最多 30 秒且需用户确认；
+  长句可拆，但不要断在词中间。
 - 重点句/产品点单独成段；每段一句话任务。
 - 确定哪些句用 talking head（performance）、哪些句配 b-roll/空镜（environment）或
   氛围/反应镜头（atmosphere）。
@@ -64,6 +65,36 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 01 | 0–11.8 | … | 前奏建立 | 中景/正面 | 后移 | 静立演唱 | 浅蓝房间 | 图1/2/3 | opening/low |
 
+## 2.5 画面设计审阅（Checkpoint B，强制）
+
+**画面设计完成后先停在这里，不要直接写提示词。** 把以下材料交给用户审阅：
+
+1. 方向：主题/角色/场景/视觉母题/风格滤镜；
+2. 分镜表：每段的时间、歌词/台词、段意、景别/机位/运镜、主体动作、场景/道具、参考图；
+3. 切点表：为什么在这些位置切（乐句/气口/段落）；
+4. 需要放宽到 15–30 秒的特殊段落，单独标出并说明原因；
+5. 可选：参考图截图/风格参考，帮助用户判断画面。
+
+主动问用户：
+
+- 故事/画面是否符合预期？哪一段不对？
+- 景别、机位、动作、节奏有没有要改的？
+- 参考图用法/角色是否准确？场景/服装/道具有没有缺？
+- 有没有不想出现的元素/镜头/姿势？
+- 每个段落的画面任务是否清楚，还是太抽象？
+
+把意见逐条落到 `design.json`/`design.md`，修改后**再次确认**。通过标准是用户明确
+表示“可以/没问题/按这个做”；未通过不允许写 `final_prompt`、不允许打包。
+
+审阅记录写进 design.md：
+
+```text
+审阅轮次：第 1 轮
+用户意见：第 3 段镜头太远；副歌要看到抬手；不要出现文字
+修改：段 3 改中近景+右前 30°；段 5 增加抬手动作；提示词禁止可读文字
+结论：已确认（2026-11-05）
+```
+
 ## 3. 阶段三：逐段提示词
 
 每段写两份内容：
@@ -90,13 +121,12 @@
 **Checkpoint A：方向**
 - 主题/故事、角色、场景、风格/滤镜、画幅/帧率/拼接方式、参考图角色、是否出片。
 
-**Checkpoint B：分镜表**
-- 展示上面的分镜表（时间/歌词/段意/景别/动作/场景/参考图）；
-- 让用户逐段改；确定切点后再进入提示词。
+**Checkpoint B：画面设计审阅（见 2.5）**
+- 分镜表逐段审阅，听取意见并修改；通过后才写提示词。
 
 **Checkpoint C：提示词与参数**
 - 展示 2–3 个代表段的完整 `final_prompt`（至少开场、副歌/重点段、结尾）；
-- 说明风险（多人、文字、长口播、seam、GPU 时间）；
+- 说明风险（多人、文字、长口播、seam、GPU 时间、>15s 段落）；
 - 只有用户明确同意才进入出片。
 
 > 任何一次修改都要回到对应 Checkpoint 重新确认，不要跳过。
@@ -107,32 +137,38 @@
 
 1. 打**素材包**（只有音频/参考图/项目参数；不写 segments/cuts），导入；
 2. `dump_design.py` 导出 `design.json`（含自动切点、歌词、能量、镜头规划）；
-3. Agent 编辑 `design.json`：调整 `cuts_seconds`、逐段写 `design_intent/brief/
-   final_prompt/visual_type/motion`，补项目 style/filter/material_note/generation；
-   - **如果调整切点导致段数变化**：先把 `design.json` 的 `segments` 留空、只带
+3. Agent 先完成**画面设计**：调整 `cuts_seconds`、逐段写 `design_intent/brief/
+   visual_type/motion`，补项目 style/filter/material_note/generation，写 `design.md`；
+   - 如果调整切点导致段数变化：先把 `design.json` 的 `segments` 留空、只带
      `cuts_seconds` 应用（`apply_design.py` 会提示），再重新 `dump_design.py` 得到
      新分段，然后逐段填写；
-4. `apply_design.py` 应用 design → `--recheck` 校验 → 打印每段提示词状态；
-5. 导出完整包（`--export-out`），把 `design.md` 附加进包（`--design-doc`）；
-6. `validate_pack.py --require-prompts --require-cuts` 严格校验；
-7. 用户确认分镜/提示词 → 出片；先出 1 段给用户确认再批量。
+4. **Checkpoint B 审阅**：把 `design.md` 分镜表交用户审阅，听取意见并修改，
+   再次确认；
+5. 审阅通过后才写逐段 `final_prompt`；
+6. `apply_design.py` 应用 design → `--recheck` 校验 → 打印每段提示词状态；
+7. 导出完整包（`--export-out`），把 `design.md` 附加进包（`--design-doc`）；
+8. `validate_pack.py --require-prompts --require-cuts` 严格校验；
+9. **Checkpoint C** 确认提示词/参数后出片；先出 1 段给用户确认再批量。
 
 ### 离线（工作台不可用）
 
-1. 按 design 直接生成 `manifest.json`：写 `timeline.cuts_seconds` 和
+1. 先完成拆歌/拆稿与画面设计，写 `design.md` 分镜表；**Checkpoint B 用户审阅并修改**；
+2. 审阅通过后按 design 生成 `manifest.json`：写 `timeline.cuts_seconds` 和
    `segments[]`（每段 brief/final_prompt/visual_type/motion）；
-2. 写 `design.md`（分镜表与设计说明）放进包；
-3. `validate_pack.py --require-prompts --require-cuts` 校验后 `--zip`；
-4. 交付：拖进工作台即可生成，无需手工改提示词。
+3. 把 `design.md`（含审阅记录）放进包；
+4. `validate_pack.py --require-prompts --require-cuts` 校验后 `--zip`；
+5. 交付：拖进工作台即可生成，无需手工改提示词。
 
 ## 6. 完成标准（缺一不可）
 
 - [ ] 每个分段都有明确 `design_intent`（写进 design.md）与 brief；
+- [ ] 用户已完成画面设计审阅（Checkpoint B），意见已落实到设计并再次确认；
 - [ ] 每个分段都有完整 `final_prompt`，六段结构/`[Shot 1]`/参考图编号正确；
-- [ ] `timeline.cuts_seconds` 与设计一致，切点不在字中间、每段 3–15 秒；
+- [ ] `timeline.cuts_seconds` 与设计一致，切点不在字中间；一般每段 3–15 秒，
+      超过 15 秒的特殊段落已单独说明并确认；
 - [ ] 参考图角色正确（performer 1 张），提示词引用了本段所有参考图；
 - [ ] style/filter/material_note/prompt_rule/generation 已按确认填写；
-- [ ] 用户已确认分镜表和提示词；出片已授权；
+- [ ] 用户已确认分镜表、提示词与参数；出片已授权；
 - [ ] `validate_pack.py --require-prompts --require-cuts` 全 PASS；
 - [ ] design.md 与包一起交付。
 

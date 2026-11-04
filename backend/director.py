@@ -14,7 +14,7 @@ import numpy as np
 from .frames import FPS, frame_of_sample, to_frames, to_seconds
 from .segmenter import frames_for
 
-MAX_GENERATION_FRAMES = 480  # H3 实测可稳定生成的帧数上限
+MAX_GENERATION_FRAMES = 960  # 30s @ 30fps 约需 923 帧（5+17k）；默认单段仍建议 ≤15s
 
 MOVEMENTS = {"steady", "dolly_in", "dolly_out", "truck_left", "truck_right",
              "micro_reframe", "arc_left", "arc_right"}

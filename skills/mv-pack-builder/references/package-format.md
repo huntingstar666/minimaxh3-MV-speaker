@@ -88,7 +88,7 @@
 | `mode` | 否 | `singing`（演唱/MV，默认）或 `speaking`（口播） |
 | `audio` | 是 | 包内音频相对路径 |
 | `refs[]` | 否 | 最多 9 张；`role` 取值见下 |
-| `project.target_seconds` / `max_seconds` | 否 | 5–15 秒，默认 11 / 15；`target ≤ max` |
+| `project.target_seconds` / `max_seconds` | 否 | 5–30 秒，默认 11 / 15；`target ≤ max`；单段 15 秒内最稳，高配置可到 30 秒 |
 | `project.script` | 否 | 歌词 / 口播稿（也会填进左栏「歌词/台词」） |
 | `project.material_note` | 否 | 全片创作要求，对每段生效 |
 | `project.style` / `filter` | 否 | 全局风格 / 滤镜，会追加到提示词顶部 |
@@ -155,11 +155,13 @@
 “素材包”只保证能导入；**设计包**额外要求所有创作细节已经在包里确定，用户导入后
 不需要再改提示词即可生成：
 
-- `timeline.cuts_seconds` 明确（不在字中间、每段 3–15s）；
+- `timeline.cuts_seconds` 明确（不在字中间；一般每段 3–15s，特殊可到 30s 且需确认）；
 - `segments[]` 覆盖每一个分段，每段都有 `visual_type`、`brief`、`lyrics`、`motion`、
   `final_prompt`；
 - `project.style` / `filter` / `material_note` / `generation` 已按确认填写；
-- 包内附 `design.md`（分镜表、设计说明、风险），便于用户确认和后续复现。
+- **画面设计已经过用户审阅**（分镜表/画面任务/镜头/动作），意见落实后再写提示词；
+  `design.md` 里记录审阅轮次、用户意见、修改与结论；
+- 包内附 `design.md`（分镜表、设计说明、风险、审阅记录），便于用户确认和后续复现。
 
 可用严格校验：
 

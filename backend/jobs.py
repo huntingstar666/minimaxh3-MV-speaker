@@ -948,19 +948,27 @@ def analyze(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("模式必须是 singing 或 speaking。")
     # 用户在界面上填的是秒，这里一次性换算成帧，之后全程用帧
     def resolve_frames(key: str, fallback: float) -> int:
-        explicit = payload.get(f"{key}_frames") or project.get(f"{key}_frames")
+        # 入口明确给的帧 > 入口秒数（界面滑杆）> 项目里上次保存的值 > 默认值。
+        # 秒数必须能覆盖旧项目帧值，否则用户改滑杆后重新分析会一直用旧段长。
+        explicit = payload.get(f"{key}_frames")
         if explicit:
             return int(explicit)
         seconds = payload.get(f"{key}_seconds")
-        if seconds is None:
-            seconds = project.get(f"{key}_seconds", fallback)
-        return frames.to_frames(float(seconds))
+        if seconds is not None:
+            return frames.to_frames(float(seconds))
+        stored_frames = project.get(f"{key}_frames")
+        if stored_frames:
+            return int(stored_frames)
+        stored_seconds = project.get(f"{key}_seconds")
+        if stored_seconds is not None:
+            return frames.to_frames(float(stored_seconds))
+        return frames.to_frames(fallback)
 
     target_frames = resolve_frames("target", 11)
     max_frames = resolve_frames("max", 15)
-    minimum_frames, limit_frames = frames.to_frames(5), frames.to_frames(15)
+    minimum_frames, limit_frames = frames.to_frames(5), frames.to_frames(30)
     if not minimum_frames <= max_frames <= limit_frames or not minimum_frames <= target_frames <= max_frames:
-        raise ValueError("请设置 5 ≤ 目标时长 ≤ 最长时长 ≤ 15 秒。")
+        raise ValueError("请设置 5 ≤ 目标时长 ≤ 最长时长 ≤ 30 秒（单段建议 15 秒以内，高配置可放宽）。")
     target, maximum = frames.to_seconds(target_frames), frames.to_seconds(max_frames)
     project["mode"] = mode
     project["target_frames"] = target_frames
