@@ -1,8 +1,10 @@
 # H3 提示词规则（通用摘要）
 
 > **写 MV 提示词请以 [mv-prompt-format.md](mv-prompt-format.md) 为准**：那里有完整的
-> SYSTEM_GUARD 原文、六段逐节写法、MV 专属规则、完整示例和校验清单。本文件只是通用摘要；
-> 数字人模板见 [digital-human.md](digital-human.md)。
+> SYSTEM_GUARD 原文、六段逐节写法、MV 专属规则、完整示例和校验清单。本文件只是通用摘要。
+> **写数字人提示词请以 [digital-human/README.md](digital-human/README.md) 为准**：
+> 先选 A/B/C 三腔，再只读 `digital-human/voices/` 里对应的一份；数字人支持动态图形，
+> 全部 Ref2VA 六段式。
 
 工作台后端 `backend/prompts.py` 的 `SYSTEM_GUARD` 是权威版本；下面是制作 MV 包时
 手写 `segments[].final_prompt` 需要遵守的要点。

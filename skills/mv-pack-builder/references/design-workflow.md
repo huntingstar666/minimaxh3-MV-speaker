@@ -28,11 +28,16 @@
 
 ### 数字人（speaking）
 
+- 先选音频腔 A 音频驱动 / B 参考音色 / C 无音频参考（互斥，三选一；规则见
+  [digital-human/README.md](digital-human/README.md)）。
 - 按口播稿的**语义段落/句群/停顿**分段，一般 3–15 秒；特殊长句最多 30 秒且需用户确认；
   长句可拆，但不要断在词中间。
+- 语速按 5 书面字/秒（含标点）预算；每段统计字数并报告“N 字，约 X 秒”。
 - 重点句/产品点单独成段；每段一句话任务。
 - 确定哪些句用 talking head（performance）、哪些句配 b-roll/空镜（environment）或
   氛围/反应镜头（atmosphere）。
+- 设计动态图形节拍：触发词 / 入场 / 重音落定 / 可读停留 / 退场 / 干净恢复；
+  同时只保留一组主信息，图形不遮挡脸/口/眼/手/产品/麦克风。
 - 多人对话：按说话人拆音频/项目，不要试图让多人同框分别对口型。
 
 ### 分段表（必须产出）
@@ -141,16 +146,25 @@
 
 要求：
 
-- `visual_type=performance` 必须有 `<Audio 1>`，写自然口型/停顿/呼吸；
-- `atmosphere` 闭口、不声明 Audio；`environment` 不出现人物；
+- **MV（singing）**：
+  - `visual_type=performance` 必须有 `<Audio 1>`，写自然口型/停顿/呼吸；
+  - `atmosphere` 闭口、不声明 Audio；`environment` 不出现人物；
+  - 两个声音段必须字面 `N/A`；结尾必须有无字幕/水印声明；
+- **数字人（speaking）**：
+  - 按选定腔写 A/B/C：A/C 无 `<Audio N>`；B 定义 `<Audio 1>` + `audio reference` +
+    `<Audio 1>: reference`；
+  - 台词在 `<d>[中文] …</d>`；每段字数/目标语速已报告（5 字/秒）；
+  - 动态图形按节拍写入 `detailed_description`，每个图形有入场/停留/退场/干净恢复；
+  - 可见文案引号写死并声明字形/断行稳定；保护脸/口/眼/手/产品/麦克风；
+  - 结构 lint：`python scripts/validate_digital_human_prompt.py PROMPT --audio-mode runtime|reference|generated`；
 - `<Picture N>` 编号按本段实际用图顺序（1 开始），正文引用所有本段参考图；
-- 两个声音段必须字面 `N/A`；结尾必须有无字幕/水印声明；
 - 提示词要落实 brief 的景别/机位/动作/运镜/结束构图，不要另加镜头；
-- 风格/滤镜/本段运镜字段由工作台在生成时追加；若正文里已经写了，包内用
+- MV 的风格/滤镜/本段运镜字段由工作台在生成时追加；若正文里已经写了，包内用
   `prompt_overlays` 快照避免重复注入。
 
-提示词规则详见 [mv-prompt-format.md](mv-prompt-format.md)（MV 权威格式）与
-[prompt-rules.md](prompt-rules.md)；数字人模板见 [digital-human.md](digital-human.md)。
+提示词规则：MV 见 [mv-prompt-format.md](mv-prompt-format.md)；数字人见
+[digital-human/README.md](digital-human/README.md)，并只读选定的
+`digital-human/voices/A|B|C-*.md`；通用摘要 [prompt-rules.md](prompt-rules.md)。
 
 ## 4. 阶段四：与用户确认（必须）
 
@@ -204,6 +218,10 @@
       意见改并记录原方案；
 - [ ] 用户已完成画面设计审阅（Checkpoint B），意见已落实到设计并再次确认；
 - [ ] 每个分段都有完整 `final_prompt`，六段结构/`[Shot 1]`/参考图编号正确；
+- [ ] 数字人：已选 A/B/C 音频腔并只按对应 `voices/*.md` 写；A/C 无音频标签、
+      B 有 `<Audio 1>` + audio reference + reference 保留行、C 有 voice card；
+- [ ] 数字人：每段字数/目标语速已报告（5 字/秒）；动态图形每个都有入场/停留/退场/
+      干净恢复，不遮挡脸/口/眼/手/产品/麦克风；
 - [ ] `timeline.cuts_seconds` 与设计一致，切点不在字中间；一般每段 3–15 秒，
       超过 15 秒的特殊段落已单独说明并确认；
 - [ ] 参考图角色正确（performer 1 张），提示词引用了本段所有参考图；

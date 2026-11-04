@@ -81,7 +81,7 @@ def numbered(value, label):
 
 
 def check_prompt(text: str, label: str, visual_type: str = "performance",
-                 ref_count: int = 0) -> None:
+                 ref_count: int = 0, mode: str = "singing") -> None:
     value = str(text or "")
     positions = [value.find(name + ":") for name in HEADINGS]
     if any(position < 0 for position in positions):
@@ -97,10 +97,16 @@ def check_prompt(text: str, label: str, visual_type: str = "performance",
     pictures = {int(match) for match in re.findall(r"<Picture\s+(\d+)>", value)}
     if ref_count and any(not 1 <= number <= ref_count for number in pictures):
         fail(f"{label} 引用了不存在的 <Picture N>：{sorted(pictures)}（共 {ref_count} 张图）")
-    if visual_type == "performance" and "<Audio 1>" not in value:
-        fail(f"{label} performance 段必须声明 <Audio 1>")
-    if visual_type in {"atmosphere", "environment"} and "<Audio 1>" in value:
-        fail(f"{label} {visual_type} 段不应声明 <Audio 1>")
+    if mode == "singing":
+        if visual_type == "performance" and "<Audio 1>" not in value:
+            fail(f"{label} MV performance 段必须声明 <Audio 1>")
+        if visual_type in {"atmosphere", "environment"} and "<Audio 1>" in value:
+            fail(f"{label} {visual_type} 段不应声明 <Audio 1>")
+    else:
+        # 数字人三腔：A/C 无 <Audio N>，B 有 <Audio 1>，由 validate_digital_human_prompt.py 细查
+        if "<Audio 1>" not in value and not re.search(
+                r"平台运行时驱动音频|输入驱动语音|原生生成|成年女声|成年男声|中性声线", value):
+            warn(f"{label} 数字人提示词未能识别 A/B/C 音频腔标记，建议用专用 lint 检查")
     for heading in ("overall_soundscape", "non_diegetic_music"):
         index = HEADINGS.index(heading)
         start = positions[index]
@@ -147,6 +153,9 @@ def main() -> int:
 
     if not isinstance(manifest, dict):
         fail("manifest 必须是 JSON 对象")
+    mode = str(manifest.get("mode") or "singing")
+    if mode not in {"singing", "speaking"}:
+        fail("mode 必须是 singing / speaking")
     if manifest.get("schema") != SCHEMA:
         fail(f"schema 必须是 {SCHEMA}")
     if int(manifest.get("version") or 0) != VERSION:
@@ -221,7 +230,7 @@ def main() -> int:
         text = str(item.get("final_prompt") or "").strip()
         if text:
             check_prompt(text, f"segments[{index}].final_prompt",
-                         str(item.get("visual_type") or "performance"), len(refs))
+                         str(item.get("visual_type") or "performance"), len(refs), mode)
         if "index" not in item and ("start" not in item or "end" not in item):
             warn(f"segments[{index}] 没有 index/start/end，可能匹配不到分段")
         if "ref_ids" in item and item["ref_ids"] is not None:

@@ -1,6 +1,6 @@
 ---
 name: mv-pack-builder
-description: 为 H3 数字人·MV 工作台设计并制作可直接导入的 MV / 数字人口播包（.h3pack.zip）。技能包含完整的拆歌/拆稿、创意发散、素材缺口与补图建议、画面设计与分镜表、画面审阅与用户反馈迭代、逐段提示词创作、环境自检、包校验、导入和出片流程；产出的包每个分段都已设计好，用户导入即可生成，无需手动改提示词。
+description: 为 H3 数字人·MV 工作台设计并制作可直接导入的 MV / 数字人口播包（.h3pack.zip）。技能包含拆歌/拆稿、创意发散与补图建议、分镜/画面审阅、逐段提示词；数字人支持 A 音频驱动 / B 参考音色 / C 无音频参考三腔与口播动态图形导演，全部采用 Ref2VA 六段式；含环境自检、校验、导入和出片流程。
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
@@ -22,8 +22,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 创意扩展与补图规则见 [references/creative-expansion.md](references/creative-expansion.md)（必读）；
 包格式 [references/package-format.md](references/package-format.md)；
 **MV 提示词权威格式见 [references/mv-prompt-format.md](references/mv-prompt-format.md)（写 MV 必读）**；
-通用提示词规则 [references/prompt-rules.md](references/prompt-rules.md)；
-数字人专项 [references/digital-human.md](references/digital-human.md)。
+**数字人见 [references/digital-human/README.md](references/digital-human/README.md)（必读）**，
+三腔系统提示词在 `digital-human/voices/`（A/B/C 互斥，只读一份），
+动态图形导演方法与参考在 `digital-human/talking-head-director/`；
+数字人设计清单 [references/digital-human.md](references/digital-human.md)；
+通用提示词规则 [references/prompt-rules.md](references/prompt-rules.md)。
 
 > **创意优先，素材后置。** 初始参考图只是起点，不是创作边界。设计时先自由发散，
 > 再盘点缺什么参考图，主动向用户提出补图建议；用户采纳就补图，不采纳就按用户
@@ -55,8 +58,11 @@ python scripts/env_check.py --project <h3-workbench 目录>
    拼接（hard/seam）。
 5. **风格/滤镜/创作要求**：可从 `/api/creative-catalog` 选预设 prompt，也可自定义。
 6. **是否允许直接导入/出片**（出片占 GPU，必须单独确认）。
+7. **数字人必须选音频腔（三选一）**：A 音频驱动 / B 参考音色 / C 无音频参考。
+   用户没说清只问一次；选定后只按对应 `digital-human/voices/*.md` 写，三腔禁止混用。
 
-> Checkpoint A：把「主题/角色/场景/风格/画幅/参考图角色/是否出片」和用户确认后再设计。
+> Checkpoint A：把「主题/角色/场景/风格/画幅/参考图角色/是否出片/数字人音频腔」
+> 和用户确认后再设计。
 
 ## 2. 设计阶段（核心，不能跳过）
 
@@ -78,12 +84,32 @@ python scripts/env_check.py --project <h3-workbench 目录>
    交给用户逐段审阅，明确问：故事/画面是否对、哪段不对、镜头/动作/节奏/参考图
    要不要改、有没有不想出现的元素；记录意见并修改设计，修改后再次确认。
    **审阅未通过，不允许写 final_prompt、不允许打包。**
-6. **逐段提示词**：每段写 `brief`（六行中文）+ `final_prompt`（H3 六段英文），
-   参考图用 `<Picture N>`，performance 声明 `<Audio 1>`，声音两段 N/A，
-   无字幕/水印声明。**MV 必须严格按
-   [references/mv-prompt-format.md](references/mv-prompt-format.md) 的 SYSTEM_GUARD、
-   六段结构、示例和校验清单写；不要自创格式。**
+6. **逐段提示词**：每段写 `brief`（六行中文）+ `final_prompt`（H3 六段英文）。
+   - **MV（singing）**：严格按 [references/mv-prompt-format.md](references/mv-prompt-format.md)
+     写；`performance` 声明 `<Audio 1>`、声音两段 N/A、无字幕/水印声明；
+   - **数字人（speaking）**：严格按 [references/digital-human/README.md](references/digital-human/README.md)
+     与选定的 `digital-human/voices/*.md` 写；不要套用 MV 的音频规则：
+     - A 音频驱动：禁止一切 `<Audio N>`，声音字段写平台运行时驱动音频时间线；
+     - B 参考音色：定义 `<Audio 1>`、summary 写 `audio reference`、retention 写
+       `<Audio 1>: reference`，不复制波形与原话；
+     - C 无音频参考：禁止 `<Audio N>`，必须先写 10 维 voice card；
+     - 台词放 `<d>[中文] …</d>`；动态图形按节拍写入 `detailed_description`，
+       每个图形有入场/落定/停留/退场/干净恢复；可见文案引号写死并声明稳定。
 7. **Checkpoint C**：展示代表段的完整提示词、参数与风险；确认后才可出片。
+
+### 数字人分支补充（三腔 + 动态图形）
+
+- 语速预算：中文口播 5 书面字/秒（含标点，不含空格/标签），报告实际字数；
+  15 秒约 75 字（72–80 实用带）；冲突改文案或时长。
+- 语义节拍图：触发词、沟通职能、主/辅效果、锚点/深度、图形生命周期、说话人、
+  口/呼吸/姿态/手势准备与恢复。
+- 人物表演因果链：`attention target → internal intent → visible response → recovery`；
+  视线镜头优先、眨眼非周期、表情 onset→peak→partial release、口型贴音素与静默。
+- 动态图形生命周期：`准备 → 入场 → 重音落定 → 可读停留 → 强调（最多一次）→
+  退场 → 干净恢复`；同时只留 1 个主信息组，前组清空/同容器变形后才进下一组。
+- 效果系统六个“一”：字体语言、卡片材质、图标族、运动语法、主强调色（+最多一个辅色）、
+  入场方向/深度逻辑；一个语义节拍只用一个主族，不混搭无关美学。
+- 三腔提示词完整规则、示例、20 条自检见 `digital-human/voices/*.md`。
 
 **没有经过 A/B/C 三次确认、没有写完全部提示词，不允许进入打包交付。**
 
@@ -155,9 +181,10 @@ python scripts/env_check.py --project <h3-workbench 目录>
    创意按用户意见改，记录“原创意 → 用户选择 → 最终方案”。
 3. 审阅通过后，按设计结果直接写 `manifest.json`：`timeline.cuts_seconds` +
    `segments[]`（每段 design_intent 记进 design.md，brief/final_prompt/visual_type/
-   motion/lyrics 全填好；`<Picture N>` 按最终参考图顺序核对）。MV 的
-   `final_prompt` 按 [references/mv-prompt-format.md](references/mv-prompt-format.md)
-   逐段写，并用其中的校验清单自检。
+   motion/lyrics 全填好；`<Picture N>` 按最终参考图顺序核对）。
+   - MV 的 `final_prompt` 按 [references/mv-prompt-format.md](references/mv-prompt-format.md) 逐段写；
+   - 数字人的 `final_prompt` 按选定 `digital-human/voices/*.md` 的 Ref2VA 六段规则写，
+     并用 `validate_digital_human_prompt.py --audio-mode …` 自检。
 4. 写 `design.md`（分镜表/设计说明/创意缺口决策/用户审阅意见）一起放进包。
 5. 严格校验并打包：
 
@@ -182,12 +209,19 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - `refs[]` 是最终参考图集合；设计阶段可以增补，不要求最初就齐全。
 - `segments[]` 至少：`index`/`start`/`end`、`visual_type`、`brief`、`lyrics`、`motion`、
   `final_prompt`；有已合并风格/滤镜/运镜时带 `prompt_overlays`。
+- 数字人包额外在 `design.md` 记录：音频腔（A/B/C）、每段字数/目标语速（5 字/秒）、
+  C 腔 voice card、动态图形节拍表（触发/入场/停留/退场/恢复）、三腔自检结果。
 - 每段 3–30 秒；一般单段 ≤15 秒最稳，特殊段落可到 30 秒但必须用户确认。
   切点严格递增且符合音乐/语义。
 
 ## 6. 硬性规则
 
 - 不允许机械打包：没有分镜设计、没有写提示词就交付，视为不合格。
+- **所有数字人提示词必须走 Ref2VA 六段式**；三腔 A/B/C 互斥，一次只按一份
+  `voices/*.md` 写，禁止混装音频标签（A/C 无 `<Audio N>`，B 必须绑定 `<Audio 1>`）。
+- 数字人必须做语速预算（5 书面字/秒）与图形生命周期检查；图形无退场、图层累积、
+  遮挡脸/口/眼/手/产品/麦克风，均视为不合格。
+- 数字人多人同框默认不分别对口型；按说话人拆音频/项目。
 - **创意优先**：先自由发散，再盘点素材缺口；不得因为初始素材少而限制创意或静默降级。
 - 发现好创意缺参考图时，必须向用户说明缺什么、补了有什么效果、fallback 是什么，
   由用户决定采纳/不采纳；补图/生图都必须经用户同意。
@@ -209,6 +243,7 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - [ ] `validate_pack.py --require-prompts --require-cuts` 全 PASS
 - [ ] 分镜表（段数/时间/歌词/画面/参考图）
 - [ ] 每段提示词摘要与参数
+- [ ] 数字人：音频腔（A/B/C）、字数/语速、图形节拍表、三腔结构 lint 结果
 - [ ] 用户已确认 A/B/C 三个检查点（B 为画面设计审阅）
 - [ ] 单段 >15s 的片段已单独获得用户确认
 - [ ] 如已出片：成片路径/下载地址、时长与分辨率

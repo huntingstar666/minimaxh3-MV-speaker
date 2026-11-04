@@ -2,7 +2,8 @@
 
 本文件对应工作台 `backend/prompts.py` 的 `SYSTEM_GUARD` 与
 `validate_prompt()`。写 MV（`mode: "singing"`）的 `segments[].final_prompt` 时以本文件为准；
-数字人（`mode: "speaking"`）的专用写法另行补充。
+数字人（`mode: "speaking"`）不走这里的 MV 规则，见
+[digital-human/README.md](digital-human/README.md) 与三腔系统提示词。
 
 ## 1. 默认系统提示词（SYSTEM_GUARD）
 
