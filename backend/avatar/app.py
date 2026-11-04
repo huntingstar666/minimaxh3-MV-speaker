@@ -18,11 +18,12 @@ from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
+from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
 from .. import audio, comfy, settings
 from . import (audio_pipeline, config, design as design_mod, effect_catalog, job,
-               lint as lint_mod, plan, store, workflow)
+               lint as lint_mod, pack, plan, store, workflow)
 
 APP_VERSION = "1.0.0"
 ALLOWED_AUDIO = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4",
@@ -233,6 +234,54 @@ def patch_prompts(payload: dict[str, Any]) -> dict[str, Any]:
 @app.get("/api/projects")
 def list_projects() -> dict[str, Any]:
     return {"ok": True, "projects": store.list_projects()}
+
+
+@app.post("/api/projects/import")
+def import_project(package: UploadFile = File(...), name: str | None = Form(None)) -> dict[str, Any]:
+    """导入数字人包（.h3avatar.zip / .zip，schema=h3-avatar-pack）。"""
+    filename = package.filename or "package.zip"
+    if not filename.lower().endswith((".zip", ".h3avatar", ".h3avatar.zip")):
+        raise HTTPException(400, "请上传 .h3avatar.zip 或 .zip 包。")
+    temp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    temp_path = Path(temp.name)
+    try:
+        with temp:
+            shutil.copyfileobj(package.file, temp)
+        result = pack.import_pack(temp_path, name=name)
+    except pack.PackError as error:
+        raise HTTPException(400, str(error)) from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, f"导入失败：{error}") from error
+    finally:
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+    return {"ok": True, "project": result["project"], "summary": result["summary"],
+            "warnings": result["warnings"]}
+
+
+@app.get("/api/projects/{project_id}/export")
+def export_project(project_id: str) -> FileResponse:
+    """把项目导出成 .h3avatar.zip（manifest + design.md + audio/voice/refs + 提示词）。"""
+    project = _project(project_id)
+    try:
+        target = pack.export_pack(project_id)
+    except pack.PackError as error:
+        raise HTTPException(400, str(error)) from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, f"导出失败：{error}") from error
+    safe = "".join(ch for ch in str(project.get("name") or "avatar")
+                   if ch not in '\\/:*?"<>|').strip() or "avatar"
+
+    def cleanup() -> None:
+        try:
+            target.unlink()
+        except OSError:
+            pass
+
+    return FileResponse(target, media_type="application/zip",
+                        filename=f"{safe}.h3avatar.zip", background=BackgroundTask(cleanup))
 
 
 @app.post("/api/projects")
