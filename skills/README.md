@@ -45,12 +45,14 @@ mv-pack-builder/
 ├─ SKILL.md                   技能说明与强制设计流程（MV / 数字人）
 ├─ references/design-workflow.md  拆歌/分镜/提示词/确认/完成标准（必读）
 ├─ references/creative-expansion.md 创意发散、素材缺口表、补图建议与用户决策（必读）
+├─ references/mv-prompt-format.md   H3 MV 提示词权威格式：SYSTEM_GUARD 全文、六段写法、示例、校验
 ├─ references/package-format.md   MV 包完整格式
 ├─ references/prompt-rules.md     H3 六段提示词规则
 ├─ references/digital-human.md    数字人口播专项：素材、参数、简报模板、限制
 ├─ references/data-chain.md       工作台数据链路与限制（排查用）
 ├─ assets/example-manifest.json         MV 最小 manifest 模板
 ├─ assets/example-manifest-speaking.json 数字人 manifest 模板
+├─ assets/example-mv-prompt.txt          可直接对照的完整 MV 六段提示词示例
 ├─ assets/design-template.md           分镜设计表 / design.md 模板
 └─ scripts/
    ├─ env_check.py             环境自检（Python / ffmpeg / 工作台 / ComfyUI / LLM）

@@ -149,8 +149,8 @@
 - 风格/滤镜/本段运镜字段由工作台在生成时追加；若正文里已经写了，包内用
   `prompt_overlays` 快照避免重复注入。
 
-提示词规则详见 [prompt-rules.md](prompt-rules.md)，数字人模板见
-[digital-human.md](digital-human.md)。
+提示词规则详见 [mv-prompt-format.md](mv-prompt-format.md)（MV 权威格式）与
+[prompt-rules.md](prompt-rules.md)；数字人模板见 [digital-human.md](digital-human.md)。
 
 ## 4. 阶段四：与用户确认（必须）
 

@@ -1,0 +1,17 @@
+subject_definitions:
+<Subject 1> (S1) is the single performer whose facial identity, hairstyle, body proportions and clothing come from <Picture 1> (blue-haired singer in a white dress). <Subject 2> is the environment from <Picture 2> (pale-blue bedroom with a round window and soft daylight). <Audio 1> is the supplied vocal reference that drives the timing of the performance.
+
+summary:
+[reference generation] singing mode, one continuous shot, <Subject 1> stands physically inside the environment of <Subject 2>, camera begins at a medium close-up from the front, executes a slow dolly-out, and ends at a full shot from the front, for 11.83 seconds.
+
+retention_analysis:
+fully_preserved: <Subject 1> keeps the exact facial identity, blue gradient hairstyle, body proportions and the white dress's original base color from <Picture 1> in every frame. fully_preserved: <Subject 2> keeps its round window, pale-blue walls, surface materials, light direction and spatial layout from <Picture 2> in every frame.
+
+detailed_description:
+[Shot 1] The single performer stands inside the pale-blue bedroom and sings with natural visible mouth movement only while identifiable vocal is audible, keeping breathing and posture natural between phrases. The camera begins at a medium close-up from the front, slowly dollies out without cutting, and ends at a full shot from the front while the performer remains centered and the room's round window stays visible. Every frame stays free of added subtitles, captions, lyrics, watermarks and graphic overlays.
+
+overall_soundscape:
+N/A
+
+non_diegetic_music:
+N/A

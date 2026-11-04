@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -79,7 +80,8 @@ def numbered(value, label):
         return None
 
 
-def check_prompt(text: str, label: str) -> None:
+def check_prompt(text: str, label: str, visual_type: str = "performance",
+                 ref_count: int = 0) -> None:
     value = str(text or "")
     positions = [value.find(name + ":") for name in HEADINGS]
     if any(position < 0 for position in positions):
@@ -87,9 +89,30 @@ def check_prompt(text: str, label: str) -> None:
         return
     if positions != sorted(positions):
         fail(f"{label} 六段标题顺序不正确")
-    if value.count("[Shot 1]") != 1:
-        warn(f"{label} [Shot 1] 数量不是 1")
-    if len(value) < 300:
+    shots = re.findall(r"\[\s*shot\s*1\s*\]", value, re.IGNORECASE)
+    if len(shots) != 1:
+        fail(f"{label} 必须且只能有一个 [Shot 1]")
+    elif not positions[3] < value.lower().find("[shot 1]") < positions[4]:
+        fail(f"{label} [Shot 1] 必须写在 detailed_description 段内")
+    pictures = {int(match) for match in re.findall(r"<Picture\s+(\d+)>", value)}
+    if ref_count and any(not 1 <= number <= ref_count for number in pictures):
+        fail(f"{label} 引用了不存在的 <Picture N>：{sorted(pictures)}（共 {ref_count} 张图）")
+    if visual_type == "performance" and "<Audio 1>" not in value:
+        fail(f"{label} performance 段必须声明 <Audio 1>")
+    if visual_type in {"atmosphere", "environment"} and "<Audio 1>" in value:
+        fail(f"{label} {visual_type} 段不应声明 <Audio 1>")
+    for heading in ("overall_soundscape", "non_diegetic_music"):
+        index = HEADINGS.index(heading)
+        start = positions[index]
+        end = positions[index + 1] if index + 1 < len(HEADINGS) else len(value)
+        body = value[start + len(heading) + 1:end].strip()
+        if body and not body.upper().startswith("N/A"):
+            warn(f"{label} {heading} 应为 N/A（工作流会恢复原音轨）")
+    if not re.search(r"(?i)every frame stays free of added subtitles", value):
+        warn(f"{label} 缺少无字幕/水印收尾声明")
+    if len(value) > 20000:
+        fail(f"{label} 超过 20000 字符")
+    elif len(value) < 300:
         warn(f"{label} 提示词偏短（{len(value)} 字符）")
 
 
@@ -197,7 +220,8 @@ def main() -> int:
             fail(f"segments[{index}].visual_type 无效")
         text = str(item.get("final_prompt") or "").strip()
         if text:
-            check_prompt(text, f"segments[{index}].final_prompt")
+            check_prompt(text, f"segments[{index}].final_prompt",
+                         str(item.get("visual_type") or "performance"), len(refs))
         if "index" not in item and ("start" not in item or "end" not in item):
             warn(f"segments[{index}] 没有 index/start/end，可能匹配不到分段")
         if "ref_ids" in item and item["ref_ids"] is not None:

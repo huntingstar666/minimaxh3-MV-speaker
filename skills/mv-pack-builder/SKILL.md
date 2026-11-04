@@ -21,7 +21,8 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 设计方法论见 [references/design-workflow.md](references/design-workflow.md)（必读）；
 创意扩展与补图规则见 [references/creative-expansion.md](references/creative-expansion.md)（必读）；
 包格式 [references/package-format.md](references/package-format.md)；
-提示词规则 [references/prompt-rules.md](references/prompt-rules.md)；
+**MV 提示词权威格式见 [references/mv-prompt-format.md](references/mv-prompt-format.md)（写 MV 必读）**；
+通用提示词规则 [references/prompt-rules.md](references/prompt-rules.md)；
 数字人专项 [references/digital-human.md](references/digital-human.md)。
 
 > **创意优先，素材后置。** 初始参考图只是起点，不是创作边界。设计时先自由发散，
@@ -79,7 +80,9 @@ python scripts/env_check.py --project <h3-workbench 目录>
    **审阅未通过，不允许写 final_prompt、不允许打包。**
 6. **逐段提示词**：每段写 `brief`（六行中文）+ `final_prompt`（H3 六段英文），
    参考图用 `<Picture N>`，performance 声明 `<Audio 1>`，声音两段 N/A，
-   无字幕/水印声明。
+   无字幕/水印声明。**MV 必须严格按
+   [references/mv-prompt-format.md](references/mv-prompt-format.md) 的 SYSTEM_GUARD、
+   六段结构、示例和校验清单写；不要自创格式。**
 7. **Checkpoint C**：展示代表段的完整提示词、参数与风险；确认后才可出片。
 
 **没有经过 A/B/C 三次确认、没有写完全部提示词，不允许进入打包交付。**
@@ -152,7 +155,9 @@ python scripts/env_check.py --project <h3-workbench 目录>
    创意按用户意见改，记录“原创意 → 用户选择 → 最终方案”。
 3. 审阅通过后，按设计结果直接写 `manifest.json`：`timeline.cuts_seconds` +
    `segments[]`（每段 design_intent 记进 design.md，brief/final_prompt/visual_type/
-   motion/lyrics 全填好；`<Picture N>` 按最终参考图顺序核对）。
+   motion/lyrics 全填好；`<Picture N>` 按最终参考图顺序核对）。MV 的
+   `final_prompt` 按 [references/mv-prompt-format.md](references/mv-prompt-format.md)
+   逐段写，并用其中的校验清单自检。
 4. 写 `design.md`（分镜表/设计说明/创意缺口决策/用户审阅意见）一起放进包。
 5. 严格校验并打包：
 
