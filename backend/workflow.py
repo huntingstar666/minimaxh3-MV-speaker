@@ -51,11 +51,11 @@ def _model_chain(nodes: dict, generation: dict[str, Any], available: dict[str, b
 
 
 def build(generation: dict[str, Any], prompt: str, refs: list[str], audio_file: str,
-          frames: int, fps: int = FPS) -> dict[str, Any]:
-    available = {
-        "sigma_shift": True,
-        "sigma_refiner": True,
-    }
+          frames: int, fps: int = FPS,
+          available: dict[str, bool] | None = None) -> dict[str, Any]:
+    # available 来自 ComfyUI 的节点检测；为 None 时按全部可用处理（兼容旧调用）
+    available = available if available is not None else {
+        "sigma_shift": True, "sigma_refiner": True}
     nodes: dict[str, Any] = {
         "unet": {
             "class_type": "UNETLoader",
@@ -240,13 +240,15 @@ def build(generation: dict[str, Any], prompt: str, refs: list[str], audio_file: 
 
 def build_seam(generation: dict[str, Any], timeline: dict[str, Any], total_seconds: float,
                fps: int, filename_prefix: str,
-               params: dict[str, Any] | None = None) -> dict[str, Any]:
+               params: dict[str, Any] | None = None,
+               available: dict[str, bool] | None = None) -> dict[str, Any]:
     """seam 模式：TimelinePlanner + 有限分段采样（latent 接缝、可选双采）。
 
     整条片一次提交；节点内部逐窗生成、用上一窗的 AV latent 续接，
     第 2 窗起自动裁掉段首重叠，最后按窗口 endFrame 输出。
     """
-    available = {"sigma_shift": True, "sigma_refiner": True}
+    available = available if available is not None else {
+        "sigma_shift": True, "sigma_refiner": True}
     nodes: dict[str, Any] = {
         "unet": {
             "class_type": "UNETLoader",

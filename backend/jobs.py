@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import threading
 import time
 import traceback
@@ -30,6 +31,8 @@ class JobRunner:
         self.active_project: str | None = None
         # 任务开始时的 generation 快照：生成期间用户若改了生成参数，以用户的新值为准
         self._generation_baseline: dict[str, dict[str, Any]] = {}
+        # ComfyUI 节点可用性（sigma_shift / sigma_refiner 等可选节点缺失时跳过）
+        self._available: dict[str, bool] | None = None
 
     # ------------------------------- 状态 -------------------------------
     def _job(self, project_id: str) -> dict[str, Any] | None:
@@ -86,12 +89,14 @@ class JobRunner:
                     if baseline is not None and (latest.get("generation") or {}) != baseline:
                         continue  # 用户在生成期间改过生成参数，保留新值
                 if key == "refs":
-                    latest_names = [str(ref.get("filename") or "")
-                                    for ref in latest.get("refs") or []]
-                    project_names = [str(ref.get("filename") or "")
-                                     for ref in project.get("refs") or []]
-                    if latest_names != project_names:  # 用户中途增删参考图，保留新列表
-                        continue
+                    # 只回写 ComfyUI 上传名；用户中途改用途/标题、增删参考图都以磁盘为准
+                    by_name = {str(ref.get("filename") or ""): ref
+                               for ref in project.get("refs") or []}
+                    for ref in latest.get("refs") or []:
+                        source = by_name.get(str(ref.get("filename") or ""))
+                        if source and source.get("comfy"):
+                            ref["comfy"] = source["comfy"]
+                    continue
                 latest[key] = project[key]
             if not same_shape:
                 return
@@ -209,6 +214,9 @@ class JobRunner:
             self._generation_baseline[project_id] = json.loads(
                 json.dumps(project.get("generation") or {}))
             generation = self._resolve_generation(project, options)
+            nodes_info = (comfy.options() or {}).get("nodes") or {}
+            self._available = {key: bool(nodes_info.get(key))
+                               for key in ("sigma_shift", "sigma_refiner")}
             refs = self._prepare_refs(project_id, project)
             if not refs:
                 raise ValueError("至少需要一张人物参考图。")
@@ -423,7 +431,7 @@ class JobRunner:
                            start_frame, end_frame, generation_frames, sr, fps)
         uploaded_audio = comfy.upload(f"h3wb_{project_id}_seg_{index:04d}.wav", audio_file.read_bytes())
         graph = workflow.build(generation, prompt_text, segment_refs, uploaded_audio,
-                               generation_frames, fps)
+                               generation_frames, fps, available=self._available)
         self._update(project_id, stage="queue", message=f"第 {index + 1}/{total} 段：提交 ComfyUI")
         prompt_id = comfy.queue(graph)
         row["prompt_id"] = prompt_id
@@ -531,7 +539,7 @@ class JobRunner:
                 "highres_tiling": False,
             }
         graph = workflow.build_seam(generation, timeline, total_seconds, fps, prefix,
-                                    params=seam_params)
+                                    params=seam_params, available=self._available)
         self._update(project_id, stage="queue", message="seam：提交整条生成", progress=0.06)
         prompt_id = comfy.queue(graph)
         self._update(project_id, stage="sampling", message="seam：整条生成中（latent 接缝）",
@@ -636,6 +644,24 @@ class JobRunner:
 runner = JobRunner()
 
 
+def _backup_project_json(path: Path, reason: str) -> None:
+    """覆盖式操作前备份 project.json，只保留最近 5 份。"""
+    if not path.is_file():
+        return
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    target = path.parent / f"project.json.bak-{reason}-{stamp}"
+    try:
+        shutil.copy2(path, target)
+    except OSError:
+        return
+    backups = sorted(path.parent.glob(f"project.json.bak-{reason}-*"))
+    for old in backups[:-5]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
 def analyze(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """重新分析音频并生成分段 + 导演计划。"""
     project = store.get(project_id)
@@ -698,6 +724,9 @@ def analyze(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     rows, analysis = segmenter.segment(samples, sr, transcript, mode, maximum, target,
                                       str(project.get("script") or ""))
     analysis["waveform"]["original"] = audio.waveform_peaks(samples)
+    if any(str(row.get("final_prompt") or "").strip() for row in project.get("segments") or []):
+        # 重新分析会重建分段、丢弃现有提示词：先备份，必要时可以从 .bak 找回
+        _backup_project_json(store.project_dir(project_id) / "project.json", "analyze")
     project["segments"] = rows
     project["analysis"] = analysis
     project["warnings"] = [asr_note] if asr_note else []

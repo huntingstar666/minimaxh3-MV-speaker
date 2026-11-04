@@ -202,6 +202,15 @@ async function analyzeProject() {
     return;
   }
   const useAsr = $("#asr-toggle").checked;
+  const hasPrompts = (state.project.segments || []).some((row) => String(row.final_prompt || "").trim());
+  if (hasPrompts) {
+    const confirmed = await confirmDialog(
+      "重新分析",
+      "重新分析会重建全部分段，现有分镜提示词会失效（后端会自动备份 project.json，可在项目目录找回）。继续？",
+      "继续分析",
+    );
+    if (!confirmed) return;
+  }
   busy(useAsr ? "正在识别语音并分析音频（首次会下载模型，请稍候）…" : "正在重新分析音频…");
   try {
     const data = await api.analyze(state.project.id, {

@@ -226,6 +226,13 @@ def main() -> int:
                   f"{before[:4]} -> {after[:4]}")
         else:
             print("SKIP 结构变化写盘测试（没有 >=7 秒的段可切分）")
+
+        # 10) 重新分析前自动备份 project.json（覆盖式操作兜底）
+        client.post(f"/api/projects/{project_id}/analyze", json={
+            "mode": "singing", "target_seconds": 8, "max_seconds": 12, "use_asr": False}
+        ).raise_for_status()
+        backups = list((DATA_DIR / "projects" / project_id).glob("project.json.bak-analyze-*"))
+        check("重新分析前自动备份 project.json", bool(backups), f"{len(backups)} 份")
     finally:
         if client:
             client.close()

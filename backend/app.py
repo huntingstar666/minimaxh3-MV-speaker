@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ ALLOWED_IMAGE = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
 app = FastAPI(title="H3 数字人 · MV 工作台", version=APP_VERSION)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# 重新分析 / 切点调整会重建分段；串行化这类结构性操作，避免两次请求交错写坏 project.json
+_structural_lock = threading.Lock()
 
 
 @app.middleware("http")
@@ -220,24 +224,26 @@ def creative_catalog() -> dict[str, Any]:
 
 @app.delete("/api/projects/{project_id}")
 def delete_project(project_id: str) -> dict[str, Any]:
-    jobs.runner.cancel(project_id)
-    jobs.runner.wait(project_id, 60)
-    store.delete(project_id)
+    with _structural_lock:
+        jobs.runner.cancel(project_id)
+        jobs.runner.wait(project_id, 60)
+        store.delete(project_id)
     return {"ok": True}
 
 
 @app.post("/api/projects/{project_id}/analyze")
 def analyze_project(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     # 重新分析会重建分段：先中断并等任务线程停下，避免旧任务把旧分段/旧状态写回来
-    jobs.runner.cancel(project_id)
-    jobs.runner.wait(project_id, 60)
-    try:
-        project = jobs.analyze(project_id, payload or {})
-    except FileNotFoundError as error:
-        raise HTTPException(404, "项目不存在。") from error
-    except Exception as error:  # noqa: BLE001
-        raise HTTPException(400, str(error)) from error
-    project["run"] = jobs.runner.snapshot(project_id)
+    with _structural_lock:
+        jobs.runner.cancel(project_id)
+        jobs.runner.wait(project_id, 60)
+        try:
+            project = jobs.analyze(project_id, payload or {})
+        except FileNotFoundError as error:
+            raise HTTPException(404, "项目不存在。") from error
+        except Exception as error:  # noqa: BLE001
+            raise HTTPException(400, str(error)) from error
+        project["run"] = jobs.runner.snapshot(project_id)
     return {"ok": True, "project": project}
 
 
@@ -258,13 +264,14 @@ def put_boundaries(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     cuts = payload.get("cuts")
     if not isinstance(cuts, list):
         raise HTTPException(400, "cuts 必须是秒数数组。")
-    jobs.runner.cancel(project_id)
-    jobs.runner.wait(project_id, 60)
-    try:
-        cut_frames = [frames.to_frames(float(value)) for value in cuts]
-        project = jobs.apply_boundaries(project_id, cut_frames)
-    except (TypeError, ValueError) as error:
-        raise HTTPException(400, str(error)) from error
+    with _structural_lock:
+        jobs.runner.cancel(project_id)
+        jobs.runner.wait(project_id, 60)
+        try:
+            cut_frames = [frames.to_frames(float(value)) for value in cuts]
+            project = jobs.apply_boundaries(project_id, cut_frames)
+        except (TypeError, ValueError) as error:
+            raise HTTPException(400, str(error)) from error
     return {"ok": True, "project": project}
 
 
@@ -275,31 +282,33 @@ def split_segment(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         time_value = float((payload or {}).get("time"))
     except (TypeError, ValueError) as error:
         raise HTTPException(400, "time 必须是秒数。") from error
-    project = store.get(project_id)
-    cuts = _current_cuts(project) + [frames.to_frames(time_value)]
-    jobs.runner.cancel(project_id)
-    jobs.runner.wait(project_id, 60)
-    try:
-        project = jobs.apply_boundaries(project_id, cuts)
-    except ValueError as error:
-        raise HTTPException(400, str(error)) from error
+    with _structural_lock:
+        project = store.get(project_id)
+        cuts = _current_cuts(project) + [frames.to_frames(time_value)]
+        jobs.runner.cancel(project_id)
+        jobs.runner.wait(project_id, 60)
+        try:
+            project = jobs.apply_boundaries(project_id, cuts)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
     return {"ok": True, "project": project}
 
 
 @app.post("/api/projects/{project_id}/segments/{index}/merge")
 def merge_segment(project_id: str, index: int) -> dict[str, Any]:
     """把第 index 段与下一段合并（删除它们之间的切点）。"""
-    project = store.get(project_id)
-    cuts = _current_cuts(project)
-    if not 0 <= index < len(cuts):
-        raise HTTPException(404, "没有可合并的下一段。")
-    cuts.pop(index)
-    jobs.runner.cancel(project_id)
-    jobs.runner.wait(project_id, 60)
-    try:
-        project = jobs.apply_boundaries(project_id, cuts)
-    except ValueError as error:
-        raise HTTPException(400, str(error)) from error
+    with _structural_lock:
+        project = store.get(project_id)
+        cuts = _current_cuts(project)
+        if not 0 <= index < len(cuts):
+            raise HTTPException(404, "没有可合并的下一段。")
+        cuts.pop(index)
+        jobs.runner.cancel(project_id)
+        jobs.runner.wait(project_id, 60)
+        try:
+            project = jobs.apply_boundaries(project_id, cuts)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
     return {"ok": True, "project": project}
 
 
@@ -556,7 +565,13 @@ def generate_all_prompts(project_id: str) -> dict[str, Any]:
             try:
                 messages, _ = prompts.build_expand_messages(
                     project, row, manifest, soundscape, bool(config.get("vision", True)))
-                text = llm.chat(config, messages)
+                images = []
+                folder = store.project_dir(project_id) / "refs"
+                for ref in prompts.effective_refs(project, row):
+                    path = folder / str(ref.get("filename") or "")
+                    if path.is_file():
+                        images.append(path)
+                text = llm.chat(config, messages, images)
                 if not prompts.validate_prompt(text, manifest)["ok"]:
                     text = prompts.compose_prompt(project, row, manifest, soundscape)
                     row["prompt_source"] = "fallback"
