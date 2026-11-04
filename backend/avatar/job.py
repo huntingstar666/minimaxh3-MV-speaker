@@ -18,13 +18,15 @@ from typing import Any
 
 from .. import audio as audio_utils
 from .. import comfy, media, settings
+from .. import workflow as mv_workflow
 from ..jobs import GPU_LOCK
-from . import config, plan, store, workflow
+from . import audio_pipeline, config, design as design_mod, plan, store, workflow
 
 MAX_TAKES_PER_SEGMENT = 10
 TAKE_RUNNER_FIELDS = ("status", "error", "output", "started", "finished", "prompt_id",
                       "prompt_text", "takes", "selected_take", "prompt", "prompt_source",
-                      "prompt_warnings")
+                      "prompt_warnings", "prompt_meta", "beats", "generation_frames",
+                      "edit_frames", "frames")
 
 
 def segment_signature(row: dict[str, Any]) -> str:
@@ -118,10 +120,16 @@ class AvatarRunner:
             if self.active_project and self.active_project != project_id:
                 raise RuntimeError("GPU 正在处理其他项目，请稍后。")
             project = store.get(project_id)
+            mode = int(project.get("mode") or 0)
             segments = project.get("segments") or []
             if not segments:
-                raise ValueError("请先按台词分段。")
-            if int(project.get("mode") or 0) == config.MODE_VOICE_REF:
+                raise ValueError("请先完成分段（模式 1 需先分析音频；模式 2/3 需先按台词分段）。")
+            if mode == config.MODE_AUDIO_DRIVE:
+                if not project.get("audio"):
+                    raise ValueError("模式 1 需要先上传驱动音频并分析分段。")
+                if not (store.project_dir(project_id) / "source.wav").is_file():
+                    raise ValueError("驱动音频文件丢失，请重新上传。")
+            elif mode == config.MODE_VOICE_REF:
                 voice = project.get("voice") or {}
                 if not voice.get("filename"):
                     raise ValueError("模式 2 需要先上传参考音频（音色参考）。")
@@ -129,7 +137,9 @@ class AvatarRunner:
                     raise ValueError("参考音频文件丢失，请重新上传。")
             if not project.get("refs"):
                 raise ValueError("请先上传至少一张人物参考图。")
-            if any(not str(row.get("text") or "").strip() for row in segments):
+            # 模式 1 允许没有台词（无 ASR 时按驱动音频对口型）；模式 2/3 必须有台词。
+            if mode != config.MODE_AUDIO_DRIVE and any(
+                    not str(row.get("text") or "").strip() for row in segments):
                 raise ValueError("存在空台词的分段，请先补全。")
             job = {
                 "job_id": hashlib.sha1(f"{project_id}{time.time()}".encode()).hexdigest()[:12],
@@ -190,6 +200,9 @@ class AvatarRunner:
             self._update(project_id, persist=True, status="running", stage="prepare",
                          message="准备素材", progress=0.01)
             project = store.get(project_id)
+            if int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE:
+                self._run_mode1(project_id, project, options)
+                return
             generation = workflow.resolve_generation(
                 {**(project.get("generation") or {}), **((options or {}).get("generation") or {})})
             self._available = workflow.available_nodes()
@@ -220,24 +233,7 @@ class AvatarRunner:
                 self._generate_segment(project_id, project, index, row, generation,
                                        ref_names, audio_name, llm_config,
                                        position / total, 1.0 / total, total, position + 1)
-            latest = store.get(project_id)
-            ready = all(str(row.get("output") or "").strip()
-                        for row in latest.get("segments") or [])
-            if ready and latest.get("segments"):
-                self._update(project_id, persist=True, status="running", stage="assemble",
-                             message="拼接成片", progress=0.92)
-                final = self.assemble(project_id)
-                self._update(project_id, persist=True, status="completed", stage="done",
-                             progress=1.0, message="成片已完成", finished=time.time(),
-                             segment=len(segments) - 1)
-                self._log(project_id, f"成片完成：{final.get('duration')}s / "
-                                       f"{final.get('segments')} 段")
-            else:
-                done = sum(1 for row in latest.get("segments") or [] if row.get("output"))
-                message = f"本次生成完成（{done}/{len(latest.get('segments') or [])} 段已有片段，未合成成片）"
-                self._update(project_id, persist=True, status="completed", stage="done",
-                             progress=1.0, message=message, finished=time.time())
-                self._log(project_id, message)
+            self._finish_run(project_id)
         except comfy.ComfyError as error:
             cancelled = self.cancel_events.get(project_id) is not None and \
                 self.cancel_events[project_id].is_set()
@@ -267,6 +263,169 @@ class AvatarRunner:
                     GPU_LOCK.release()
                 except RuntimeError:
                     pass
+
+    def _finish_run(self, project_id: str) -> None:
+        latest = store.get(project_id)
+        segments = latest.get("segments") or []
+        ready = bool(segments) and all(str(row.get("output") or "").strip() for row in segments)
+        if ready:
+            self._update(project_id, persist=True, status="running", stage="assemble",
+                         message="拼接成片", progress=0.92)
+            final = self.assemble(project_id)
+            self._update(project_id, persist=True, status="completed", stage="done",
+                         progress=1.0, message="成片已完成", finished=time.time(),
+                         segment=len(segments) - 1)
+            self._log(project_id, f"成片完成：{final.get('duration')}s / "
+                                   f"{final.get('segments')} 段")
+        else:
+            done = sum(1 for row in segments if row.get("output"))
+            message = f"本次生成完成（{done}/{len(segments)} 段已有片段，未合成成片）"
+            self._update(project_id, persist=True, status="completed", stage="done",
+                         progress=1.0, message=message, finished=time.time())
+            self._log(project_id, message)
+
+    # ------------------------------ 模式 1：音频驱动 ------------------------------
+    def _run_mode1(self, project_id: str, project: dict[str, Any],
+                   options: dict[str, Any]) -> None:
+        generation = workflow.resolve_generation(
+            {**(project.get("generation") or {}), **((options or {}).get("generation") or {})})
+        missing = mv_workflow.missing_fields(generation)
+        if missing:
+            raise ValueError("缺少生成参数：" + "、".join(missing) + "（请在右侧参数里选择模型）")
+        nodes = (comfy.options().get("nodes") or {})
+        available = {"sigma_shift": bool(nodes.get("sigma_shift")),
+                     "sigma_refiner": bool(nodes.get("sigma_refiner"))}
+        self._update(project_id, persist=True, message="上传参考图", stage="upload", progress=0.02)
+        ref_names = self._upload_refs(project_id, project)
+        project = store.get(project_id)
+        segments = project.get("segments") or []
+        only = {int(value) for value in (options or {}).get("only") or []}
+        force_raw = (options or {}).get("force")
+        force = ({int(value) for value in force_raw} if isinstance(force_raw, list)
+                 else (set(range(len(segments))) if force_raw else set()))
+        targets = [index for index, row in enumerate(segments)
+                   if (not only or index in only)
+                   and (index in force or row.get("status") != "completed"
+                        or not row.get("selected_take"))]
+        if not targets:
+            self._log(project_id, "没有需要生成的分段（可勾选“全部重新生成”）")
+        total = max(1, len(targets))
+        llm_config = dict(settings.load().get("llm") or {})
+        for position, index in enumerate(targets):
+            if (self.cancel_events.get(project_id) or threading.Event()).is_set():
+                raise comfy.ComfyError("任务已取消。")
+            row = store.find_segment(store.get(project_id), index)
+            self._generate_segment_mode1(project_id, project, index, row, generation,
+                                         ref_names, available, llm_config,
+                                         position / total, 1.0 / total, total, position + 1)
+        self._finish_run(project_id)
+
+    def _generate_segment_mode1(self, project_id: str, project: dict[str, Any], index: int,
+                                row: dict[str, Any], generation: dict[str, Any],
+                                ref_names: list[str], available: dict[str, bool],
+                                llm_config: dict[str, Any], base: float, span: float,
+                                total: int, ordinal: int) -> None:
+        label = f"第 {ordinal}/{total} 段"
+        edit_frames = int(row.get("edit_frames") or row.get("frames") or 0)
+        generation_frames = int(row.get("generation_frames")
+                                or plan.frames_for_seconds(edit_frames / config.FPS))
+        self._update(project_id, persist=True, segment=index, stage="prompt",
+                     message=f"{label}：生成提示词（{edit_frames / config.FPS:.1f}s）",
+                     progress=round(base + span * 0.03, 4))
+        prompt_text, meta = self._ensure_prompt(project_id, project, row, llm_config)
+        audio_file = audio_pipeline.slice_audio(project_id, project, row)
+        audio_name = comfy.upload(f"h3dh_{_safe_id(project_id)}_seg_{index:04d}.wav",
+                                  audio_file.read_bytes())
+        generation = dict(generation)
+        generation["seed"] = int(generation.get("seed") or 0) or random.randint(1, 2 ** 31 - 1)
+        graph = mv_workflow.build(generation, prompt_text, ref_names, audio_name,
+                                  generation_frames, config.FPS, available=available)
+        self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",
+                     progress=round(base + span * 0.06, 4))
+        prompt_id = comfy.queue(graph)
+        self._commit_segment(project_id, index, {"status": "running", "error": None,
+                                                 "started": time.time(),
+                                                 "prompt_id": prompt_id},
+                             expected_text=str(row.get("text") or ""))
+        self._update(project_id, persist=True, segment=index, stage="sampling",
+                     message=f"{label}：采样中", progress=round(base + span * 0.1, 4))
+
+        def on_progress(message: dict[str, Any]) -> None:
+            if message.get("type") != "progress":
+                return
+            data = message.get("data") or {}
+            value, maximum = data.get("value") or 0, data.get("max") or 1
+            self._update(project_id, progress=round(
+                base + span * (0.1 + 0.78 * value / max(maximum, 1)), 4),
+                stage="sampling", message=f"{label}：采样 {value}/{maximum}")
+
+        entry = comfy.wait(prompt_id, on_progress, self.cancel_events.get(project_id))
+        files = comfy.extract_outputs(entry, mv_workflow.OUTPUT_NODE) or comfy.extract_outputs(entry)
+        video_file = next((item for item in files if item["filename"].lower().endswith(
+            (".mp4", ".webm", ".mov", ".mkv"))), None)
+        if not video_file:
+            raise comfy.ComfyError(f"{label}：ComfyUI 没有返回视频文件。")
+        data = comfy.view(video_file["filename"], video_file["subfolder"], video_file["kind"])
+        data, overlaid = self._maybe_overlay(project_id, project, row, data)
+        take = self._store_take(project_id, project, index, row, data, prompt_text,
+                                generation.get("seed"), edit_frames, overlay=overlaid)
+        self._commit_segment(project_id, index, {
+            "status": "completed", "error": None, "output": take["file"],
+            "finished": time.time(), "prompt_id": prompt_id, "prompt_text": prompt_text,
+            "prompt": prompt_text, "prompt_source": row.get("prompt_source") or "fallback",
+            "prompt_meta": meta, "generation_frames": generation_frames,
+        }, expected_text=str(row.get("text") or ""))
+        self._log(project_id, f"{label} 完成（{len(data) / 1024 / 1024:.1f} MB）")
+        self._update(project_id, progress=round(base + span, 4))
+
+    # ------------------------------ 提示词 ------------------------------
+    def _ensure_prompt(self, project_id: str, project: dict[str, Any], row: dict[str, Any],
+                       llm_config: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        prompt_text = str(row.get("prompt") or "").strip()
+        if prompt_text:
+            return prompt_text, dict(row.get("prompt_meta") or {})
+        images = [store.project_dir(project_id) / "refs" / str(ref.get("filename") or "")
+                  for ref in project.get("refs") or []]
+        result = plan.generate_prompt(project, row, llm_config,
+                                      [path for path in images if path.is_file()])
+        prompt_text = str(result["text"])
+        patch: dict[str, Any] = {"prompt": prompt_text, "prompt_source": result["source"],
+                                 "prompt_warnings": result["warnings"],
+                                 "prompt_meta": result.get("meta") or {}}
+        if result.get("beats"):
+            patch["beats"] = result["beats"]
+        self._commit_segment(project_id, int(row["index"]), patch,
+                             expected_text=str(row.get("text") or ""))
+        self._log(project_id, f"第 {int(row['index']) + 1} 段：提示词（{result['source']}）" +
+                  (f"；{'；'.join(result['warnings'])}" if result["warnings"] else ""))
+        return prompt_text, dict(result.get("meta") or {})
+
+    # ------------------------------ 叠加 ------------------------------
+    def _maybe_overlay(self, project_id: str, project: dict[str, Any], row: dict[str, Any],
+                       data: bytes) -> tuple[bytes, bool]:
+        design = design_mod.ensure_design(project)
+        if design.get("graphics_mode") != "overlay":
+            return data, False
+        try:
+            from . import overlay as overlay_mod  # noqa: PLC0415
+        except Exception:  # noqa: BLE001
+            self._log(project_id, "叠加模块不可用，保留生成画面", "warning")
+            return data, False
+        try:
+            if not overlay_mod.available():
+                return data, False
+            folder = store.project_dir(project_id) / "takes" / f"seg_{int(row['index']):04d}"
+            folder.mkdir(parents=True, exist_ok=True)
+            work = folder / "_overlay"
+            work.mkdir(parents=True, exist_ok=True)
+            source = work / "source.mp4"
+            target = work / "overlay.mp4"
+            source.write_bytes(data)
+            if overlay_mod.compose_segment(project, row, source, target, work) and target.is_file():
+                return target.read_bytes(), True
+        except Exception as error:  # noqa: BLE001
+            self._log(project_id, f"叠加失败，保留生成画面：{error}", "warning")
+        return data, False
 
     def _upload_refs(self, project_id: str, project: dict[str, Any]) -> list[str]:
         names: list[str] = []
@@ -321,18 +480,7 @@ class AvatarRunner:
         self._update(project_id, persist=True, segment=index, stage="prompt",
                      message=f"{label}：生成提示词（{row.get('chars')} 字 / {row.get('frames')} 帧）",
                      progress=round(base + span * 0.03, 4))
-        prompt_text = str(row.get("prompt") or "").strip()
-        if not prompt_text:
-            images = [store.project_dir(project_id) / "refs" / str(ref.get("filename") or "")
-                      for ref in project.get("refs") or []]
-            result = plan.generate_prompt(project, row, llm_config,
-                                          [path for path in images if path.is_file()])
-            prompt_text = str(result["text"])
-            patch = {"prompt": prompt_text, "prompt_source": result["source"],
-                     "prompt_warnings": result["warnings"]}
-            self._commit_segment(project_id, index, patch, expected_text=str(row.get("text") or ""))
-            self._log(project_id, f"{label}：提示词（{result['source']}）" +
-                      (f"；{'；'.join(result['warnings'])}" if result["warnings"] else ""))
+        prompt_text, meta = self._ensure_prompt(project_id, project, row, llm_config)
         frames = int(row.get("frames") or 0)
         if frames <= 0:
             frames = plan.frames_for_seconds(plan.seconds_for_text(
@@ -371,11 +519,13 @@ class AvatarRunner:
         if not video_file:
             raise comfy.ComfyError(f"{label}：ComfyUI 没有返回视频文件。")
         data = comfy.view(video_file["filename"], video_file["subfolder"], video_file["kind"])
+        data, overlaid = self._maybe_overlay(project_id, project, row, data)
         take = self._store_take(project_id, project, index, row, data, prompt_text,
-                                generation.get("seed"), frames)
+                                generation.get("seed"), frames, overlay=overlaid)
         patch = {"status": "completed", "error": None, "output": take["file"],
                  "finished": time.time(), "prompt_id": prompt_id, "prompt_text": prompt_text,
-                 "prompt": prompt_text, "prompt_source": row.get("prompt_source") or "fallback"}
+                 "prompt": prompt_text, "prompt_source": row.get("prompt_source") or "fallback",
+                 "prompt_meta": meta}
         self._commit_segment(project_id, index, patch, expected_text=str(row.get("text") or ""))
         self._log(project_id, f"{label} 完成（{len(data) / 1024 / 1024:.1f} MB）")
         self._update(project_id, progress=round(base + span, 4))
@@ -396,7 +546,10 @@ class AvatarRunner:
             for key, value in patch.items():
                 if key not in TAKE_RUNNER_FIELDS:
                     continue
-                if manual_prompt and key in {"prompt", "prompt_source", "prompt_warnings"}:
+                if key == "beats" and target.get("beats"):
+                    continue  # 用户/上一次已经写过节拍表，别用自动建议覆盖
+                if manual_prompt and key in {"prompt", "prompt_source", "prompt_warnings",
+                                             "prompt_meta"}:
                     continue
                 target[key] = value
 
@@ -404,7 +557,7 @@ class AvatarRunner:
 
     def _store_take(self, project_id: str, project: dict[str, Any], index: int,
                     row: dict[str, Any], data: bytes, prompt_text: str,
-                    seed: int | None, frames: int) -> dict[str, Any]:
+                    seed: int | None, frames: int, overlay: bool = False) -> dict[str, Any]:
         base = store.project_dir(project_id)
         folder = base / "takes" / f"seg_{index:04d}"
         folder.mkdir(parents=True, exist_ok=True)
@@ -431,6 +584,9 @@ class AvatarRunner:
             "thumb": thumb_rel,
             "created": time.time(),
             "frames": int(frames),
+            "generation_frames": int(row.get("generation_frames") or frames),
+            "seconds": float(row.get("seconds") or (frames / config.FPS)),
+            "overlay": bool(overlay),
             "bytes": len(data),
             "prompt_source": str(row.get("prompt_source") or ""),
             "prompt_text": prompt_text,
@@ -485,8 +641,10 @@ class AvatarRunner:
         ], timeout=600)
 
     def assemble(self, project_id: str) -> dict[str, Any]:
-        """按当前选中的片段拼接（视频 + 生成音轨）。只跑 ffmpeg。"""
+        """按当前选中的片段拼接成片（只跑 ffmpeg）。模式 1 混原始驱动音频，模式 2/3 混生成音轨。"""
         project = store.get(project_id)
+        if int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE:
+            return self._assemble_mode1(project_id, project)
         segments = project.get("segments") or []
         if not segments:
             raise ValueError("还没有分段。")
@@ -534,6 +692,57 @@ class AvatarRunner:
             "segments": len(segments),
             "take_signature": take_signature(project),
             "stale": False,
+        }
+        store.mutate(project_id, lambda latest: latest.__setitem__("final", meta))
+        return meta
+
+    def _assemble_mode1(self, project_id: str, project: dict[str, Any]) -> dict[str, Any]:
+        """模式 1：视频按 edit_frames 归一化后拼接，音轨直接用原始驱动音频。"""
+        segments = project.get("segments") or []
+        if not segments:
+            raise ValueError("还没有分段。")
+        base = store.project_dir(project_id)
+        source = base / "source.wav"
+        if not source.is_file():
+            raise ValueError("驱动音频文件丢失，请重新上传。")
+        work = base / "takes" / "_norm"
+        work.mkdir(parents=True, exist_ok=True)
+        norms: list[Path] = []
+        total_frames = 0
+        for index, row in enumerate(segments):
+            output = str(row.get("output") or "").strip()
+            take_path = base / output if output else None
+            if take_path is None or not take_path.is_file():
+                raise ValueError(f"第 {index + 1} 段还没有可用片段，请先生成。")
+            frames = int(row.get("edit_frames") or row.get("frames") or 0)
+            if frames <= 0:
+                raise ValueError(f"第 {index + 1} 段帧数无效。")
+            norm = work / f"seg_{index:04d}.mp4"
+            media.normalize(take_path, norm, frames, crf=18, fps=config.FPS)
+            norms.append(norm)
+            total_frames += frames
+        final_path = base / "final" / "final.mp4"
+        media.concat(norms, source, final_path, total_frames, work)
+        thumb = base / "final" / "cover.jpg"
+        media.thumbnail(final_path, thumb, min(0.8, max(total_frames / config.FPS / 3, 0.2)))
+        final_audio = base / "final" / "audio.wav"
+        try:
+            final_audio.write_bytes(source.read_bytes())
+        except OSError:
+            pass
+        meta = {
+            "path": "final/final.mp4",
+            "thumb": "final/cover.jpg",
+            "audio": "final/audio.wav",
+            "duration": round(media.duration(final_path) or total_frames / config.FPS, 3),
+            "duration_frames": total_frames,
+            "fps": config.FPS,
+            "bytes": final_path.stat().st_size if final_path.is_file() else 0,
+            "created": time.time(),
+            "segments": len(segments),
+            "take_signature": take_signature(project),
+            "stale": False,
+            "audio_source": "original",
         }
         store.mutate(project_id, lambda latest: latest.__setitem__("final", meta))
         return meta

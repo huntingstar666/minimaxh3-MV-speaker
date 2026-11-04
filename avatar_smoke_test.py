@@ -320,6 +320,59 @@ def main() -> int:
                 check("下载成片", download.status_code == 200 and download.content[:4] not in
                       (b"",), f"{len(download.content)} bytes")
 
+        # 10) 设计层 / 效果目录 / 节拍表 / lint / prompt_meta
+        catalog = client.get("/avatar/api/effect-catalog").json()
+        check("效果目录接口", all(key in catalog for key in (
+            "effect_families", "semantic_jobs", "densities", "style_systems",
+            "anchors", "layers", "beats_defaults")),
+            str(list(catalog.keys())))
+        defaults = client.get("/avatar/api/design-defaults").json()["design"]
+        check("设计层默认值", defaults.get("effect_density") == "medium"
+              and defaults.get("graphics_mode") == "generated"
+              and "accent_color" in (defaults.get("style_system") or {}))
+        patched = client.patch(f"/avatar/api/projects/{project_id}/design", json={
+            "effect_density": "high",
+            "style_system": {"accent_color": "#123456", "visual_style": "corporate"},
+            "graphics_mode": "overlay",
+            "effect_families": ["info_cards", "lower_thirds"],
+        }).json()["design"]
+        check("设计层保存/归一化", patched.get("effect_density") == "high"
+              and patched.get("style_system", {}).get("accent_color") == "#123456"
+              and patched.get("effect_families") == ["info_cards", "lower_thirds"],
+              str(patched.get("effect_families")))
+        beats_resp = client.post(
+            f"/avatar/api/projects/{project_id}/segments/0/beats",
+            json={"beats": [{"trigger": "三步", "job": "steps",
+                             "primary_effect": "stepper", "anchor": "right_side",
+                             "visible_copy": "01 识别 / 02 判断 / 03 执行",
+                             "lifecycle": {"entrance": "draw", "exit": "fold up"}}]})
+        check("节拍表整段保存", beats_resp.status_code == 200
+              and len(beats_resp.json()["project"]["segments"][0].get("beats") or []) == 1)
+        beat_patched = client.patch(
+            f"/avatar/api/projects/{project_id}/segments/0/beats/0",
+            json={"trigger": "三个步骤"}).json()
+        check("单条节拍更新",
+              beat_patched["project"]["segments"][0]["beats"][0]["trigger"] == "三个步骤")
+        prompt_meta_resp = client.post(
+            f"/avatar/api/projects/{project_id}/segments/0/prompt",
+            json={"repair": False}).json()
+        meta = prompt_meta_resp.get("prompt_meta") or {}
+        check("提示词带 prompt_meta（摘要/字数/效果数/lint）",
+              bool(meta.get("summary_line")) and "lint" in meta
+              and int(meta.get("effect_count") or 0) >= 1 and meta.get("audio_mode"),
+              str(sorted(meta.keys())))
+        lint_resp = client.post(
+            f"/avatar/api/projects/{project_id}/segments/0/prompt/lint", json={}).json()
+        check("提示词 lint 接口", "errors" in lint_resp.get("lint", {})
+              and "warnings" in lint_resp.get("lint", {}))
+        repaired = client.post(
+            f"/avatar/api/projects/{project_id}/segments/0/prompt/repair", json={}).json()
+        check("提示词修复接口", repaired.get("source") and repaired.get("prompt_meta"))
+        mode1_empty = client.post("/avatar/api/projects", data={
+            "name": "mode1-空", "mode": "1"}).json()["project"]
+        analyze_empty = client.post(f"/avatar/api/projects/{mode1_empty['id']}/analyze", json={})
+        check("模式 1 无音频时拒绝分析", analyze_empty.status_code == 400)
+
         # 9) 列表 / 删除
         listing = client.get("/avatar/api/projects").json()["projects"]
         check("项目列表", len(listing) >= 3, str(len(listing)))

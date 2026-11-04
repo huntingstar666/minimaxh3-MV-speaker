@@ -72,6 +72,8 @@ def create(name: str, mode: int, script: str = "", voice_description: str = "",
     for sub in (REF_DIR_NAME, VOICE_DIR_NAME, TAKES_DIR_NAME, FINAL_DIR_NAME, "state"):
         (directory / sub).mkdir(parents=True, exist_ok=True)
     mode = int(mode)
+    if mode not in (1, 2, 3):
+        raise ValueError("mode 必须是 1、2 或 3。")
     project: dict[str, Any] = {
         "id": project_id,
         "name": (name or "未命名数字人").strip()[:80],
@@ -79,17 +81,22 @@ def create(name: str, mode: int, script: str = "", voice_description: str = "",
         "updated": time.time(),
         "mode": mode,
         "mode_label": config.MODE_LABELS.get(mode, ""),
-        # 模式 2/3 统一走新工作流；模式 1 不在这里做
-        "workflow": "ref_native",
+        # 模式 1 用 MV 的锁定音轨工作流；模式 2/3 用数字人原生音频工作流
+        "workflow": config.WORKFLOW_BY_MODE.get(mode, "ref_native"),
         "script": str(script or ""),
         "language": config.DEFAULT_LANGUAGE,
         "chars_per_second": max(0.5, float(chars_per_second or config.DEFAULT_CPS)),
         "target_seconds": float(target_seconds or config.DEFAULT_TARGET_SECONDS),
         "max_seconds": float(max_seconds or config.DEFAULT_MAX_SECONDS),
         "min_seconds": config.DEFAULT_MIN_SECONDS,
+        # 模式 1：驱动音频与声学分析
+        "audio": None,
+        "analysis": {},
+        "asr": {},
         "voice_description": str(voice_description or ""),
         "voice": None,
         "refs": [],
+        "design": config.design_for_mode(mode),
         "generation": {**config.generation_defaults(), **(generation or {})},
         "segments": [],
         "run": {"status": "idle", "progress": 0.0, "message": "", "stage": "idle",

@@ -24,6 +24,7 @@
   <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4" stroke="currentColor" stroke-width="1.2"/></symbol>
   <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.8 20 8l-8 4.2L4 8l8-4.2zM4 12.3l8 4.2 8-4.2M4 16.4l8 4.2 8-4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
   <symbol id="i-merge" viewBox="0 0 24 24"><path d="M4 6l5 6-5 6M20 6l-5 6 5 6M9.5 12h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-cut" viewBox="0 0 24 24"><circle cx="6.5" cy="6.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="6.5" cy="17.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8.6 8.2 20 18M8.6 15.8 20 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V5m0 0 4.5 4.5M12 5 7.5 9.5M4.5 19.5h15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
@@ -35,6 +36,8 @@
   <symbol id="i-human" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.8 20.2a7.2 7.2 0 0 1 14.4 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 7.5V12l3.2 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.5M4 12h.5M4 18h.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3.6a8.4 8.4 0 1 0 0 16.8c1.2 0 1.8-.8 1.8-1.8 0-1.5 1.1-2.2 2.4-2.2h1.6a2.6 2.6 0 0 0 2.6-2.6A8.4 8.4 0 0 0 12 3.6z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="9.4" r="1.1" fill="currentColor"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor"/><circle cx="15.8" cy="9.8" r="1.1" fill="currentColor"/></symbol>
 </svg>
 
 <header class="topbar av-topbar">
@@ -61,14 +64,14 @@
     <section class="panel" id="panel-mode">
       <div class="panel-head"><h2>创作模式</h2><span class="hint">数字人的驱动方式</span></div>
       <div class="mode-cards">
-        <a class="mode-card mode-card-link" id="mode-card-1" href="/" title="已有音频时，去 MV 工作台做对口型">
+        <button class="mode-card" type="button" data-mode-card="1">
           <span class="mode-icon"><svg><use href="#i-wave"/></svg></span>
           <span class="mode-body">
             <strong>音频驱动</strong>
-            <em>已有音频 · 对口型 · 无限时长</em>
+            <em>已有音频 · 按波形分段 · 保留原音对口型</em>
           </span>
-          <span class="mode-go"><svg><use href="#i-arrow"/></svg></span>
-        </a>
+          <span class="mode-check"><svg><use href="#i-check"/></svg></span>
+        </button>
         <button class="mode-card" type="button" data-mode-card="2">
           <span class="mode-icon"><svg><use href="#i-mic"/></svg></span>
           <span class="mode-body">
@@ -86,7 +89,7 @@
           <span class="mode-check"><svg><use href="#i-check"/></svg></span>
         </button>
       </div>
-      <p class="panel-note tiny" id="mode-hint">模式 1 复用 MV 工作台；模式 2 / 3 的成片视频自带生成音频。</p>
+      <p class="panel-note tiny" id="mode-hint">模式 2 / 3 的成片视频自带生成音频；模式 1 保留上传音频原声。</p>
     </section>
 
     <section class="panel" id="panel-project">
@@ -98,7 +101,7 @@
       <div class="field">
         <label>台词 / 口播稿 <span class="hint" id="script-count">0 字</span></label>
         <textarea id="f-script" class="input av-script" rows="6" spellcheck="false"
-          placeholder="粘贴完整台词。按中文标点自动分段，每段按语速估算秒数与帧数。&#10;例如：各位好，欢迎来到老港茶餐厅。今天想跟你聊聊，一碗云吞面里藏着的三十年。"></textarea>
+          placeholder="粘贴完整台词。按中文标点自动分段，每段按语速估算秒数与帧数。&#10;模式 1 可作为语音识别的对照文本（可选）。"></textarea>
       </div>
       <div class="field-row">
         <div class="field">
@@ -113,6 +116,47 @@
       <div class="field">
         <label>最长段长 <b id="max-label">12.0s</b> <span class="hint">5–15s</span></label>
         <input id="f-max" type="range" min="5" max="15" step="0.5" value="12">
+      </div>
+
+      <div class="av-mode-form hidden" id="mode-form-1">
+        <label class="dropzone av-dropzone" id="audio-drop">
+          <input type="file" id="audio-input" accept="audio/*,video/*" hidden>
+          <svg><use href="#i-wave"/></svg>
+          <strong>拖入音频 / 视频，或点击选择</strong>
+          <span>模式 1 · 以音频波形为时间轴 · 建议 3 秒以上</span>
+          <em id="audio-label"></em>
+        </label>
+        <div class="av-voice-row hidden" id="audio-row">
+          <span class="av-voice-icon"><svg><use href="#i-wave"/></svg></span>
+          <div class="av-voice-meta">
+            <b id="audio-name">—</b>
+            <span id="audio-duration">—</span>
+          </div>
+          <div class="av-voice-actions">
+            <button class="btn ghost sm" type="button" id="btn-audio-replace">替换</button>
+            <button class="btn ghost sm" type="button" id="btn-audio-del">删除</button>
+          </div>
+        </div>
+        <div class="av-asr-row">
+          <label class="av-switch" title="用语音识别结果切分并对齐台词">
+            <input type="checkbox" id="asr-enabled" checked>
+            <i></i><span>语音识别辅助切分</span>
+          </label>
+          <div class="av-asr-opts" id="asr-opts">
+            <select id="asr-model" class="input" title="ASR 模型">
+              <option value="small" selected>small</option>
+              <option value="base">base</option>
+            </select>
+            <select id="asr-language" class="input" title="识别语言">
+              <option value="zh" selected>中文 zh</option>
+              <option value="auto">自动 auto</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn primary block" id="btn-analyze" type="button">
+          <svg><use href="#i-wave"/></svg><span id="btn-analyze-label">上传并分析</span>
+        </button>
+        <p class="panel-note tiny" id="audio-hint">上传并分析后，在中间时间轴拖动切点、按播放头切分或合并下段。</p>
       </div>
 
       <div class="av-mode-form" id="mode-form-2">
@@ -186,12 +230,141 @@
 
       <div class="av-form-actions">
         <button class="btn primary block" id="btn-create"><svg><use href="#i-plus"/></svg><span id="btn-create-label">新建作品</span></button>
-        <div class="av-form-actions-row">
+        <div class="av-form-actions-row" id="form-actions-plan">
           <button class="btn ghost sm" id="btn-plan"><svg><use href="#i-spark"/></svg>按台词分段</button>
           <button class="btn ghost sm" id="btn-new"><svg><use href="#i-plus"/></svg>新作品</button>
         </div>
       </div>
       <p class="panel-note tiny" id="form-hint">填写台词后新建作品，再点「按台词分段」。</p>
+    </section>
+
+    <section class="panel" id="panel-design">
+      <div class="panel-head">
+        <h2>设计</h2>
+        <span class="hint" id="design-state">默认</span>
+      </div>
+      <details class="av-design" id="design-details" open>
+        <summary>
+          <svg><use href="#i-chevron"/></svg>
+          <span>风格与效果</span>
+          <span class="pill" id="design-badge">生成式</span>
+          <span class="grow"></span>
+          <span class="av-design-mini">密度中</span>
+        </summary>
+        <div class="av-design-body">
+          <div class="field">
+            <label>效果密度</label>
+            <div class="av-seg-btns" id="design-density">
+              <button type="button" data-density="low">低</button>
+              <button type="button" data-density="medium" class="active">中</button>
+              <button type="button" data-density="high">高</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>主色</label>
+              <input type="color" id="design-accent" class="av-color" value="#FFB454">
+            </div>
+            <div class="field">
+              <label>辅色</label>
+              <input type="color" id="design-secondary" class="av-color" value="#8AB4F8">
+            </div>
+          </div>
+          <div class="field">
+            <label>字体语言 <span class="hint">预设 / 自定义</span></label>
+            <div class="av-preset-row">
+              <select id="design-typography-preset" class="input"></select>
+              <input id="design-typography" class="input" placeholder="例如：中文黑体 + 数字等宽">
+            </div>
+          </div>
+          <div class="field">
+            <label>卡片材质 <span class="hint">预设 / 自定义</span></label>
+            <div class="av-preset-row">
+              <select id="design-material-preset" class="input"></select>
+              <input id="design-material" class="input" placeholder="例如：磨砂玻璃 + 细描边">
+            </div>
+          </div>
+          <div class="field">
+            <label>效果清单 <span class="hint" id="design-effects-count">0 项</span></label>
+            <div class="av-effect-list" id="design-effects"></div>
+          </div>
+          <div class="field">
+            <label>图形模式</label>
+            <div class="av-seg-btns" id="design-graphics-mode">
+              <button type="button" data-gmode="generated" class="active">生成式</button>
+              <button type="button" data-gmode="overlay">后期叠加</button>
+            </div>
+            <p class="av-design-note hidden" id="design-graphics-note">后期叠加：提示词只写人物表演/构图/光，文字与 logo 由 ffmpeg 确定性叠加。</p>
+          </div>
+          <div class="av-design-actions">
+            <button class="btn ghost sm" type="button" id="btn-design-suggest"><svg><use href="#i-spark"/></svg>AI 建议效果</button>
+            <button class="btn primary sm" type="button" id="btn-design-save"><svg><use href="#i-check"/></svg>保存设计</button>
+          </div>
+
+          <details class="advanced av-design-adv">
+            <summary><svg><use href="#i-chevron"/></svg>高级设计</summary>
+            <div class="adv-body">
+              <div class="field"><label>平台</label>
+                <select id="design-platform" class="input">
+                  <option value="generic">通用</option>
+                  <option value="douyin">抖音</option>
+                  <option value="bilibili">B 站</option>
+                  <option value="xiaohongshu">小红书</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>安全区 <span class="hint">0–0.3</span></label>
+                <div class="av-field-grid4">
+                  <div class="field"><label>上</label><input id="design-safe-top" class="input mono" type="number" min="0" max="0.3" step="0.01"></div>
+                  <div class="field"><label>下</label><input id="design-safe-bottom" class="input mono" type="number" min="0" max="0.3" step="0.01"></div>
+                  <div class="field"><label>左</label><input id="design-safe-left" class="input mono" type="number" min="0" max="0.3" step="0.01"></div>
+                  <div class="field"><label>右</label><input id="design-safe-right" class="input mono" type="number" min="0" max="0.3" step="0.01"></div>
+                </div>
+              </div>
+              <div class="field">
+                <label>图形预算</label>
+                <div class="av-field-grid3">
+                  <div class="field"><label>max_groups</label><input id="design-budget-groups" class="input mono" type="number" min="1" max="4" step="1"></div>
+                  <div class="field"><label>flash / 秒</label><input id="design-budget-flashes" class="input mono" type="number" min="1" max="3" step="1"></div>
+                  <div class="field"><label>prompt_chars</label><input id="design-budget-chars" class="input mono" type="number" min="2000" max="20000" step="100"></div>
+                </div>
+              </div>
+              <div class="field"><label>品牌色 <span class="hint">逗号分隔 hex</span></label>
+                <input id="design-brand-palette" class="input mono" placeholder="#FFB454, #8AB4F8">
+              </div>
+              <div class="field"><label>logo 参考图 <span class="hint">refs 文件名，逗号分隔</span></label>
+                <input id="design-brand-logos" class="input mono" placeholder="logo_01.png">
+              </div>
+              <div class="field"><label>品牌字体说明</label>
+                <textarea id="design-brand-typography" class="input" rows="2" spellcheck="false" placeholder="例如：标题用思源黑体 Heavy，数字用等宽；主色面积不超过 20%。"></textarea>
+              </div>
+              <div class="field"><label>visual_style</label><input id="design-visual-style" class="input" placeholder="例如：暗调科技纪录片，低饱和冷色 + 琥珀高光"></div>
+              <div class="field"><label>motion_grammar</label><input id="design-motion-grammar" class="input" placeholder="例如：先入后出、从左下 35° 滑入，落定缓停"></div>
+              <div class="field"><label>icon_family</label><input id="design-icon-family" class="input" placeholder="例如：细描边线性图标，2px 圆头"></div>
+              <div class="field-row">
+                <div class="field"><label>route</label><input id="design-route" class="input mono" placeholder="Ref2VA"></div>
+                <div class="field"><label>audio_mode</label>
+                  <select id="design-audio-mode" class="input">
+                    <option value="">按模式推导</option>
+                    <option value="runtime">runtime</option>
+                    <option value="reference">reference</option>
+                    <option value="generated">generated</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <div class="av-voicecard" id="voice-card" hidden>
+            <div class="av-voicecard-head">
+              <strong>音色卡</strong>
+              <span class="hint">C 腔 mode 3 · 11 维</span>
+            </div>
+            <div class="av-voicecard-grid" id="voice-card-fields"></div>
+            <button class="btn ghost sm block" type="button" id="btn-voicecard-suggest"><svg><use href="#i-spark"/></svg>AI 生成音色卡</button>
+          </div>
+        </div>
+      </details>
     </section>
 
     <section class="panel" id="panel-refs">
@@ -209,7 +382,7 @@
       </div>
       <div class="ref-grid av-ref-grid" id="ref-grid"></div>
       <div class="av-ref-empty" id="ref-empty">还没有参考图。</div>
-      <p class="panel-note tiny">人物参考图建议 1 张；场景、服装、道具按需补充。</p>
+      <p class="panel-note tiny">人物参考图建议 1 张；场景、服装、道具按需补充。后期叠加的 logo 也可作为参考图上传。</p>
     </section>
 
     <section class="panel" id="panel-projects">
@@ -227,6 +400,8 @@
         <p id="stage-sub">选模式、写台词、传参考，剩下交给 H3 逐段原生生成</p>
       </div>
       <div class="av-toolbar">
+        <span class="pill av-graphics-pill hidden" id="graphics-pill">生成式</span>
+        <span class="av-overlay-note hidden" id="overlay-note" title="设计面板选择「后期叠加」后，画面文字/logo 由后期确定性叠加">文字/logo 由后期确定性叠加</span>
         <button class="btn ghost sm" id="btn-plan2" title="按标点与语速自动分段"><svg><use href="#i-spark"/></svg>按台词分段</button>
         <button class="btn ghost sm" id="btn-prompts-all" title="为每一段重写提示词"><svg><use href="#i-layers"/></svg>全部生成提示词</button>
         <button class="btn primary" id="btn-generate" title="按分段逐段生成视频（耗时长）"><svg><use href="#i-play"/></svg>开始生成</button>
@@ -235,6 +410,31 @@
         <a class="btn ghost sm is-disabled" id="btn-download-top" href="#" download aria-disabled="true" title="合成成片后可下载"><svg><use href="#i-download"/></svg>下载成片</a>
       </div>
     </div>
+
+    <section class="av-timeline hidden" id="timeline">
+      <div class="av-timeline-head">
+        <div class="av-timeline-title">
+          <h3><svg><use href="#i-wave"/></svg>音频波形</h3>
+          <span id="timeline-meta">—</span>
+        </div>
+        <div class="av-timeline-actions">
+          <button class="btn ghost sm" id="btn-playhead-play" type="button" title="播放 / 暂停音频"><svg><use href="#i-play"/></svg><span id="play-btn-label">播放</span></button>
+          <button class="btn ghost sm" id="btn-split" type="button" title="在播放头位置把当前段切成两段"><svg><use href="#i-cut"/></svg>在播放头切分</button>
+          <button class="btn ghost sm" id="btn-analyze2" type="button" title="用当前参数重新分析音频"><svg><use href="#i-refresh"/></svg>重新分析</button>
+        </div>
+      </div>
+      <div class="wave-wrap" id="wave-wrap">
+        <canvas id="wave-canvas"></canvas>
+        <div class="wave-cuts" id="wave-cuts"></div>
+        <div class="wave-head" id="wave-head"></div>
+      </div>
+      <div class="av-timeline-foot">
+        <span class="mono" id="playhead-label">00:00.0 / 00:00.0</span>
+        <span class="hint">点击/拖动定位播放头 · 拖动竖线切点后松手保存 · 切点两侧需 ≥ 3 秒</span>
+      </div>
+      <audio id="av-audio" preload="metadata"></audio>
+    </section>
+
     <div class="segments av-segments" id="seg-list"></div>
     <div class="av-empty" id="stage-empty" hidden></div>
   </section>

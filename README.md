@@ -333,19 +333,22 @@ git log --oneline   # 出问题时可回到上一个可用版本
 
 AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py` → 重启 `start.bat`。提示词、项目数据都在 `data/`，不受 git 回滚影响。
 
-## 11. 数字人工作台（模式 2/3）
+## 11. 数字人工作台（模式 1/2/3）
 
 顶部「数字人工作台」进入 `/avatar/`（独立页面与后端子应用，MV 侧只多一行挂载）：
 
-- **模式 1 音频驱动**：沿用本页的 MV 工作流（锁定音轨 + SelfLift 对口型），数字人页面只做入口。
-- **模式 2 参考音色**：2–15s 参考音频作为音色参考 + 台词，用新工作流
-  （Ref2VA `ref_audios` + 原生生成音轨）逐段生成口播视频。
-- **模式 3 无音频口播**：只给台词 + 音色描述，H3 原生生成口播音频（默认约 5 字/秒规划分段）。
+- **模式 1 音频驱动**：上传驱动音频 → 分析分段 / 波形拖切点 / 分合段 → 走 MV 的锁定音轨
+  工作流（SelfLift 双采），成片直接使用原始驱动音频；
+- **模式 2 参考音色**：2–15s 参考音频作为音色参考 + 台词，用 Ref2VA `ref_audios` + 原生音轨；
+- **模式 3 无音频口播**：台词 + 音色卡，H3 原生生成口播音频（约 5 字/秒规划分段）。
 
-三种模式的系统提示词已随仓库携带（`backend/avatar/system_prompts/` 的 A 音频驱动 /
-B 参考音色 / C 无音频参考），按项目 mode 自动注入；也可用 `GET/PATCH /avatar/api/prompts`
-写入 `data/avatar/system_prompts.json` 覆盖。数据独立在 `data/avatar/`，不影响 MV 项目。
-详见 [docs/数字人工作台.md](docs/数字人工作台.md)。测试：`python avatar_smoke_test.py`。
+三种模式的系统提示词已随仓库携带（A 音频驱动 / B 参考音色 / C 无音频参考），按 mode 注入；
+LLM 输出会过提示词 lint 并自动修复一轮，失败回退内置六段模板。设计面板支持效果密度、
+主辅色、字体/材质、效果清单、节拍表（可 AI 建议）；`overlay` 模式下文字/logo 由
+ffmpeg 确定性叠加兜底（H3 只负责画面）。数据独立在 `data/avatar/`，不影响 MV 项目。
+详见 [docs/数字人工作台.md](docs/数字人工作台.md)。测试：
+`python avatar_smoke_test.py`、`python avatar_audio_smoke_test.py`、`python avatar_lint_test.py`、
+`python avatar_overlay_test.py`。
 
 ## 12. 许可与致谢
 

@@ -12,11 +12,12 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from pathlib import Path
 from typing import Any
 
-from .. import llm, settings
-from . import config
+from .. import settings
+from . import config, design as design_mod, lint as lint_mod, llm_client
 
 # ---------------------------------------------------------------------------
 # 三种数字人模式对应的系统提示词（A/B/C 三腔，文件随仓库携带）
@@ -310,73 +311,182 @@ def _ref_roles(project: dict[str, Any]) -> tuple[list[dict[str, Any]], int | Non
     return refs, performer, environment
 
 
-def compose_prompt(project: dict[str, Any], row: dict[str, Any]) -> str:
-    """确定性模板：没有系统提示词/LLM 时也保证能出可提交的 H3 Ref2VA 提示词。
+def _beats_clause(project: dict[str, Any], row: dict[str, Any]) -> str:
+    """把节拍表编译成提示词里的特效事件句（仅生成式图形模式）。"""
+    design = design_mod.ensure_design(project)
+    if design.get("graphics_mode") == "overlay":
+        return ""
+    beats = [beat for beat in row.get("beats") or [] if isinstance(beat, dict)]
+    if not beats:
+        return ""
+    parts: list[str] = []
+    for beat in beats[:6]:
+        trigger = _clean_text(beat.get("trigger"))
+        copy = _clean_text(beat.get("visible_copy"))
+        effect = _clean_text(beat.get("primary_effect")) or "info card"
+        anchor = _clean_text(beat.get("anchor")) or "right side"
+        lifecycle = beat.get("lifecycle") if isinstance(beat.get("lifecycle"), dict) else {}
+        entrance = _clean_text(lifecycle.get("entrance")) or "fade in and assemble"
+        landing = _clean_text(lifecycle.get("landing")) or f"land on the trigger word '{trigger}'"
+        hold = _clean_text(lifecycle.get("hold")) or "hold readable"
+        exit_motion = _clean_text(lifecycle.get("exit")) or "retract upward and fully disappear"
+        recovery = _clean_text(lifecycle.get("recovery")) or "clean frame restored"
+        sentence = f"At the phrase '{trigger}', " if trigger else ""
+        sentence += f"a {effect} appears at the {anchor} ({entrance})"
+        if copy:
+            sentence += f" showing \"{copy}\""
+        sentence += (f", {landing}, then {hold} before it {exit_motion}; {recovery}.")
+        parts.append(sentence)
+    return ("Every dynamic graphic completes one in-clip lifecycle: entrance, landing on a "
+            "semantic stress, readable hold, explicit exit, clean recovery. Only one "
+            "information group is visible at a time; a new group may appear only after the "
+            "previous one has fully exited. " + " ".join(parts))
 
-    模式 2 声明 <Audio 1> 为音色身份参考；模式 3 不出现任何 <Audio N>，只写音色描述。
-    两种模式都用 <d>[语言] 台词</d> 明确「唯一要说的词」。
+
+def compose_prompt(project: dict[str, Any], row: dict[str, Any]) -> str:
+    """确定性模板：没有系统提示词/LLM 时也保证能出可提交的 H3 Ref2VA 六段提示词。
+
+    - A 腔（模式 1 音频驱动）：不出现任何 <Audio> 标签，写"平台运行时驱动音频"同步；
+      没有台词时（如无 ASR）不编造台词，只描述可辨识人声与停顿。
+    - B 腔（模式 2 参考音色）：声明 <Audio 1> 为音色/语速/表达参考。
+    - C 腔（模式 3 无音频参考）：不出现 <Audio>，写音色卡（优先 design.voice_card）。
+    - 生成式图形模式会追加节拍表编译出的特效事件句；overlay 模式不画任何文字/图形。
     """
     mode = int(project.get("mode") or config.MODE_TEXT_ONLY)
     language = str(project.get("language") or config.DEFAULT_LANGUAGE)
+    design = design_mod.ensure_design(project)
     refs, performer_index, environment_index = _ref_roles(project)
     picture_of: dict[int, int] = {index: index + 1 for index in range(len(refs))}
+    cps = float(project.get("chars_per_second") or config.DEFAULT_CPS)
 
-    lines: list[str] = []
+    definitions: list[str] = []
+    retention: list[str] = []
     subject_index = 0
     if refs:
         primary = performer_index if performer_index is not None else 0
         subject_index += 1
-        lines.append(
+        definitions.append(
             f"<Subject {subject_index}> (S1) is the single performer whose facial identity, "
             f"hairstyle, body proportions and each garment's original base colour come from "
             f"<Picture {picture_of[primary]}>"
             f" ({_ref_note(refs[primary])}).")
+        retention.append(
+            f"<Subject {subject_index}>: fully_preserved - facial identity, hairstyle, body "
+            f"proportions and each garment's original base colour from <Picture "
+            f"{picture_of[primary]}>.")
         if environment_index is not None and environment_index != primary:
             subject_index += 1
-            lines.append(
+            definitions.append(
                 f"<Subject {subject_index}> is the environment from "
                 f"<Picture {picture_of[environment_index]}> ({_ref_note(refs[environment_index])}).")
+            retention.append(
+                f"<Subject {subject_index}>: fully_preserved - spatial structure, surfaces, "
+                f"light sources and landmarks from <Picture {picture_of[environment_index]}>.")
         for index, ref in enumerate(refs):
             if index in {primary, environment_index}:
                 continue
             subject_index += 1
-            lines.append(
+            definitions.append(
                 f"<Subject {subject_index}> supplies only the visible "
                 f"{_role_label(ref)} of <Picture {picture_of[index]}> ({_ref_note(ref)}); "
                 f"it is content, not a new performer.")
+            retention.append(
+                f"<Subject {subject_index}>: attribute_transfer - only the visible "
+                f"{_role_label(ref)} of <Picture {picture_of[index]}>.")
     else:
-        lines.append("<Subject 1> (S1) is the single performer described by the scene.")
-
-    if mode == config.MODE_VOICE_REF:
-        lines.append(
-            "<Audio 1> is the canonical voice identity of S1. Preserve the same speaker: "
-            "timbre, breath, natural pace, microphone distance, accent and human realism. "
-            "Do not repeat its words.")
-    else:
-        description = _clean_text(project.get("voice_description")) or \
-            "a natural warm adult voice, clear diction, human micro-pauses, close conversational delivery"
-        lines.append(
-            "Voice identity and acting direction only, never spoken aloud: "
-            f"{description}.")
+        definitions.append("<Subject 1> (S1) is the single performer described by the scene.")
+        retention.append("<Subject 1>: fully_preserved - the declared performer identity.")
 
     spoken = _clean_text(row.get("text"))
-    lines.append(
+    if mode == config.MODE_VOICE_REF:
+        definitions.append(
+            "<Audio 1> is the voice-timbre, speaking-rate, cadence, pause-grouping and "
+            "delivery reference for <Subject 1> (S1).")
+        retention.append(
+            "<Audio 1>: reference - its timbre, pitch region, cadence, accent, vocal age and "
+            "delivery guide newly generated dialogue; do not copy its waveform or source words.")
+        task_type = "[reference generation + audio reference]"
+        rate_clause = (f"Target average speech rate about {cps:g} written characters per second; "
+                       f"this segment has {plan_chars(row)} written characters including "
+                       f"punctuation. Follow <Audio 1> for pace and pause grouping.")
+        soundscape = ("The voice is generated in the timbre and delivery guided by <Audio 1> and "
+                      "owned only by <Subject 1>; close microphone perspective with the room tone "
+                      "of the declared environment; no music, effects or other voices.")
+    elif mode == config.MODE_AUDIO_DRIVE:
+        task_type = "[reference generation]"
+        rate_clause = (f"Target average pace about {cps:g} written characters per second; the "
+                       f"platform runtime driving audio is the final speech timeline, so mouth, "
+                       f"breath, pauses, performance and effect timing follow that waveform.")
+        soundscape = ("Platform runtime driving audio provides the final speech timeline; all "
+                      "visible mouth shapes, breathing, pauses, performance and graphic timing "
+                      "follow it. No duplicate voice or conflicting sound layer is generated.")
+    else:
+        voice_card = design_mod.voice_card_text(design.get("voice_card"))
+        description = voice_card or _clean_text(project.get("voice_description")) or (
+            "声音呈现（casting choice）：成年女声或成年男声未指定时按中性声线；听感约 30 岁；"
+            "中音区，音高幅度克制；口腔共鸣，中等声量；质感干净偏暖、轻微气声；辅音清晰、"
+            "连读自然、齿音克制；语速约 5 字/秒，2–4 句一组、组间短停；陈述句句尾轻落、"
+            "句间语调有变化；情绪友好而可信；桌面电容麦近场约 30 厘米，房间反射轻、底噪低；"
+            "不要播音腔、销售腔、客服甜嗓、预告片嗓、单调 TTS 或金属混响。")
+        task_type = "[reference generation]"
+        rate_clause = (f"Target average speech rate about {cps:g} written characters per second; "
+                       f"this segment has {plan_chars(row)} written characters including "
+                       f"punctuation. Natural prosody, non-uniform syllable timing.")
+        soundscape = (f"<Subject 1> owns the only voice in frame, generated natively: {description}. "
+                      "Close microphone perspective with believable room tone and low noise floor; "
+                      "no second voice, no music, no effects.")
+
+    detail: list[str] = [
         "[Shot 1] A still, locked-off medium close-up at eye level on S1, with identical framing, "
         "subject scale and cropping from the first frame to the last. S1 stands physically inside "
         "the declared environment; only the face, upper body, natural blinking, breathing and "
-        "restrained hand gestures are visible.")
-    lines.append(
-        "The only audible words in the entire target are inside the following single dialogue "
-        f"block. S1 says exactly and only: <d>[{language}] {spoken}</d> After the final word, S1 "
-        "closes the mouth. No voice description, acting note, instruction, label, metadata or "
-        "other prompt text is spoken before or after this dialogue.")
-    lines.append(
-        "Subtle believable room tone and natural close-microphone presence from the declared "
-        "space. No music, effects, other voices or speech outside the marked dialogue.")
-    lines.append(
+        "restrained hand gestures are visible.",
+        "Lens-first gaze with brief motivated departures; blinks only near breaths, gaze shifts "
+        "and phrase boundaries; expressions build as onset, peak and partial release; hands keep "
+        "an asymmetric resting state with prepare, semantic peak, settle and rest.",
+    ]
+    if spoken:
+        detail.append(
+            f"S1 says exactly and only: <d>[{language}] {spoken}</d> After the final word S1 "
+            "closes the mouth. No voice description, acting note, instruction, label, metadata "
+            "or other prompt text is spoken before or after this dialogue.")
+    else:
+        detail.append(
+            "The audible speech is the supplied driving line; the exact wording is not "
+            "transcribed here. S1 keeps natural lip movement only while identifiable speech is "
+            "audible, and lips relax during pauses.")
+    detail.append(rate_clause)
+    detail.append(
+        "Mouth motion follows actual phonemes and syllable stress: consonants close, rounded "
+        "vowels form, brief lip seals and jaw amplitude match the stress; lips relax during "
+        "silence, with a light inhale before long phrases and a subtle exhale, swallow or lip "
+        "reset after demanding clauses.")
+    if design.get("graphics_mode") != "overlay":
+        effect_clause = _beats_clause(project, row)
+        if effect_clause:
+            detail.append(effect_clause)
+        detail.append(
+            "All graphics stay inside the safe area and never cover the face, mouth, eyes, "
+            "hands, products, microphone or platform subtitle area; one information group at a "
+            "time, each fully exiting before the next appears, and the final graphic completes "
+            "its exit inside the clip with a clean frame left behind.")
+    detail.append(
         "Every frame stays free of added subtitles, captions, lyrics, watermarks and graphic "
         "overlays. Do not transcribe writing visible in the reference backgrounds.")
-    return "\n".join(lines)
+    sections = [
+        ("subject_definitions", "\n".join(definitions)),
+        ("summary", f"{task_type} Single continuous talking-head shot; S1 delivers the line to "
+                    f"camera; a steady locked-off camera with identical framing to the end."),
+        ("retention_analysis", "\n".join(retention)),
+        ("detailed_description", "\n".join(detail)),
+        ("overall_soundscape", soundscape),
+        ("non_diegetic_music", "N/A"),
+    ]
+    return "\n".join(f"{name}:\n{body}" for name, body in sections)
+
+
+def plan_chars(row: dict[str, Any]) -> int:
+    return int(row.get("chars") or _chars(row.get("text") or ""))
 
 
 def _role_label(ref: dict[str, Any]) -> str:
@@ -397,7 +507,7 @@ def _ref_note(ref: dict[str, Any]) -> str:
 
 
 def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]] | None:
-    """构造 LLM 消息：三腔系统提示词 + 一段中文口播任务书。
+    """构造 LLM 消息：三腔系统提示词 + 设计层 + 节拍表 + 中文口播任务书。
 
     系统提示词为空（三份文件缺失且无覆盖）时返回 None，表示走内置模板。
     """
@@ -406,6 +516,7 @@ def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[st
     if not system:
         return None
     language = str(project.get("language") or config.DEFAULT_LANGUAGE)
+    design = design_mod.ensure_design(project)
     refs = list(project.get("refs") or [])
     role_labels = {
         "performer": "人物身份参考（S1）",
@@ -425,23 +536,25 @@ def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[st
 
     mode_lines = {
         config.MODE_AUDIO_DRIVE:
-            "A 腔 · 音频驱动：平台会提供成品口播音频（本模式走 MV 工作台的锁定音轨链路）。"
-            "提示词里禁止出现任何音频标签/音频任务类型，声音相关字段按 A 腔要求处理。",
+            "A 腔 · 音频驱动：平台提供成品驱动音频（锁定音轨）。提示词里禁止出现任何"
+            "音频标签/音频任务类型/音频保留行；要写明口型、呼吸、停顿、表演与特效以驱动"
+            "音频为最终时间轴；没有转写文本时不要编造台词。",
         config.MODE_VOICE_REF:
-            "B 腔 · 参考音色：已提供一段参考音频，作为 <Audio 1> 绑定音色/语速/表达参考；"
-            "本段台词以下面文案为准，不得复述参考音频里的原话。",
+            "B 腔 · 参考音色：已提供一段参考音频，作为 <Audio 1> 绑定音色/语速/节奏/停顿/"
+            "表达参考；台词以下面文案为准，不得复述参考音频里的原话。",
         config.MODE_TEXT_ONLY:
-            "C 腔 · 无音频参考：没有参考音频，声音由 H3 原生生成；必须按 C 腔规则在 "
-            "detailed_description 写满 10 维 voice card，且不得出现任何 <Audio N> 标签。",
+            "C 腔 · 无音频参考：没有参考音频，声音由 H3 原生生成；必须按 C 腔规则写满 10 维"
+            "voice card（填写在 detailed_description），且不得出现任何 <Audio N> 标签。",
     }
     generation = project.get("generation") or {}
+    text = str(row.get("text") or "").strip()
     lines = [
         "请严格按你的系统提示词规则，为下面这一段口播生成一条可直接送进 MiniMax H3 "
         "Ref2VA 的完整提示词。",
         "",
         f"【音频腔】{mode_lines.get(mode, '')}",
-        f"【口播文案（必须原文使用，放进 <d>[{language}] …</d>，含原标点）】"
-        f"{str(row.get('text') or '').strip()}",
+        (f"【口播文案（必须原文使用，放进 <d>[{language}] …</d>，含原标点）】{text}"
+         if text else "【口播文案】无转写文本：不要编造台词，只描述可辨识人声与停顿。"),
         f"【本段时长】{float(row.get('seconds') or 0):.2f} 秒"
         f"（{int(row.get('frames') or 0)} 帧 @ 24fps）",
         f"【画幅】{generation.get('aspect_ratio') or '9:16 (Portrait Widescreen)'}",
@@ -451,15 +564,29 @@ def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[st
                           else "无。"),
     ]
     if mode == config.MODE_TEXT_ONLY:
-        lines.append("【音色描述（写 voice card 用）】"
-                     + (str(project.get("voice_description") or "").strip()
+        card = design_mod.voice_card_text(design.get("voice_card"))
+        lines.append("【音色卡（写 voice card 用）】"
+                     + (card or str(project.get("voice_description") or "").strip()
                         or "未填写，请按 C 腔自行给出合理的 10 维 voice card。"))
+    design_block = design_mod.design_block(project)
+    beats = design_mod.beats_for_llm(project, row)
+    lines.append("【设计层 JSON】" + json.dumps(design_block, ensure_ascii=False))
+    if design.get("graphics_mode") == "overlay":
+        lines.append("【图形模式 = 后期叠加】不要在画面里生成任何文字、图标、卡片、图表、"
+                     "粒子或光效；只写人物表演、构图、镜头与光影。文字与 logo 由后期确定性叠加。")
+    if beats:
+        lines.append("【节拍表 JSON（按它写，可微调但不要增删信息组）】"
+                     + json.dumps(beats, ensure_ascii=False))
+    else:
+        lines.append("【节拍表】未提供：请按技能规则自行设计（图形必须片内完成"
+                     "入场→落定→停留→退场→干净恢复，同时只保留 1 组），并在 BEATS 行返回。")
     lines += [
-        "【动态图形密度】适中：以人物为主，每个语义节拍最多一个主效果；"
-        "所有图形必须有入场 / 落定 / 可读停留 / 退场 / 干净恢复。",
-        "【输出要求】只输出提示词正文本身：六段结构（subject_definitions、summary、"
-        "retention_analysis、detailed_description、overall_soundscape、non_diegetic_music），"
-        "不要摘要、不要检查清单、不要代码围栏、不要额外解释。",
+        "【输出格式（严格遵守）】",
+        "第 1 行：SUMMARY: <一行中文摘要，含路线/腔/效果概念/密度/目标语速/字数>",
+        "第 2 行：BEATS: <JSON 数组；若沿用上面的节拍表则写 []>",
+        "空一行后：完整 H3 Ref2VA 六段提示词正文（subject_definitions / summary / "
+        "retention_analysis / detailed_description / overall_soundscape / non_diegetic_music）",
+        "除以上内容外不要输出任何解释、检查清单或 Markdown 代码围栏。",
     ]
     return [
         {"role": "system", "content": system},
@@ -467,86 +594,260 @@ def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[st
     ]
 
 
-def validate_prompt(text: str, project: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
-    errors: list[str] = []
-    warnings: list[str] = []
-    value = str(text or "").strip()
-    if not value:
-        errors.append("提示词为空。")
-        return {"ok": False, "errors": errors, "warnings": warnings}
-    spoken = _clean_text(row.get("text"))
-    if "<d>" not in value or "</d>" not in value:
-        warnings.append("提示词里没有 <d>...</d> 台词块，H3 可能不会说本段台词。")
-    elif spoken and spoken not in value:
-        warnings.append("台词块里没有出现本段台词原文。")
-    if int(project.get("mode") or 0) == config.MODE_VOICE_REF:
-        if "<Audio 1>" not in value:
-            warnings.append("模式 2 应声明 <Audio 1> 作为音色身份参考。")
-    else:
-        if "<Audio" in value:
-            warnings.append("模式 3 不应出现 <Audio N> 标签（没有参考音频）。")
-    return {"ok": not errors, "errors": errors, "warnings": warnings}
+def parse_output(raw: str) -> tuple[str | None, list[dict[str, Any]] | None, str]:
+    """解析 LLM 输出：SUMMARY 行 / BEATS JSON / 提示词正文。"""
+    value = str(raw or "").strip()
+    lines = value.splitlines()
+    summary: str | None = None
+    beats: list[dict[str, Any]] | None = None
+    body: list[str] = []
+    index = 0
+
+    def _balanced(text: str) -> bool:
+        return text.count("[") - text.count("]") <= 0 and text.strip().endswith("]")
+
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if summary is None:
+            match = re.match(r"^(?:SUMMARY|摘要)\s*[:：]\s*(.+)$", stripped, re.I)
+            if match:
+                summary = match.group(1).strip()
+                index += 1
+                continue
+        if beats is None and re.match(r"^BEATS\b", stripped, re.I):
+            payload = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+            collected = payload
+            while not _balanced(collected) and index + 1 < len(lines):
+                index += 1
+                collected += "\n" + lines[index]
+            candidate = collected.strip()
+            for text in (candidate, candidate[candidate.find("["):candidate.rfind("]") + 1]
+                         if "[" in candidate and "]" in candidate else ""):
+                if not text:
+                    continue
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, list):
+                    beats = parsed
+                    break
+            index += 1
+            continue
+        body.append(lines[index])
+        index += 1
+    text = "\n".join(body).strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+    if summary is None:
+        # 兼容模型直接输出「路线=Ref2VA ｜ …」摘要行（没有 SUMMARY: 前缀）的情况
+        discovered, stripped_text = lint_mod.extract_summary_line(text)
+        if discovered:
+            summary = discovered
+            text = stripped_text
+    return summary, (beats if isinstance(beats, list) else None), text
 
 
-def _prompt_issues(text: str, project: dict[str, Any]) -> list[str]:
-    """LLM 输出是否完整可用（用于决定重试还是回退）。
+def _lint_for(project: dict[str, Any], row: dict[str, Any], body: str) -> dict[str, Any]:
+    design = design_mod.ensure_design(project)
+    return lint_mod.lint_prompt(
+        body, mode="Ref2VA", audio_mode=design.get("audio_mode"),
+        duration_seconds=float(row.get("seconds") or 0),
+        target_cps=float(project.get("chars_per_second") or config.DEFAULT_CPS),
+        graphics_mode=str(design.get("graphics_mode") or "generated"))
 
-    这些三腔提示词本身约 1.3 万字，本地小模型可能因为推理 token 用满而被截断，
-    表现出「没有 <d> 台词块 / 没有六段标题」；这里把这些情况当失败重试一次。
-    """
+
+def _hard_issues(project: dict[str, Any], row: dict[str, Any], body: str) -> list[str]:
     issues: list[str] = []
-    value = str(text or "")
-    if "<d>" not in value or "</d>" not in value:
+    if len(body.strip()) < 200:
+        issues.append("提示词过短或为空")
+    if str(row.get("text") or "").strip() and "<d>" not in body:
         issues.append("缺少 <d>[语言] 台词</d> 台词块")
-    if "overall_soundscape" not in value:
-        issues.append("缺少 overall_soundscape 段")
-    if "detailed_description" not in value:
-        issues.append("缺少 detailed_description 段")
-    mode = int(project.get("mode") or 0)
-    if mode == config.MODE_VOICE_REF:
-        if "<Audio 1>" not in value:
-            issues.append("B 腔必须定义并绑定 <Audio 1>")
-    elif "<Audio" in value:
-        issues.append("A/C 腔不得出现任何 <Audio N> 标签")
     return issues
+
+
+def build_meta(project: dict[str, Any], row: dict[str, Any], body: str,
+               beats: list[dict[str, Any]] | None, summary: str | None,
+               lint: dict[str, Any], source: str) -> dict[str, Any]:
+    design = design_mod.ensure_design(project)
+    mode = int(project.get("mode") or 0)
+    used_beats = beats or list(row.get("beats") or [])
+    speech_chars = int(lint.get("speech_chars") or 0) or int(row.get("chars") or 0)
+    task_types = ["reference generation"]
+    if mode == config.MODE_VOICE_REF:
+        task_types.append("audio reference")
+    return {
+        "route": "Ref2VA",
+        "audio_mode": design.get("audio_mode"),
+        "task_types": task_types,
+        "speech_chars": speech_chars,
+        "target_cps": float(project.get("chars_per_second") or config.DEFAULT_CPS),
+        "effect_count": len(used_beats),
+        "summary_line": summary or design_mod.summary_line(project, row, used_beats, speech_chars),
+        "lint": {"ok": bool(lint.get("ok")), "errors": lint.get("errors") or [],
+                 "warnings": lint.get("warnings") or [],
+                 "chars": len(body), "speech_chars": speech_chars},
+        "source": source,
+        "linted_at": time.time(),
+    }
+
+
+def validate_prompt(text: str, project: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    """向后兼容的轻量校验（内部改走 lint）。"""
+    lint = _lint_for(project, row, str(text or ""))
+    errors = [item["message"] for item in lint.get("errors") or []]
+    warnings = [item["message"] for item in lint.get("warnings") or []]
+    return {"ok": not errors and bool(str(text or "").strip()),
+            "errors": errors or ([] if str(text or "").strip() else ["提示词为空。"]),
+            "warnings": warnings}
+
+
+def normalize_beats(value: Any) -> list[dict[str, Any]]:
+    beats: list[dict[str, Any]] = []
+    if not isinstance(value, list):
+        return beats
+    for index, item in enumerate(value[:12]):
+        if not isinstance(item, dict):
+            continue
+        lifecycle = item.get("lifecycle") if isinstance(item.get("lifecycle"), dict) else {}
+        beats.append({
+            "index": index,
+            "trigger": _clean_text(item.get("trigger"))[:120],
+            "job": _clean_text(item.get("job"))[:40],
+            "primary_effect": _clean_text(item.get("primary_effect"))[:60],
+            "accent_effect": _clean_text(item.get("accent_effect"))[:60],
+            "anchor": _clean_text(item.get("anchor"))[:60],
+            "layer": _clean_text(item.get("layer"))[:24],
+            "visible_copy": str(item.get("visible_copy") or "").strip()[:200],
+            "lifecycle": {key: _clean_text(lifecycle.get(key))[:160]
+                          for key in ("entrance", "landing", "hold", "exit", "recovery")},
+            "attention_target": _clean_text(item.get("attention_target"))[:60],
+            "gesture": _clean_text(item.get("gesture"))[:120],
+            "risk": _clean_text(item.get("risk"))[:120],
+        })
+    return beats
 
 
 def generate_prompt(project: dict[str, Any], row: dict[str, Any],
                     config_llm: dict[str, Any] | None = None,
-                    images: list[Path] | None = None) -> dict[str, Any]:
-    """生成单段提示词：三腔系统提示词非空 → LLM（失败重试一次）；否则/失败 → 内置模板。"""
-    config_llm = dict(config_llm or {})
-    try:
-        config_llm["max_tokens"] = max(int(config_llm.get("max_tokens") or 8192), 12288)
-    except (TypeError, ValueError):
-        config_llm["max_tokens"] = 12288
-    result: dict[str, Any] = {"source": "fallback", "text": "", "warnings": []}
+                    images: list[Path] | None = None,
+                    repair: bool = True) -> dict[str, Any]:
+    """生成单段提示词：三腔系统提示词 + 设计层 + 节拍表 → LLM → lint → 自动修复一轮。"""
+    config_llm = llm_client.prepare(config_llm)
+    result: dict[str, Any] = {"source": "fallback", "text": "", "warnings": [],
+                              "beats": None, "meta": {}, "lint": {}}
     messages = build_messages(project, row)
     if config_llm.get("enabled") and messages is not None:
         conversation = list(messages)
         for attempt in (1, 2):
             try:
-                text = llm.chat(config_llm, conversation, images if attempt == 1 else None)
+                raw = llm_client.chat(config_llm, conversation,
+                                      images if attempt == 1 else None)
             except Exception as error:  # noqa: BLE001
                 result["warnings"] = [f"LLM 扩写失败，已回退内置模板：{error}"]
                 break
-            check = validate_prompt(text, project, row)
-            issues = check["errors"] + _prompt_issues(text, project)
+            summary, beats, body = parse_output(raw)
+            lint = _lint_for(project, row, body)
+            issues = [item["message"] for item in lint.get("errors") or []]
+            issues += _hard_issues(project, row, body)
             if not issues:
-                result.update(source="llm", text=text, warnings=check["warnings"])
-                return result
+                meta = build_meta(project, row, body, beats, summary, lint, "llm")
+                return {**result, "source": "llm", "text": body, "beats": beats,
+                        "meta": meta, "lint": meta["lint"],
+                        "warnings": [item["message"] for item in lint.get("warnings") or []]}
             result["warnings"] = issues
-            if attempt == 1:
+            if attempt == 1 and repair:
                 conversation = conversation + [
-                    {"role": "assistant", "content": text},
+                    {"role": "assistant", "content": raw},
                     {"role": "user", "content":
-                        "上一版有这些问题：" + "；".join(issues)
-                        + "。请重新输出完整提示词：六段标题齐全、台词只放在 "
-                          "<d>[语言] …</d> 内、按对应音频腔的音频标签规则来写；"
-                          "不要摘要、不要检查清单、不要代码围栏。"},
+                        "上一版有这些问题：" + "；".join(issues) +
+                        "。请按要求的 SUMMARY/BEATS/正文格式重新输出完整提示词：六段标题齐全、"
+                        "台词只放在 <d>[语言] …</d> 内、按对应音频腔的音频标签规则写、"
+                        "动态图形必须有入场→落定→停留→退场→干净恢复。不要解释、不要代码围栏。"},
                 ]
-    text = compose_prompt(project, row)
-    check = validate_prompt(text, project, row)
-    result.update(source="fallback", text=text,
-                  warnings=(result.get("warnings") or []) + check["errors"] + check["warnings"])
+                continue
+            break
+    body = compose_prompt(project, row)
+    lint = _lint_for(project, row, body)
+    meta = build_meta(project, row, body, None, None, lint, "fallback")
+    return {**result, "source": "fallback", "text": body,
+            "warnings": (result.get("warnings") or []) +
+                        [item["message"] for item in lint.get("warnings") or []],
+            "beats": None, "meta": meta, "lint": meta["lint"]}
+
+
+def repair_prompt(project: dict[str, Any], row: dict[str, Any], text: str,
+                  config_llm: dict[str, Any] | None = None,
+                  images: list[Path] | None = None) -> dict[str, Any]:
+    """按 lint 结果做一次定向修复；失败回退内置模板。"""
+    config_llm = llm_client.prepare(config_llm)
+    body = str(text or "").strip()
+    messages = build_messages(project, row)
+    lint = _lint_for(project, row, body)
+    issues = [item["message"] for item in lint.get("errors") or []]
+    issues += [item["message"] for item in lint.get("warnings") or []][:6]
+    result: dict[str, Any] = {"source": "fallback", "text": "", "warnings": [],
+                              "beats": None, "meta": {}, "lint": {}}
+    if config_llm.get("enabled") and messages is not None and body:
+        conversation = messages + [
+            {"role": "assistant", "content": body},
+            {"role": "user", "content":
+                "上一版提示词的 lint 问题：" + ("；".join(issues) or "无") +
+                "。请修正后按 SUMMARY/BEATS/正文格式重新输出完整提示词；不要解释、不要代码围栏。"},
+        ]
+        try:
+            raw = llm_client.chat(config_llm, conversation, images)
+            summary, beats, fixed = parse_output(raw)
+            fixed_lint = _lint_for(project, row, fixed)
+            fixed_issues = [item["message"] for item in fixed_lint.get("errors") or []]
+            fixed_issues += _hard_issues(project, row, fixed)
+            if not fixed_issues:
+                meta = build_meta(project, row, fixed, beats, summary, fixed_lint, "repair")
+                return {"source": "repair", "text": fixed, "beats": beats, "meta": meta,
+                        "lint": meta["lint"],
+                        "warnings": [item["message"]
+                                     for item in fixed_lint.get("warnings") or []]}
+            result["warnings"] = fixed_issues
+        except Exception as error:  # noqa: BLE001
+            result["warnings"] = [f"修复失败，已回退内置模板：{error}"]
+    fallback = compose_prompt(project, row)
+    fallback_lint = _lint_for(project, row, fallback)
+    meta = build_meta(project, row, fallback, None, None, fallback_lint, "fallback")
+    return {"source": "fallback", "text": fallback, "beats": None, "meta": meta,
+            "lint": meta["lint"],
+            "warnings": (result.get("warnings") or []) +
+                        [item["message"] for item in fallback_lint.get("warnings") or []]}
+
+
+def suggest(kind: str, project: dict[str, Any], row: dict[str, Any] | None = None,
+            config_llm: dict[str, Any] | None = None,
+            catalog: dict[str, Any] | None = None) -> dict[str, Any]:
+    """AI 建议：kind = effects / voice / beats。返回可直接合并进 design/beats 的字典。"""
+    config_llm = llm_client.prepare(config_llm)
+    result: dict[str, Any] = {"suggestion": {}, "warnings": []}
+    messages = design_mod.suggest_messages(kind, project, row, catalog)
+    try:
+        raw = llm_client.chat(config_llm, messages)
+        data = llm_client.parse_json(raw)
+    except Exception as error:  # noqa: BLE001
+        result["warnings"] = [f"AI 建议失败：{error}"]
+        return result
+    if kind == "beats":
+        beats = normalize_beats(data.get("beats") if isinstance(data, dict) else data)
+        result["suggestion"] = {"beats": beats}
+    elif kind == "voice":
+        card = data.get("voice_card") if isinstance(data.get("voice_card"), dict) else data
+        if isinstance(card, dict):
+            result["suggestion"] = {"voice_card": design_mod.normalize_design(
+                {"voice_card": card})["voice_card"]}
+    else:
+        if isinstance(data, dict):
+            patch: dict[str, Any] = {}
+            for key in ("effect_density", "graphics_mode", "effect_families"):
+                if key in data:
+                    patch[key] = data[key]
+            if isinstance(data.get("style_system"), dict):
+                patch["style_system"] = data["style_system"]
+            result["suggestion"] = design_mod.normalize_design(patch)
     return result

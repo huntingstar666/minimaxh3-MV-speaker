@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,8 @@ from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from .. import audio, comfy, settings
-from . import config, job, plan, store, workflow
+from . import (audio_pipeline, config, design as design_mod, effect_catalog, job,
+               lint as lint_mod, plan, store, workflow)
 
 APP_VERSION = "1.0.0"
 ALLOWED_AUDIO = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4",
@@ -90,6 +92,13 @@ def _mark_final_stale(project: dict[str, Any]) -> None:
         final["stale"] = True
 
 
+def _mark_prompt_meta_stale(row: dict[str, Any]) -> None:
+    """节拍/输入变化后保留上次 lint 结果，但标记为过期（不直接删）。"""
+    meta = row.get("prompt_meta")
+    if isinstance(meta, dict) and meta:
+        row["prompt_meta"] = {**meta, "stale": True}
+
+
 def _role(value: str) -> str:
     role = str(value or "performer")
     if role not in VALID_ROLES:
@@ -130,6 +139,27 @@ def _save_voice(project_id: str, upload: UploadFile) -> dict[str, Any]:
 
 def _llm_config() -> dict[str, Any]:
     return dict(settings.load().get("llm") or {})
+
+
+def _save_project_audio(project_id: str, upload: UploadFile) -> dict[str, Any]:
+    """模式 1 的驱动音频：解码成 source.wav 并返回元信息。"""
+    suffix = Path(upload.filename or "").suffix.lower()
+    if suffix not in ALLOWED_AUDIO:
+        raise HTTPException(400, f"不支持的音频格式：{suffix or '未知'}")
+    directory = store.project_dir(project_id)
+    (directory / "state").mkdir(parents=True, exist_ok=True)
+    temp = directory / "state" / f"upload{suffix}"
+    with temp.open("wb") as handle:
+        shutil.copyfileobj(upload.file, handle)
+    try:
+        return audio_pipeline.decode_audio(project_id, temp, directory / "source.wav")
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, f"音频解码失败：{error}") from error
+    finally:
+        try:
+            temp.unlink()
+        except OSError:
+            pass
 
 
 def _ref_images(project_id: str, project: dict[str, Any]) -> list[Path]:
@@ -214,15 +244,14 @@ def create_project(name: str = Form("未命名数字人"),
                    target_seconds: str = Form(""),
                    max_seconds: str = Form(""),
                    generation: str = Form(""),
-                   voice: UploadFile | None = File(None)) -> dict[str, Any]:
+                   voice: UploadFile | None = File(None),
+                   audio: UploadFile | None = File(None)) -> dict[str, Any]:
     try:
         mode_value = int(str(mode))
     except (TypeError, ValueError):
-        raise HTTPException(400, "mode 必须是 2 或 3。") from None
-    if mode_value == config.MODE_AUDIO_DRIVE:
-        raise HTTPException(400, "模式 1（音频驱动）请使用 MV 工作台；数字人页面只做模式 2/3。")
-    if mode_value not in (config.MODE_VOICE_REF, config.MODE_TEXT_ONLY):
-        raise HTTPException(400, "mode 必须是 2 或 3。")
+        raise HTTPException(400, "mode 必须是 1、2 或 3。") from None
+    if mode_value not in (config.MODE_AUDIO_DRIVE, config.MODE_VOICE_REF, config.MODE_TEXT_ONLY):
+        raise HTTPException(400, "mode 必须是 1、2 或 3。")
     generation_patch: dict[str, Any] = {}
     if str(generation or "").strip():
         try:
@@ -237,12 +266,15 @@ def create_project(name: str = Form("未命名数字人"),
         script=script,
         voice_description=voice_description,
         chars_per_second=_float(chars_per_second, config.DEFAULT_CPS, 1.0, 12.0),
-        target_seconds=_float(target_seconds, config.DEFAULT_TARGET_SECONDS, 3.0, 15.0),
+        target_seconds=_float(target_seconds, config.DEFAULT_TARGET_SECONDS, 5.0, 15.0),
         max_seconds=_float(max_seconds, config.DEFAULT_MAX_SECONDS, 5.0, 15.0),
         generation=generation_patch,
     )
-    if voice is not None and (voice.filename or ""):
+    if voice is not None and (voice.filename or "") and mode_value == config.MODE_VOICE_REF:
         project["voice"] = _save_voice(project["id"], voice)
+        store.save(project)
+    if audio is not None and (audio.filename or "") and mode_value == config.MODE_AUDIO_DRIVE:
+        project["audio"] = _save_project_audio(project["id"], audio)
         store.save(project)
     return {"ok": True, "project": project}
 
@@ -259,13 +291,17 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             value = int(payload["mode"])
         except (TypeError, ValueError):
-            raise HTTPException(400, "mode 必须是 2 或 3。") from None
-        if value == config.MODE_AUDIO_DRIVE:
-            raise HTTPException(400, "模式 1 请使用 MV 工作台。")
-        if value not in (config.MODE_VOICE_REF, config.MODE_TEXT_ONLY):
-            raise HTTPException(400, "mode 必须是 2 或 3。")
+            raise HTTPException(400, "mode 必须是 1、2 或 3。") from None
+        if value not in (config.MODE_AUDIO_DRIVE, config.MODE_VOICE_REF, config.MODE_TEXT_ONLY):
+            raise HTTPException(400, "mode 必须是 1、2 或 3。")
         project["mode"] = value
         project["mode_label"] = config.MODE_LABELS.get(value, "")
+        project["workflow"] = config.WORKFLOW_BY_MODE.get(value, "ref_native")
+        design = design_mod.ensure_design(project)
+        if isinstance(payload.get("design"), dict) and "audio_mode" in payload["design"]:
+            pass
+        else:
+            design["audio_mode"] = config.AUDIO_MODE_BY_MODE.get(value, "generated")
     for key in ("name", "script", "voice_description", "language"):
         if key in payload:
             project[key] = str(payload[key] or "")
@@ -273,12 +309,16 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         project["chars_per_second"] = _float(payload["chars_per_second"], config.DEFAULT_CPS, 1.0, 12.0)
     if "target_seconds" in payload:
         project["target_seconds"] = _float(payload["target_seconds"], config.DEFAULT_TARGET_SECONDS,
-                                           3.0, 15.0)
+                                           5.0, 15.0)
     if "max_seconds" in payload:
         project["max_seconds"] = _float(payload["max_seconds"], config.DEFAULT_MAX_SECONDS, 5.0, 15.0)
     if isinstance(payload.get("generation"), dict):
         project["generation"] = {**(project.get("generation") or {}), **payload["generation"]}
         _mark_final_stale(project)
+    if isinstance(payload.get("design"), dict):
+        design_mod.update_design(project, payload["design"])
+        _mark_final_stale(project)
+    design_mod.ensure_design(project)
     store.save(project)
     return {"ok": True, "project": project}
 
@@ -382,16 +422,153 @@ def delete_voice(project_id: str) -> dict[str, Any]:
     return {"ok": True, "project": project}
 
 
+# ------------------------------- 模式 1：驱动音频 -------------------------------
+@app.post("/api/projects/{project_id}/audio")
+def upload_audio(project_id: str, audio: UploadFile = File(...)) -> dict[str, Any]:
+    project = _project(project_id)
+    if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
+        raise HTTPException(400, "只有模式 1（音频驱动）需要驱动音频。")
+    project["audio"] = _save_project_audio(project_id, audio)
+    project["segments"] = []
+    project["analysis"] = {}
+    project["asr"] = {}
+    project["final"] = None
+    project["run"] = {"status": "idle", "progress": 0.0, "message": "", "stage": "idle",
+                      "segment": -1, "error": None, "logs": []}
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.delete("/api/projects/{project_id}/audio")
+def delete_audio(project_id: str) -> dict[str, Any]:
+    project = _project(project_id)
+    if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
+        raise HTTPException(400, "只有模式 1（音频驱动）有驱动音频。")
+    try:
+        (store.project_dir(project_id) / "source.wav").unlink()
+    except OSError:
+        pass
+    project["audio"] = None
+    project["segments"] = []
+    project["analysis"] = {}
+    project["asr"] = {}
+    project["final"] = None
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.post("/api/projects/{project_id}/analyze")
+def analyze_audio(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    project = _project(project_id)
+    if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
+        raise HTTPException(400, "只有模式 1（音频驱动）使用音频分析分段；模式 2/3 请用 /plan。")
+    try:
+        saved = audio_pipeline.analyze(project_id, payload or {})
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, f"音频分析失败：{error}") from error
+    return {"ok": True, "project": saved}
+
+
+@app.put("/api/projects/{project_id}/cuts")
+def put_cuts(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    cuts = payload.get("cuts")
+    if not isinstance(cuts, list):
+        raise HTTPException(400, "cuts 必须是秒数数组。")
+    try:
+        saved = audio_pipeline.apply_cuts(project_id, [float(value) for value in cuts])
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "project": saved}
+
+
+@app.post("/api/projects/{project_id}/segments/{index}/split")
+def split_segment(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    _row(_project(project_id), index)
+    try:
+        seconds = float((payload or {}).get("time"))
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, "time 必须是整条音频时间线上的秒数。") from error
+    try:
+        saved = audio_pipeline.split_at(project_id, seconds)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "project": saved}
+
+
+@app.post("/api/projects/{project_id}/segments/{index}/merge")
+def merge_segment(project_id: str, index: int) -> dict[str, Any]:
+    _row(_project(project_id), index)
+    try:
+        saved = audio_pipeline.merge_next(project_id, index)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "project": saved}
+
+
+# ------------------------------- 设计层 / 效果库 -------------------------------
+@app.get("/api/design-defaults")
+def design_defaults() -> dict[str, Any]:
+    return {"ok": True, "design": config.default_design()}
+
+
+@app.get("/api/effect-catalog")
+def effect_catalog_api() -> dict[str, Any]:
+    return {"ok": True, **effect_catalog.catalog()}
+
+
+@app.get("/api/projects/{project_id}/design")
+def get_design(project_id: str) -> dict[str, Any]:
+    project = _project(project_id)
+    return {"ok": True, "design": design_mod.ensure_design(project)}
+
+
+@app.patch("/api/projects/{project_id}/design")
+def patch_design(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    project = _project(project_id)
+    design_mod.update_design(project, payload or {})
+    _mark_final_stale(project)
+    store.save(project)
+    return {"ok": True, "project": project, "design": project["design"]}
+
+
+@app.post("/api/projects/{project_id}/design/suggest")
+def design_suggest(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = payload or {}
+    project = _project(project_id)
+    kind = str(payload.get("mode") or "effects")
+    if kind not in {"effects", "voice", "beats"}:
+        raise HTTPException(400, "mode 必须是 effects / voice / beats。")
+    row = None
+    if kind == "beats" and payload.get("segment_index") is not None:
+        row = _row(project, int(payload["segment_index"]))
+    config_llm = _llm_config()
+    config_llm.update(payload.get("llm") or {})
+    result = plan.suggest(kind, project, row, config_llm, effect_catalog.catalog())
+    return {"ok": True, "suggestion": result.get("suggestion") or {},
+            "warnings": result.get("warnings") or []}
+
+
 # ------------------------------- 分段 / 提示词 -------------------------------
 @app.post("/api/projects/{project_id}/plan")
 def plan_project(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     payload = payload or {}
     project = _project(project_id)
+    if int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE:
+        # 模式 1 的"分段"来自驱动音频分析
+        if not project.get("audio"):
+            raise HTTPException(400, "请先上传驱动音频。")
+        try:
+            saved = audio_pipeline.analyze(project_id, payload)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"ok": True, "project": saved}
     if payload.get("script") is not None:
         project["script"] = str(payload.get("script") or "")
     for key in ("chars_per_second", "target_seconds", "max_seconds"):
         if key in payload:
-            limits = {"chars_per_second": (1.0, 12.0), "target_seconds": (3.0, 15.0),
+            limits = {"chars_per_second": (1.0, 12.0), "target_seconds": (5.0, 15.0),
                       "max_seconds": (5.0, 15.0)}[key]
             project[key] = _float(payload[key], project.get(key), *limits)
     if not str(project.get("script") or "").strip():
@@ -414,6 +591,27 @@ def plan_project(project_id: str, payload: dict[str, Any] | None = None) -> dict
 def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[str, Any]:
     project = _project(project_id)
     row = _row(project, index)
+    is_audio = int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE
+    if is_audio:
+        # 模式 1：时间轴由音频切点决定，台词只影响提示词，不改帧数
+        if "frames" in payload:
+            raise HTTPException(400, "模式 1 的段长由音频切点决定，请用波形切点/分合段调整。")
+        if "text" in payload:
+            text = str(payload["text"] or "").strip()
+            if text != str(row.get("text") or ""):
+                row["text"] = text
+                row["chars"] = plan._chars(text)
+                row["prompt"] = ""
+                row["prompt_source"] = ""
+                row["prompt_warnings"] = []
+                row["prompt_meta"] = {}
+        if "prompt" in payload:
+            text = str(payload["prompt"] or "").strip()
+            row["prompt"] = text
+            row["prompt_source"] = "manual" if text else ""
+            row["prompt_warnings"] = []
+        store.save(project)
+        return {"ok": True, "project": project}
     structural = False
     text_changed = False
     frames_given = "frames" in payload
@@ -453,21 +651,64 @@ def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[
 def generate_prompt(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     project = _project(project_id)
     row = _row(project, index)
+    payload = payload or {}
     config_llm = _llm_config()
-    config_llm.update((payload or {}).get("llm") or {})
-    result = plan.generate_prompt(project, row, config_llm, _ref_images(project_id, project))
+    config_llm.update(payload.get("llm") or {})
+    result = plan.generate_prompt(project, row, config_llm, _ref_images(project_id, project),
+                                  repair=bool(payload.get("repair", True)))
     row["prompt"] = result["text"]
     row["prompt_source"] = result["source"]
     row["prompt_warnings"] = result["warnings"]
+    row["prompt_meta"] = result.get("meta") or {}
+    if result.get("beats"):
+        row["beats"] = result["beats"]
     store.save(project)
     return {"ok": True, "project": project, "source": result["source"],
-            "text": result["text"], "warnings": result["warnings"]}
+            "text": result["text"], "warnings": result["warnings"],
+            "prompt_meta": row.get("prompt_meta") or {},
+            "beats": row.get("beats") or []}
+
+
+@app.post("/api/projects/{project_id}/segments/{index}/prompt/lint")
+def lint_prompt(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    project = _project(project_id)
+    row = _row(project, index)
+    text = str((payload or {}).get("text") or row.get("prompt") or "").strip()
+    design = design_mod.ensure_design(project)
+    result = lint_mod.lint_prompt(
+        text, mode="Ref2VA", audio_mode=design.get("audio_mode"),
+        duration_seconds=float(row.get("seconds") or 0),
+        target_cps=float(project.get("chars_per_second") or config.DEFAULT_CPS),
+        graphics_mode=str(design.get("graphics_mode") or "generated"))
+    return {"ok": True, "lint": result, "prompt_meta": row.get("prompt_meta") or {}}
+
+
+@app.post("/api/projects/{project_id}/segments/{index}/prompt/repair")
+def repair_prompt(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    project = _project(project_id)
+    row = _row(project, index)
+    payload = payload or {}
+    config_llm = _llm_config()
+    config_llm.update(payload.get("llm") or {})
+    result = plan.repair_prompt(project, row, str(row.get("prompt") or ""), config_llm,
+                                _ref_images(project_id, project))
+    row["prompt"] = result["text"]
+    row["prompt_source"] = result["source"]
+    row["prompt_warnings"] = result["warnings"]
+    row["prompt_meta"] = result.get("meta") or {}
+    if result.get("beats"):
+        row["beats"] = result["beats"]
+    store.save(project)
+    return {"ok": True, "project": project, "source": result["source"],
+            "text": result["text"], "warnings": result["warnings"],
+            "prompt_meta": row.get("prompt_meta") or {}}
 
 
 @app.post("/api/projects/{project_id}/prompts")
-def generate_all_prompts(project_id: str) -> dict[str, Any]:
+def generate_all_prompts(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     project = _project(project_id)
     config_llm = _llm_config()
+    config_llm.update((payload or {}).get("llm") or {})
     images = _ref_images(project_id, project)
     warnings: list[str] = []
     for index, row in enumerate(project.get("segments") or []):
@@ -475,8 +716,98 @@ def generate_all_prompts(project_id: str) -> dict[str, Any]:
         row["prompt"] = result["text"]
         row["prompt_source"] = result["source"]
         row["prompt_warnings"] = result["warnings"]
+        row["prompt_meta"] = result.get("meta") or {}
+        if result.get("beats") and not row.get("beats"):
+            row["beats"] = result["beats"]
         if result["warnings"]:
             warnings.append(f"第 {index + 1} 段：" + "；".join(result["warnings"]))
+    store.save(project)
+    return {"ok": True, "project": project, "warnings": warnings}
+
+
+@app.post("/api/projects/{project_id}/segments/{index}/beats")
+def put_beats(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    project = _project(project_id)
+    row = _row(project, index)
+    beats = plan.normalize_beats((payload or {}).get("beats"))
+    row["beats"] = beats
+    _mark_prompt_meta_stale(row)
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.patch("/api/projects/{project_id}/segments/{index}/beats/{beat_index}")
+def patch_beat(project_id: str, index: int, beat_index: int,
+               payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    project = _project(project_id)
+    row = _row(project, index)
+    beats = list(row.get("beats") or [])
+    if not 0 <= beat_index < len(beats):
+        raise HTTPException(404, "节拍不存在。")
+    beats[beat_index] = {**beats[beat_index], **(payload or {})}
+    row["beats"] = plan.normalize_beats(beats)
+    _mark_prompt_meta_stale(row)
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.delete("/api/projects/{project_id}/segments/{index}/beats/{beat_index}")
+def delete_beat(project_id: str, index: int, beat_index: int) -> dict[str, Any]:
+    project = _project(project_id)
+    row = _row(project, index)
+    beats = list(row.get("beats") or [])
+    if not 0 <= beat_index < len(beats):
+        raise HTTPException(404, "节拍不存在。")
+    beats.pop(beat_index)
+    row["beats"] = plan.normalize_beats(beats)
+    _mark_prompt_meta_stale(row)
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.post("/api/projects/{project_id}/overlay")
+def overlay_project(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """按设计层给已生成的片段重做确定性文字/logo 叠加（overlay 模式）。"""
+    project = _project(project_id)
+    design = design_mod.ensure_design(project)
+    if design.get("graphics_mode") != "overlay":
+        raise HTTPException(400, "只有 graphics_mode=overlay 时才需要后期叠加。")
+    try:
+        from . import overlay as overlay_mod  # noqa: PLC0415
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(400, f"叠加模块不可用：{error}") from error
+    if not overlay_mod.available():
+        raise HTTPException(400, "ffmpeg 不可用，无法叠加。")
+    only = payload.get("segments") if isinstance(payload, dict) else None
+    indexes = ({int(value) for value in only} if isinstance(only, list) and only else None)
+    base = store.project_dir(project_id)
+    warnings: list[str] = []
+    for index, row in enumerate(project.get("segments") or []):
+        if indexes is not None and index not in indexes:
+            continue
+        output = str(row.get("output") or "").strip()
+        take_path = base / output if output else None
+        if take_path is None or not take_path.is_file():
+            warnings.append(f"第 {index + 1} 段没有片段，跳过")
+            continue
+        work = base / "takes" / f"seg_{index:04d}" / "_overlay"
+        work.mkdir(parents=True, exist_ok=True)
+        target = work / "overlay.mp4"
+        try:
+            if not overlay_mod.compose_segment(project, row, take_path, target, work):
+                warnings.append(f"第 {index + 1} 段叠加失败，保留原片段")
+                continue
+            target.replace(take_path)
+            from .. import media  # noqa: PLC0415
+            thumb = (base / str(row.get("thumb") or "")) if row.get("thumb") else None
+            if thumb:
+                try:
+                    media.thumbnail(take_path, thumb, 0.6)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception as error:  # noqa: BLE001
+            warnings.append(f"第 {index + 1} 段叠加异常：{error}")
+    _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project, "warnings": warnings}
 

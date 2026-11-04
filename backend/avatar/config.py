@@ -32,7 +32,7 @@ DEFAULT_MIN_SECONDS = 5.16
 DEFAULT_LANGUAGE = "Chinese"
 
 # 数字人模式
-MODE_AUDIO_DRIVE = 1   # 模式 1：音频驱动（复用 MV 工作流，数字人页面只跳转）
+MODE_AUDIO_DRIVE = 1   # 模式 1：音频驱动（复用 MV 的锁定音轨工作流，成片保留原音）
 MODE_VOICE_REF = 2     # 模式 2：参考音色（ref_audios + 台词 → 重新生成该音色口播）
 MODE_TEXT_ONLY = 3     # 模式 3：无音频参考（音色描述 + 台词 → 原生生成口播）
 
@@ -41,6 +41,65 @@ MODE_LABELS = {
     MODE_VOICE_REF: "B · 参考音色",
     MODE_TEXT_ONLY: "C · 无音频参考",
 }
+
+# 模式 → H3 音频腔 / 路线 / 工作流
+AUDIO_MODE_BY_MODE = {
+    MODE_AUDIO_DRIVE: "runtime",     # 平台提供驱动音频，提示词里不得出现音频标签
+    MODE_VOICE_REF: "reference",     # <Audio 1> 作为音色参考，重新生成台词
+    MODE_TEXT_ONLY: "generated",     # H3 原生生成语音，写 voice card
+}
+ROUTE_BY_MODE = {mode: "Ref2VA" for mode in MODE_LABELS}
+WORKFLOW_BY_MODE = {
+    MODE_AUDIO_DRIVE: "locked_audio",   # MV 的锁定音轨 + SelfLift 双采
+    MODE_VOICE_REF: "ref_native",       # avatar 的原生音频工作流
+    MODE_TEXT_ONLY: "ref_native",
+}
+
+# 效果密度 / 图形模式
+EFFECT_DENSITIES = ("low", "medium", "high")
+GRAPHICS_MODES = ("generated", "overlay")   # overlay = 后期确定性文字/logo 叠加兜底
+PLATFORMS = ("generic", "douyin", "bilibili", "xiaohongshu")
+
+# 设计层默认值（技能：密度 + 六个"一" + 安全区 + 图形预算）
+DEFAULT_DESIGN: dict = {
+    "route": "Ref2VA",
+    "audio_mode": "generated",
+    "effect_density": "medium",
+    # 前端多选的效果族（effect_catalog.effect_families[].id），用于提示词与叠加排序
+    "effect_families": [],
+    "platform": "generic",
+    "safe_area": {"top": 0.08, "bottom": 0.12, "left": 0.06, "right": 0.06},
+    "style_system": {
+        "typography": "",
+        "material": "",
+        "icon_family": "",
+        "motion_grammar": "",
+        "accent_color": "#FFB454",
+        "secondary_color": "#8AB4F8",
+        "visual_style": "",
+    },
+    "voice_card": {
+        "presentation": "", "age_band": "", "pitch": "", "resonance": "",
+        "texture": "", "articulation": "", "pace_phrasing": "", "intonation": "",
+        "emotional_stance": "", "capture_perspective": "", "anti_style": "",
+    },
+    "graphics_budget": {"max_groups": 1, "max_flashes_per_sec": 3,
+                        "prompt_chars_target": 7000},
+    "graphics_mode": "generated",
+    "brand": {"palette": [], "typography_note": "", "logo_refs": []},
+}
+
+
+def default_design() -> dict:
+    import copy
+    return copy.deepcopy(DEFAULT_DESIGN)
+
+
+def design_for_mode(mode: int) -> dict:
+    value = default_design()
+    value["audio_mode"] = AUDIO_MODE_BY_MODE.get(int(mode), "generated")
+    value["route"] = ROUTE_BY_MODE.get(int(mode), "Ref2VA")
+    return value
 
 # 默认生成参数（来自用户提供的新工作流；模型名可在前端下拉里改）
 DEFAULT_GENERATION: dict = {
@@ -70,6 +129,9 @@ DEFAULT_GENERATION: dict = {
     "tiling_axis": "auto",
     # 新工作流用 max（身份保真优先），比 match 慢几倍
     "ref_image_size": "max",
+    "sigma_shift": False,
+    "shift_video": 12.0,
+    "shift_audio": 3.0,
     "sigma_refiner": True,
     "refiner_extra_steps": 1,
     "refiner_start_sigma": 0.7,
@@ -79,6 +141,8 @@ DEFAULT_GENERATION: dict = {
     "preview": False,
     "crf": 12,
     "fps": FPS,
+    "output_fps": FPS,
+    "filename_prefix": "h3dh",
     "seed": 0,
     # 内部参数：ref_audios 上限 3
     "max_ref_audios": 1,
