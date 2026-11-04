@@ -333,6 +333,20 @@ git log --oneline   # 出问题时可回到上一个可用版本
 
 AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py` → 重启 `start.bat`。提示词、项目数据都在 `data/`，不受 git 回滚影响。
 
-## 11. 许可与致谢
+## 11. 数字人工作台（模式 2/3）
+
+顶部「数字人工作台」进入 `/avatar/`（独立页面与后端子应用，MV 侧只多一行挂载）：
+
+- **模式 1 音频驱动**：沿用本页的 MV 工作流（锁定音轨 + SelfLift 对口型），数字人页面只做入口。
+- **模式 2 参考音色**：2–15s 参考音频作为音色参考 + 台词，用新工作流
+  （Ref2VA `ref_audios` + 原生生成音轨）逐段生成口播视频。
+- **模式 3 无音频口播**：只给台词 + 音色描述，H3 原生生成口播音频（默认约 5 字/秒规划分段）。
+
+三种模式的系统提示词先在 `backend/avatar/plan.py` 顶部留空占位，注入逻辑已接好
+（非空走 LLM、空走内置模板），也可用 `GET/PATCH /avatar/api/prompts` 写入
+`data/avatar/system_prompts.json`。数据独立在 `data/avatar/`，不影响 MV 项目。
+详见 [docs/数字人工作台.md](docs/数字人工作台.md)。测试：`python avatar_smoke_test.py`。
+
+## 12. 许可与致谢
 
 编排逻辑参考像素幻想 Lab 的 `ComfyUI-H3-LongVideo`（分段、导演规则、提示词扩写）与 `selflift-Avatar` 采样器实现，重写为不依赖 ComfyUI 运行时的纯 Python 模块，便于移植与二次开发。

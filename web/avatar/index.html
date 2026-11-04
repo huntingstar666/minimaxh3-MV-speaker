@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>H3 DIGITAL HUMAN · 数字人工作室</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/avatar/static/css/avatar.css">
+</head>
+<body class="av-body">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="avBrandGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffd479"/><stop offset="100%" stop-color="#ff7a4d"/>
+    </linearGradient>
+  </defs>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4M23 12h-1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.8h6V7M6.5 7l1 13h9l1-13M10 10.5v6M14 10.5v6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4.5v5h-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.4L19 10.2l-4.4 3.4L15.8 20 12 16.7 8.2 20l1.2-6.4L5 10.2l5.1-1.8z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4" stroke="currentColor" stroke-width="1.2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.8 20 8l-8 4.2L4 8l8-4.2zM4 12.3l8 4.2 8-4.2M4 16.4l8 4.2 8-4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24"><path d="M4 6l5 6-5 6M20 6l-5 6 5 6M9.5 12h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V5m0 0 4.5 4.5M12 5 7.5 9.5M4.5 19.5h15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="10" r="1.9" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 17l4.5-4.5 3 3 2.5-2.5L20 18" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5 21 20H3L12 3.5z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 9v5M12 17.2v.4" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-human" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.8 20.2a7.2 7.2 0 0 1 14.4 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 7.5V12l3.2 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+</svg>
+
+<header class="topbar av-topbar">
+  <div class="brand">
+    <div class="brand-mark"><svg><use href="#i-human"/></svg></div>
+    <div class="brand-text">
+      <h1>H3 DIGITAL HUMAN</h1>
+      <p>数字人工作室 · 台词原生生成</p>
+    </div>
+  </div>
+  <div class="statusbar">
+    <span class="status-chip" id="chip-comfy"><i class="dot"></i><span>ComfyUI</span><b>检测中</b></span>
+    <span class="status-chip" id="chip-ffmpeg"><i class="dot"></i><span>ffmpeg</span><b>检测中</b></span>
+    <span class="status-chip" id="chip-llm"><i class="dot"></i><span>LLM</span><b>检测中</b></span>
+  </div>
+  <div class="top-actions">
+    <button class="btn ghost sm" id="btn-refresh" title="重新检测系统状态与可选参数"><svg><use href="#i-refresh"/></svg>刷新状态</button>
+    <a class="btn ghost sm" href="/" title="回到音频驱动的 MV 工作台"><svg><use href="#i-film"/></svg>MV 工作台</a>
+  </div>
+</header>
+
+<main class="av-workspace">
+  <aside class="av-rail av-rail-left">
+    <section class="panel" id="panel-mode">
+      <div class="panel-head"><h2>创作模式</h2><span class="hint">数字人的驱动方式</span></div>
+      <div class="mode-cards">
+        <a class="mode-card mode-card-link" id="mode-card-1" href="/" title="已有音频时，去 MV 工作台做对口型">
+          <span class="mode-icon"><svg><use href="#i-wave"/></svg></span>
+          <span class="mode-body">
+            <strong>音频驱动</strong>
+            <em>已有音频 · 对口型 · 无限时长</em>
+          </span>
+          <span class="mode-go"><svg><use href="#i-arrow"/></svg></span>
+        </a>
+        <button class="mode-card" type="button" data-mode-card="2">
+          <span class="mode-icon"><svg><use href="#i-mic"/></svg></span>
+          <span class="mode-body">
+            <strong>参考音色</strong>
+            <em>2–15s 参考音频，逐段生成该音色说出台词</em>
+          </span>
+          <span class="mode-check"><svg><use href="#i-check"/></svg></span>
+        </button>
+        <button class="mode-card" type="button" data-mode-card="3">
+          <span class="mode-icon"><svg><use href="#i-human"/></svg></span>
+          <span class="mode-body">
+            <strong>无音频参考</strong>
+            <em>只给台词与音色描述，按约 5 字/秒规划时长</em>
+          </span>
+          <span class="mode-check"><svg><use href="#i-check"/></svg></span>
+        </button>
+      </div>
+      <p class="panel-note tiny" id="mode-hint">模式 1 复用 MV 工作台；模式 2 / 3 的成片视频自带生成音频。</p>
+    </section>
+
+    <section class="panel" id="panel-project">
+      <div class="panel-head"><h2>作品设定</h2><span class="hint" id="project-state">未创建</span></div>
+      <div class="field">
+        <label>作品名称</label>
+        <input id="f-name" class="input" maxlength="60" placeholder="例如：老港茶餐厅 · 数字人口播">
+      </div>
+      <div class="field">
+        <label>台词 / 口播稿 <span class="hint" id="script-count">0 字</span></label>
+        <textarea id="f-script" class="input av-script" rows="6" spellcheck="false"
+          placeholder="粘贴完整台词。按中文标点自动分段，每段按语速估算秒数与帧数。&#10;例如：各位好，欢迎来到老港茶餐厅。今天想跟你聊聊，一碗云吞面里藏着的三十年。"></textarea>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>语速 <b>字/秒</b></label>
+          <input id="f-cps" class="input mono" type="number" min="1" max="10" step="0.1" value="5.0">
+        </div>
+        <div class="field">
+          <label>目标段长 <b id="target-label">8.0s</b></label>
+          <input id="f-target" type="range" min="3" max="15" step="0.5" value="8">
+        </div>
+      </div>
+      <div class="field">
+        <label>最长段长 <b id="max-label">12.0s</b> <span class="hint">5–15s</span></label>
+        <input id="f-max" type="range" min="5" max="15" step="0.5" value="12">
+      </div>
+
+      <div class="av-mode-form" id="mode-form-2">
+        <label class="dropzone av-dropzone" id="voice-drop">
+          <input type="file" id="voice-input" accept="audio/*,video/*" hidden>
+          <svg><use href="#i-wave"/></svg>
+          <strong>拖入参考音频，或点击选择</strong>
+          <span>音色 / 语速 / 表达参考 · 建议 2–15 秒</span>
+          <em id="voice-label"></em>
+        </label>
+        <div class="av-voice-row hidden" id="voice-row">
+          <span class="av-voice-icon"><svg><use href="#i-wave"/></svg></span>
+          <div class="av-voice-meta">
+            <b id="voice-name">—</b>
+            <span id="voice-duration">—</span>
+          </div>
+          <div class="av-voice-actions">
+            <button class="btn ghost sm" type="button" id="btn-voice-replace">替换</button>
+            <button class="btn ghost sm" type="button" id="btn-voice-del">删除</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="av-mode-form hidden" id="mode-form-3">
+        <div class="field">
+          <label>音色描述 <span class="hint">声音设计参考</span></label>
+          <textarea id="f-voice-desc" class="input" rows="3" spellcheck="false"
+            placeholder="例如：三十岁出头的女性，声音偏低、略带沙哑，语速平缓，像深夜电台主播；普通话标准，句尾有轻微的气声，亲和但不甜腻。"></textarea>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>画幅</label>
+          <select id="f-aspect" class="input"></select>
+        </div>
+        <div class="field">
+          <label>清晰度</label>
+          <select id="f-mp" class="input">
+            <option value="0.75">0.75 MP · 草稿</option>
+            <option value="1" selected>1.0 MP · 标准</option>
+            <option value="1.5">1.5 MP · 高清</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>随机种子 <span class="hint">0 = 每段随机</span></label>
+        <input id="f-seed" class="input mono" type="number" min="0" step="1" value="0">
+      </div>
+
+      <details class="advanced" id="av-advanced">
+        <summary><svg><use href="#i-chevron"/></svg>高级生成参数</summary>
+        <div class="adv-body">
+          <div class="field-row">
+            <div class="field"><label>采样步数</label><input id="a-steps" class="input mono" type="number" min="2" max="40" step="1"></div>
+            <div class="field"><label>CFG</label><input id="a-cfg" class="input mono" type="number" min="1" max="10" step="0.1"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>采样器</label><select id="a-sampler" class="input"></select></div>
+            <div class="field"><label>调度器</label><select id="a-scheduler" class="input"></select></div>
+          </div>
+          <div class="field"><label>UNET 模型</label><select id="a-unet" class="input"></select></div>
+          <div class="field"><label>文本编码器</label><select id="a-clip" class="input"></select></div>
+          <div class="field-row">
+            <div class="field"><label>视频 VAE</label><select id="a-vae" class="input"></select></div>
+            <div class="field"><label>LoRA</label><select id="a-lora" class="input"></select></div>
+          </div>
+          <div class="field"><label>LoRA 强度</label><input id="a-lora-strength" class="input mono" type="number" min="0" max="1.5" step="0.05"></div>
+        </div>
+      </details>
+
+      <div class="av-form-actions">
+        <button class="btn primary block" id="btn-create"><svg><use href="#i-plus"/></svg><span id="btn-create-label">新建作品</span></button>
+        <div class="av-form-actions-row">
+          <button class="btn ghost sm" id="btn-plan"><svg><use href="#i-spark"/></svg>按台词分段</button>
+          <button class="btn ghost sm" id="btn-new"><svg><use href="#i-plus"/></svg>新作品</button>
+        </div>
+      </div>
+      <p class="panel-note tiny" id="form-hint">填写台词后新建作品，再点「按台词分段」。</p>
+    </section>
+
+    <section class="panel" id="panel-refs">
+      <div class="panel-head"><h2>参考图</h2><span class="hint" id="ref-count">0 张</span></div>
+      <div class="av-ref-upload">
+        <select id="ref-role" class="input">
+          <option value="performer">人物</option>
+          <option value="environment">场景</option>
+          <option value="appearance">服装 / 造型</option>
+          <option value="subject">道具 / 主体</option>
+          <option value="other">其他</option>
+        </select>
+        <button class="btn ghost sm" id="btn-ref-upload" type="button"><svg><use href="#i-image"/></svg>上传</button>
+        <input type="file" id="ref-input" accept="image/*" hidden multiple>
+      </div>
+      <div class="ref-grid av-ref-grid" id="ref-grid"></div>
+      <div class="av-ref-empty" id="ref-empty">还没有参考图。</div>
+      <p class="panel-note tiny">人物参考图建议 1 张；场景、服装、道具按需补充。</p>
+    </section>
+
+    <section class="panel" id="panel-projects">
+      <div class="panel-head"><h2>最近作品</h2><span class="hint" id="project-count">0 个</span></div>
+      <div class="av-project-list" id="project-list">
+        <div class="av-list-empty">暂无作品</div>
+      </div>
+    </section>
+  </aside>
+
+  <section class="av-stage">
+    <div class="av-stage-head">
+      <div class="av-stage-title">
+        <h2 id="stage-name">从一句台词开始</h2>
+        <p id="stage-sub">选模式、写台词、传参考，剩下交给 H3 逐段原生生成</p>
+      </div>
+      <div class="av-toolbar">
+        <button class="btn ghost sm" id="btn-plan2" title="按标点与语速自动分段"><svg><use href="#i-spark"/></svg>按台词分段</button>
+        <button class="btn ghost sm" id="btn-prompts-all" title="为每一段重写提示词"><svg><use href="#i-layers"/></svg>全部生成提示词</button>
+        <button class="btn primary" id="btn-generate" title="按分段逐段生成视频（耗时长）"><svg><use href="#i-play"/></svg>开始生成</button>
+        <button class="btn danger hidden" id="btn-cancel"><svg><use href="#i-stop"/></svg>停止</button>
+        <button class="btn ghost sm" id="btn-assemble" title="把选中片段拼成成片"><svg><use href="#i-merge"/></svg>合成成片</button>
+        <a class="btn ghost sm is-disabled" id="btn-download-top" href="#" download aria-disabled="true" title="合成成片后可下载"><svg><use href="#i-download"/></svg>下载成片</a>
+      </div>
+    </div>
+    <div class="segments av-segments" id="seg-list"></div>
+    <div class="av-empty" id="stage-empty" hidden></div>
+  </section>
+
+  <aside class="av-rail av-rail-right">
+    <section class="panel" id="panel-run">
+      <div class="panel-head"><h2>运行状态</h2><span class="pill" id="run-state">空闲</span></div>
+      <div class="progress-strip" id="progress-strip">
+        <div class="progress-top">
+          <span class="stage-label" id="run-stage">未开始</span>
+          <span class="stage-percent" id="run-percent">0%</span>
+        </div>
+        <div class="progress-track"><i id="progress-bar"></i></div>
+        <div class="progress-bottom">
+          <span id="run-message">等待任务</span>
+          <span class="mono" id="run-segment"></span>
+        </div>
+      </div>
+      <div class="run-log" id="run-log"><div class="av-log-empty">运行日志会显示在这里</div></div>
+    </section>
+
+    <section class="panel" id="panel-final">
+      <div class="panel-head"><h2>成片</h2><span class="hint" id="final-duration">—</span></div>
+      <div class="final-frame av-final-frame" id="final-frame">
+        <div class="final-empty"><svg><use href="#i-film"/></svg><span>合成完成后在此预览</span></div>
+      </div>
+      <div class="final-stale hidden" id="final-stale">
+        <span id="final-stale-text">分段选材已变更，成片需要重新合成</span>
+        <button class="btn primary sm" id="btn-assemble2" type="button">重新合成</button>
+      </div>
+      <div class="av-final-info hidden" id="final-info"></div>
+      <div class="inline av-final-actions">
+        <a class="btn ghost sm hidden" id="btn-download" href="#" download><svg><use href="#i-download"/></svg>下载成片</a>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-prompts">
+      <div class="panel-head"><h2>系统提示词</h2><span class="hint" id="prompt-summary">读取中</span></div>
+      <p class="panel-note">占位提示词由后端内置模板兜底（提示词来源显示 fallback）。这里可预留自定义入口。</p>
+      <div class="av-prompt-modes" id="prompt-modes"></div>
+      <button class="btn ghost sm block hidden" id="btn-save-prompts" type="button"><svg><use href="#i-check"/></svg>保存系统提示词</button>
+      <p class="panel-note tiny" id="prompt-note">配置非空时，后端会把系统提示词交给 LLM 扩写；留空则走内置模板。</p>
+    </section>
+  </aside>
+</main>
+
+<div class="toast-stack av-toasts" id="toasts"></div>
+
+<div class="modal" id="modal-confirm" hidden>
+  <div class="modal-card small">
+    <div class="modal-head"><h2 id="confirm-title">确认</h2><button class="icon-btn" data-close type="button"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body"><p id="confirm-text">—</p></div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close type="button">取消</button>
+      <button class="btn danger" id="btn-confirm-yes" type="button">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="busy-overlay" id="busy-overlay" hidden><div class="spinner"></div><span id="busy-text">处理中…</span></div>
+
+<script type="module" src="/avatar/static/js/avatar.js"></script>
+</body>
+</html>

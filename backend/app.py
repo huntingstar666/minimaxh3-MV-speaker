@@ -16,6 +16,7 @@ from starlette.staticfiles import StaticFiles
 
 from . import (asr, audio, comfy, director, frames, jobs, llm, pack, presets,
                prompts, seam_nodes, settings, store)
+from .avatar import app as avatar_app
 
 APP_VERSION = "1.0.0"
 ALLOWED_AUDIO = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4", ".mov", ".mkv", ".webm"}
@@ -39,6 +40,8 @@ async def static_no_cache(request: Request, call_next):
 settings.ensure_dirs()
 app.mount("/static", StaticFiles(directory=str(settings.WEB_DIR)), name="static")
 app.mount("/creative-presets", StaticFiles(directory=str(settings.WEB_DIR / "creative-presets")), name="creative-presets")
+# 数字人工作台（模式 2/3）是独立子应用：自己的数据、接口与页面，MV 侧只多这一行挂载
+app.mount("/avatar", avatar_app)
 
 
 @app.get("/")
