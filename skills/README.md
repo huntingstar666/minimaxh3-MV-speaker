@@ -33,9 +33,10 @@ cp -r ./mv-pack-builder ~/.agents/skills/
 > 口播音频 `./assets\voice.mp3`，口播稿 `./assets\script.txt`，竖屏 9:16，
 > 固定机位，先出 1 段给我确认，再批量。
 
-技能会先做环境自检，然后进入**设计流程**：拆歌/拆稿 → 画面设计/分镜表 →
-**交用户审阅、听取意见并修改** → 逐段提示词 → 确认参数 → 产出完整设计包 → 可选出片。
-不是机械打包素材。
+技能会先做环境自检，然后进入**设计流程**：拆歌/拆稿 → 自由创意发散 → 素材盘点与
+补图建议 → 画面设计/分镜表 → **交用户审阅、听取意见并修改** → 逐段提示词 →
+确认参数 → 产出完整设计包 → 可选出片。不是机械打包素材；初始参考图不全会主动提出
+补图建议，用户采纳/不采纳都不会限制创意发挥。
 
 ## 目录
 
@@ -43,6 +44,7 @@ cp -r ./mv-pack-builder ~/.agents/skills/
 mv-pack-builder/
 ├─ SKILL.md                   技能说明与强制设计流程（MV / 数字人）
 ├─ references/design-workflow.md  拆歌/分镜/提示词/确认/完成标准（必读）
+├─ references/creative-expansion.md 创意发散、素材缺口表、补图建议与用户决策（必读）
 ├─ references/package-format.md   MV 包完整格式
 ├─ references/prompt-rules.md     H3 六段提示词规则
 ├─ references/digital-human.md    数字人口播专项：素材、参数、简报模板、限制
@@ -55,6 +57,7 @@ mv-pack-builder/
    ├─ validate_pack.py         校验包（--require-prompts --require-cuts 严格模式）
    ├─ dump_design.py           从项目导出 design.json 设计草稿
    ├─ apply_design.py          应用设计、校验、导出完整包（附 design.md）
+   ├─ add_refs.py              把用户采纳的新参考图加入项目
    └─ import_pack.py           导入 / AI 扩写 / 生成 / 导出
 ```
 

@@ -182,7 +182,8 @@ def main() -> int:
                 fail("cuts_seconds 必须严格递增")
             if value < 3:
                 fail(f"cut {value}s 太早（首段至少 3 秒）")
-            last = value    if getattr(args, "require_cuts", False) and not cuts:
+            last = value
+    if getattr(args, "require_cuts", False) and not cuts:
         fail("设计稿模式要求 timeline.cuts_seconds 不为空")
     segments = manifest.get("segments") or []
     if not isinstance(segments, list):
