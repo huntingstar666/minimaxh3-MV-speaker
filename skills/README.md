@@ -1,7 +1,7 @@
 # 技能：mv-pack-builder（MV / 数字人包制作）
 
-把「参考角色图 + 音频 + 歌词/口播稿 + 风格/参数」**设计并制作**成 H3 工作台可直接导入的
-`.h3pack.zip`，支持 **MV（singing）** 和 **数字人口播（speaking）**。数字人支持
+把「参考角色图 + 音频 + 歌词/口播稿 + 风格/参数」**设计并制作**成 H3 工作台可直接使用的包：
+**MV 用 `.h3pack.zip`，数字人用 `.h3avatar.zip`**。数字人支持
 **A 音频驱动 / B 参考音色 / C 无音频参考三腔**（互斥，三份系统提示词已内置）以及
 **口播动态图形导演**（信息卡/图标/图表/数据可视化，图形有入场与退场），全部采用
 Ref2VA 六段式。技能包含拆歌/拆稿、创意发散与补图建议、画面设计/审阅、逐段提示词、
@@ -37,6 +37,8 @@ cp -r ./mv-pack-builder ~/.agents/skills/
 
 数字人口播会先确认 **A/B/C 音频腔**，再按对应三腔系统提示词写 Ref2VA 六段式、
 设计人物表演与动态图形（信息卡/图标/图表等），并计算 5 字/秒的语速预算。
+**数字人默认交付 `.h3avatar.zip`**（mode 1/2/3 + design + beats，对齐数字人实现契约）；
+旧 `.h3pack.zip`（`mode: speaking`）只作兼容，用户明确要求导入 MV 工作台时才用。
 
 技能会先做环境自检，然后进入**设计流程**：拆歌/拆稿 → 自由创意发散 → 素材盘点与
 补图建议 → 画面设计/分镜表 → **交用户审阅、听取意见并修改** → 逐段提示词 →
@@ -51,6 +53,7 @@ mv-pack-builder/
 ├─ references/design-workflow.md  拆歌/分镜/提示词/确认/完成标准（必读）
 ├─ references/creative-expansion.md 创意发散、素材缺口表、补图建议与用户决策（必读）
 ├─ references/mv-prompt-format.md   H3 MV 提示词权威格式：SYSTEM_GUARD 全文、六段写法、示例、校验
+├─ references/avatar-package-format.md 数字人 .h3avatar.zip 格式（mode 1/2/3 + design + beats）
 ├─ references/digital-human/
 │  ├─ README.md                数字人集成：三腔选择、上游拆解、设计流程
 │  ├─ voices/A-音频驱动.md     三腔系统提示词 A（音频驱动）
@@ -64,7 +67,8 @@ mv-pack-builder/
 ├─ references/digital-human.md    数字人口播专项：素材、参数、简报模板、限制
 ├─ references/data-chain.md       工作台数据链路与限制（排查用）
 ├─ assets/example-manifest.json         MV 最小 manifest 模板
-├─ assets/example-manifest-speaking.json 数字人 manifest 模板
+├─ assets/example-manifest-speaking.json 数字人旧版 h3pack 模板
+├─ assets/example-avatar-manifest.json   数字人 .h3avatar 模板
 ├─ assets/example-mv-prompt.txt          可直接对照的完整 MV 六段提示词示例
 ├─ assets/design-template.md           分镜设计表 / design.md 模板
 └─ scripts/
@@ -74,7 +78,8 @@ mv-pack-builder/
    ├─ apply_design.py          应用设计、校验、导出完整包（附 design.md）
    ├─ add_refs.py              把用户采纳的新参考图加入项目
    ├─ validate_digital_human_prompt.py  数字人 A/B/C 三腔 + Ref2VA 六段结构 lint
-   └─ import_pack.py           导入 / AI 扩写 / 生成 / 导出
+   ├─ validate_avatar_pack.py  数字人 .h3avatar.zip 包校验/打包
+   └─ import_pack.py           导入 / AI 扩写 / 生成 / 导出（MV）
 ```
 
 ## 快速自检

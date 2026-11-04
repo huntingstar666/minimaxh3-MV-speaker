@@ -1,6 +1,10 @@
 # 数字人口播专项说明
 
-数字人包用 `"mode": "speaking"`，与 MV 共用 `.h3pack.zip`，但提示词走**数字人口播/动态图形导演**体系：
+数字人**默认交付 `.h3avatar.zip`**（schema `h3-avatar-pack`，对齐数字人实现契约的
+`mode 1/2/3 + design + beats + prompt_meta`）；旧 `.h3pack.zip`（`mode: speaking`）只作
+兼容，用户明确要求时才用。格式见 [avatar-package-format.md](avatar-package-format.md)。
+
+数字人提示词走**数字人口播/动态图形导演**体系：
 
 - 全部使用 **Ref2VA 六段式**：`subject_definitions → summary → retention_analysis →
   detailed_description → overall_soundscape → non_diegetic_music`；
@@ -34,30 +38,36 @@
 | 场景图（可选） | 房间/纯色/虚拟背景；画面内文字只当不可读背景 |
 | 服装造型（可选） | 需要固定服装细节时提供 |
 | 品牌/图形要求 | 品牌色、字体倾向、想要的信息卡/图标/图表/数据可视化、效果密度 |
-| 参数 | mode speaking、目标/最长段长（推荐 8/12；单段一般 ≤15s，特殊到 30s 需确认）、画幅、帧率、硬切/seam |
+| 参数 | mode 1/2/3（A/B/C）；契约单段 124–362 帧（约 5.17–15.08s）；目标/最长段长推荐 8/12；画幅、帧率、硬切/seam |
 | 多人 | 默认不支持多人同框分别对口型；按说话人拆音频/分段 |
 
 ## 3. 推荐参数
 
+数字人包顶层（完整字段见 [avatar-package-format.md](avatar-package-format.md)）：
+
 ```json
 {
-  "mode": "speaking",
-  "project": {
-    "target_seconds": 8,
-    "max_seconds": 12,
-    "script": "口播稿全文……",
-    "generation": {
-      "output_fps": 24,
-      "aspect_ratio": "9:16 (Portrait Widescreen)",
-      "stitch": "hard"
-    }
+  "schema": "h3-avatar-pack",
+  "version": 1,
+  "mode": 1,
+  "workflow": "locked_audio",
+  "language": "Chinese",
+  "chars_per_second": 5.0,
+  "target_seconds": 8.0,
+  "max_seconds": 12.0,
+  "min_seconds": 5.16,
+  "design": {
+    "route": "Ref2VA",
+    "audio_mode": "runtime",
+    "effect_density": "medium",
+    "graphics_mode": "generated"
   }
 }
 ```
 
 - 画幅按平台选：竖屏 9:16、横屏 16:9、方屏 1:1。
 - 口播多为固定机位；`seam` 只适合同机位/同构图，否则 `hard`。
-- 单段一般 ≤15 秒（H3 推荐区间）；特殊长句到 30 秒需在设计审阅时确认。
+- 契约单段帧数 124–362（5+17k），约 5.17–15.08s；超长口播拆段，不要按 MV 的 30s 写。
 - 5 书面字/秒：15 秒约 75 字（含标点），冲突时改文案或时长，不硬压语速。
 
 ## 4. 设计步骤（在剧本/分镜阶段完成）
@@ -77,7 +87,7 @@
 7. **写提示词**：只按选定 `voices/*.md` 的六段规则写；台词放 `<d>[中文] …</d>`；
    A 腔禁止音频标签，B 腔写 `<Audio 1>` 绑定，C 腔写 voice card。
 8. **校验**：`python scripts/validate_digital_human_prompt.py PROMPT --audio-mode runtime|reference|generated`；
-   再进包跑 `validate_pack.py --require-prompts`。
+   再打包跑 `validate_avatar_pack.py ./my-avatar --require-prompts`。
 
 ## 5. 口播简报模板（brief）
 
@@ -131,10 +141,13 @@
 
 ## 7. 工作流建议
 
-1. 环境自检通过 → 选腔 → 打素材包（`mode: speaking`）。
-2. 导入工作台后核对：分段数、段长、人物参考图角色、第一段提示词、字数/语速。
-3. 先只生成第 1 段，确认形象/口型/图形；再批量生成 → 拼接 → 成片。
-4. 需要换条时用段卡右侧选片台；图形/腔位不支持时按项目侧能力降级并记录。
+1. 环境自检 → 选音频腔（mode 1/2/3）→ 完成设计/节拍/提示词。
+2. 产出 `.h3avatar.zip`（manifest + design/beats + 音频/参考图 + design.md），
+   跑 `validate_avatar_pack.py --require-prompts`。
+3. 数字人工作台的导入接口待项目侧接入；在接口出现前交付包，不声称可直接拖入。
+4. 如项目侧已支持 avatar API，可按契约创建项目、上传音频/参考图、PATCH design、
+   写 beats/prompt 后出片（具体接口以项目侧实现为准）。
+5. 先只生成第 1 段，确认形象/口型/图形；再批量生成 → 拼接 → 成片。
 
 ## 8. 不要用数字人口播模式的情况
 

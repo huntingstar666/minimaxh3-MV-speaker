@@ -1,0 +1,97 @@
+{
+  "schema": "h3-avatar-pack",
+  "version": 1,
+  "created": "2026-11-05T03:00:00+08:00",
+  "name": "示例：三步方法口播",
+  "mode": 1,
+  "workflow": "locked_audio",
+  "language": "Chinese",
+  "script": "这套方法只有三步：先识别真正的问题，再判断它的优先级，最后按顺序一步步执行，不要跳步，也不要回头重复，一次做对。",
+  "chars_per_second": 5.0,
+  "target_seconds": 8.0,
+  "max_seconds": 12.0,
+  "min_seconds": 5.16,
+  "audio": {"file": "audio/source.wav"},
+  "voice": null,
+  "voice_description": "",
+  "refs": [
+    {"file": "refs/ref_01.png", "role": "performer", "title": "主播", "description": "浅灰针织衫、短发的成年女性"},
+    {"file": "refs/ref_02.png", "role": "environment", "title": "书房", "description": "暖白墙面书房，右侧空白书墙"}
+  ],
+  "design": {
+    "route": "Ref2VA",
+    "audio_mode": "runtime",
+    "effect_density": "medium",
+    "effect_families": ["info_card", "lower_third"],
+    "platform": "douyin",
+    "safe_area": {"top": 0.08, "bottom": 0.12, "left": 0.06, "right": 0.06},
+    "style_system": {
+      "typography": "无衬线粗体，左对齐，整行显现",
+      "material": "半透明磨砂玻璃",
+      "icon_family": "线性图标",
+      "motion_grammar": "淡入+上浮，退场上收",
+      "accent_color": "#FFB454",
+      "secondary_color": "#8AB4F8",
+      "visual_style": "corporate"
+    },
+    "voice_card": {
+      "presentation": "", "age_band": "", "pitch": "", "resonance": "", "texture": "",
+      "articulation": "", "pace_phrasing": "", "intonation": "", "emotional_stance": "",
+      "capture_perspective": "", "anti_style": ""
+    },
+    "graphics_budget": {"max_groups": 1, "max_flashes_per_sec": 3, "prompt_chars_target": 7000},
+    "graphics_mode": "generated",
+    "brand": {"palette": ["#FFB454", "#8AB4F8"], "typography_note": "", "logo_refs": []}
+  },
+  "generation": {
+    "aspect_ratio": "9:16 (Portrait Widescreen)",
+    "output_fps": 24,
+    "stitch": "hard"
+  },
+  "segments": [
+    {
+      "index": 0,
+      "text": "这套方法只有三步：先识别真正的问题，再判断它的优先级，最后按顺序一步步执行，不要跳步，也不要回头重复，一次做对。",
+      "chars": 56,
+      "seconds": 12.25,
+      "frames": 294,
+      "start_frame": 0,
+      "end_frame": 294,
+      "beats": [
+        {
+          "index": 0,
+          "trigger": "只有三步",
+          "job": "steps",
+          "primary_effect": "info_card",
+          "accent_effect": "",
+          "anchor": "right_side",
+          "layer": "screen",
+          "visible_copy": "01 识别 / 02 判断 / 03 执行",
+          "lifecycle": {
+            "entrance": "淡入并轻微上浮",
+            "landing": "“三步”重音处完整落定",
+            "hold": "清晰停留到“优先级”说完",
+            "exit": "整卡向上收回并完全消失",
+            "recovery": "右侧恢复干净，无遮挡"
+          },
+          "attention_target": "lens",
+          "gesture": "右手小幅张开一次后收回",
+          "risk": ""
+        }
+      ],
+      "prompt": "subject_definitions:\n<Subject 1> (S1) is the on-camera speaker whose facial identity, hairstyle, body proportions and clothing come from <Picture 1>（浅灰针织衫、短发的成年女性）。\n<Subject 2> is the environment from <Picture 2>（暖白墙面书房，右侧有一面空白书墙）。\n\nsummary:\n[reference generation] 单镜头口播，<Subject 1> 坐在 <Subject 2> 中正面出镜，中景以极小幅度缓慢推近至近景，时长 12.25 秒，屏幕右侧依次出现三组只读信息卡解释口播内容。\n\nretention_analysis:\n<Subject 1>: fully_preserved - 逐帧保持面部身份、短发造型、身体比例与针织衫原色。\n<Subject 2>: fully_preserved - 保持书墙结构、暖白墙面、光向、材质与景深。\n\ndetailed_description:\n[Shot 1] 写实风格，中景正面构图，<Subject 1> 位于画面左侧三分之一处，视线保持在镜头上。镜头以极小幅度、很慢的速度推近，全片不切镜、不平移、不摇、不变焦。\n平台运行时驱动音频提供最终口播时间线，可见口型严格贴合可辨识人声的音素，句间闭唇，呼吸与停顿跟随驱动音频；不生成重复人声或冲突音层。台词共 56 字，目标平均语速约 5 字/秒（含标点），实际以驱动音频波形为准。\n人物表演：视线以镜头为主，仅在第二组卡片出现时向右侧短暂瞥视一次再回到镜头。眨眼只出现在句读边界与吸气前后，不按固定频率。表情按“出现—峰值—部分回落”推进，重音处一次轻微点头，随后回到中性。双手交叠放在桌面，右手在说到“三个步骤”时做一次小幅张开手势，说完收回休息位。\n特效事件：当说到“只有三步”之前，画面右侧以书墙为锚点出现一块半透明磨砂信息卡；在“三步”重音处完整落定并显示“01 识别 / 02 判断 / 03 执行”，字形、标点、断行与对齐在出现后保持不变，清晰停留到“优先级”说完，然后整卡向上收回并完全消失，画面恢复干净。当说到“按顺序”时，同一位置再次出现一块卡片，显示“先做最重要的一件”，停留到“不要跳步”说完后淡出并完全消失。最后一句“一次做对”时，右下角出现一条细横线标注“一次做对”，在句尾标点后 0.5 秒内收回，画面回到无遮挡的干净状态。\n所有图形只占据画面右侧安全区，不遮挡面部、口、眼、手与字幕区；三组图形不同时出现，前一组完全退出后才出现下一组；背景物体、曝光与白平衡全程稳定。\n<d>[中文] 这套方法只有三步：先识别真正的问题，再判断它的优先级，最后按顺序一步步执行，不要跳步，也不要回头重复，一次做对。</d>\n\noverall_soundscape:\n平台运行时驱动音频提供最终口播时间线；口型、呼吸、停顿、手势与所有图形落点均与其同步；不生成重复人声或冲突音层；不添加额外环境声、音效与配乐。\n\nnon_diegetic_music:\nN/A",
+      "prompt_source": "manual",
+      "prompt_meta": {
+        "route": "Ref2VA",
+        "audio_mode": "runtime",
+        "task_types": ["reference generation"],
+        "speech_chars": 56,
+        "target_cps": 5.0,
+        "effect_count": 3,
+        "summary_line": "路线=Ref2VA ｜ 腔=A 音频驱动 ｜ 人数=1 ｜ 效果概念=info_card ｜ 密度=中 ｜ 目标语速≈5字/秒 ｜ 台词 56 字",
+        "lint": {"ok": true, "errors": [], "warnings": []}
+      }
+    }
+  ],
+  "notes": "示例模板：把 audio/source.wav 和两张参考图补齐即可成为完整设计包。"
+}

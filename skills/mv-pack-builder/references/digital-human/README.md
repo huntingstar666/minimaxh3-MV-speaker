@@ -7,6 +7,10 @@
 2. **H3 三腔系统提示词**：`voices/A-音频驱动.md`、`B-参考音色.md`、`C-无音频参考.md`
    （原 `H3-三腔系统提示词/`，三份互斥，同一时间只读一份）。
 
+**数字人默认交付格式是 `.h3avatar.zip`（schema `h3-avatar-pack`）**，对齐数字人实现契约：
+`mode 1/2/3 + design + beats + prompt_meta`。旧 `.h3pack.zip`（`mode: speaking`）只作
+兼容，详见 [../avatar-package-format.md](../avatar-package-format.md)。
+
 数字人提示词**全部使用 MiniMax H3 Ref2VA 六段式**：
 
 `subject_definitions → summary → retention_analysis → detailed_description →
@@ -110,6 +114,7 @@ overall_soundscape → non_diegetic_music`
 ```text
 references/digital-human/
 ├─ README.md                 本文件：拆解 + 三腔选择 + 集成流程
+├─ ../avatar-package-format.md  数字人 .h3avatar.zip 格式（mode/design/beats）
 ├─ voices/
 │  ├─ A-音频驱动.md            三腔系统提示词 A（当前优先）
 │  ├─ B-参考音色.md            三腔系统提示词 B
