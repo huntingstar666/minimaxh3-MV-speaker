@@ -15,6 +15,7 @@
 我的MV.h3pack.zip
 ├─ manifest.json          # 必需，包描述（唯一入口）
 ├─ README.md              # 可选，人读说明（导出时自动生成）
+├─ design.md              # 可选，分镜设计表/设计说明（设计包推荐）
 ├─ audio/source.wav       # 必需，MP3/WAV/M4A/FLAC 等均可
 └─ refs/                  # 可选，最多 9 张参考图
    ├─ ref_01.png
@@ -148,6 +149,27 @@
 > 提示词建议使用 H3 六段结构（`subject_definitions` → `summary` →
 > `retention_analysis` → `detailed_description` → `overall_soundscape` →
 > `non_diegetic_music`），否则导入后会给出校验警告。
+
+## 2.2 设计包（推荐交付形态）
+
+“素材包”只保证能导入；**设计包**额外要求所有创作细节已经在包里确定，用户导入后
+不需要再改提示词即可生成：
+
+- `timeline.cuts_seconds` 明确（不在字中间、每段 3–15s）；
+- `segments[]` 覆盖每一个分段，每段都有 `visual_type`、`brief`、`lyrics`、`motion`、
+  `final_prompt`；
+- `project.style` / `filter` / `material_note` / `generation` 已按确认填写；
+- 包内附 `design.md`（分镜表、设计说明、风险），便于用户确认和后续复现。
+
+可用严格校验：
+
+```bash
+python skills/mv-pack-builder/scripts/validate_pack.py 我的MV.h3pack.zip \
+  --require-prompts --require-cuts
+```
+
+配套技能 `mv-pack-builder` 的默认产物就是设计包：它会先拆歌/拆稿、设计分镜与逐段
+提示词，和用户确认后才打包；在线模式下还会直接导入工作台、应用设计、导出并校验。
 
 ## 3. 导入时发生什么
 

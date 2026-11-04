@@ -1,8 +1,9 @@
 # 技能：mv-pack-builder（MV / 数字人包制作）
 
-把「参考角色图 + 音频 + 歌词/口播稿 + 风格/参数」做成 H3 工作台可直接导入的
-`.h3pack.zip`，支持 **MV（singing）** 和 **数字人口播（speaking）** 两种项目。
-包含环境自检、包格式说明、提示词规则、包校验、导入/扩写/出片脚本。
+把「参考角色图 + 音频 + 歌词/口播稿 + 风格/参数」**设计并制作**成 H3 工作台可直接导入的
+`.h3pack.zip`，支持 **MV（singing）** 和 **数字人口播（speaking）**。技能包含拆歌/拆稿、
+分镜设计、逐段提示词创作、与用户 3 次确认、环境自检、包校验、导入/扩写/出片脚本；
+产出的包每段都已设计好，用户导入即可生成。
 
 ## 安装到本机 Agent
 
@@ -32,25 +33,27 @@ cp -r ./mv-pack-builder ~/.agents/skills/
 > 口播音频 `./assets\voice.mp3`，口播稿 `./assets\script.txt`，竖屏 9:16，
 > 固定机位，先出 1 段给我确认，再批量。
 
-技能会先做环境自检，确认参考图角色、时长/段长、风格/画幅、是否允许出片，然后：
-
-- 工作台可用 → 打素材包 → 导入 → AI 扩写提示词 → 导出完整包 → 可选出片；
-- 工作台不可用 → 直接产出离线包，用户拖进工作台即可。
+技能会先做环境自检，然后进入**设计流程**：拆歌/拆稿 → 分镜设计表 → 逐段提示词 →
+与你确认方向/分镜/提示词 → 产出完整设计包 → 可选出片。不是机械打包素材。
 
 ## 目录
 
 ```text
 mv-pack-builder/
-├─ SKILL.md                   技能说明与工作流（MV / 数字人两种模式）
-├─ references/package-format.md  MV 包完整格式
-├─ references/prompt-rules.md    H3 六段提示词规则
-├─ references/digital-human.md   数字人口播专项：素材、参数、简报模板、限制
-├─ references/data-chain.md      工作台数据链路与限制（排查用）
+├─ SKILL.md                   技能说明与强制设计流程（MV / 数字人）
+├─ references/design-workflow.md  拆歌/分镜/提示词/确认/完成标准（必读）
+├─ references/package-format.md   MV 包完整格式
+├─ references/prompt-rules.md     H3 六段提示词规则
+├─ references/digital-human.md    数字人口播专项：素材、参数、简报模板、限制
+├─ references/data-chain.md       工作台数据链路与限制（排查用）
 ├─ assets/example-manifest.json         MV 最小 manifest 模板
 ├─ assets/example-manifest-speaking.json 数字人 manifest 模板
+├─ assets/design-template.md           分镜设计表 / design.md 模板
 └─ scripts/
    ├─ env_check.py             环境自检（Python / ffmpeg / 工作台 / ComfyUI / LLM）
-   ├─ validate_pack.py         校验包（目录或 zip），可 --zip 打包
+   ├─ validate_pack.py         校验包（--require-prompts --require-cuts 严格模式）
+   ├─ dump_design.py           从项目导出 design.json 设计草稿
+   ├─ apply_design.py          应用设计、校验、导出完整包（附 design.md）
    └─ import_pack.py           导入 / AI 扩写 / 生成 / 导出
 ```
 

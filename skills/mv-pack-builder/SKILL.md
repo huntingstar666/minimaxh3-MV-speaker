@@ -1,156 +1,166 @@
 ---
 name: mv-pack-builder
-description: 为 H3 数字人·MV 工作台制作可导入的 MV / 数字人口播包（.h3pack.zip）。用户提供参考角色图、音频、歌词/口播稿，本技能完成环境自检、素材整理、manifest 编写、提示词创作/扩写、包校验，可导入工作台并直接出片。用于要求“做一个 MV / 数字人视频 / 口播视频 / 把素材打成工作台可导入的包”的场景。
+description: 为 H3 数字人·MV 工作台设计并制作可直接导入的 MV / 数字人口播包（.h3pack.zip）。技能包含完整的拆歌/拆稿、分镜设计、逐段提示词创作、与用户确认、环境自检、包校验、导入和出片流程；产出的包每个分段都已设计好，用户导入即可生成，无需手动改提示词。
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
-# MV / 数字人包制作技能
+# MV / 数字人包设计技能
 
-目标：把「参考角色图 + 音频 + 歌词/口播稿 + 风格/参数」变成工作台可直接导入的
-`.h3pack.zip`；如果本机工作台和 ComfyUI 可用，可继续导入、生成提示词、直接出片。
+**这不是素材打包工具，而是设计与制作流程。** 最终交付的 `.h3pack.zip` 必须满足：
+每一段都有设计意图、导演简报、完整六段提示词、画面类型、运镜与切点，并且都经过用户确认。
+用户把包拖进工作台后只需点“开始生成”。
 
-两种项目共用同一套包格式，只差 `mode`：
+支持两种项目，共用一个包格式，靠 `mode` 区分：
 
-| 类型 | mode | 导演行为 | 典型用途 |
-| --- | --- | --- | --- |
-| MV / 演唱 | `singing` | 按能量自动规划景别/机位/运镜，跨段不重复 | 歌曲 MV、舞台表演、音乐短片 |
-| 数字人 / 口播 | `speaking` | 固定机位 + 中近景，全片构图一致 | 口播、讲解、播客、带货、虚拟主播 |
+| 类型 | mode | 导演行为 |
+| --- | --- | --- |
+| MV / 演唱 | `singing` | 按能量规划景别/机位/运镜，跨段不重复 |
+| 数字人 / 口播 | `speaking` | 固定机位 + 中近景，全片构图一致 |
 
-包格式以 [references/package-format.md](references/package-format.md) 为准；
-数字人专项检查见 [references/digital-human.md](references/digital-human.md)。
+设计方法论见 [references/design-workflow.md](references/design-workflow.md)（必读）；
+包格式 [references/package-format.md](references/package-format.md)；
+提示词规则 [references/prompt-rules.md](references/prompt-rules.md)；
+数字人专项 [references/digital-human.md](references/digital-human.md)。
 
 ## 0. 环境自检（必做）
 
 ```bash
 python scripts/env_check.py --project <h3-workbench 目录>
-# Windows 可用 py -3 scripts/env_check.py ...
 ```
 
-它检查 Python、ffmpeg、工作台（8787）、ComfyUI、LLM、导入/导出接口，并输出能力：
-`offline_pack`（只打素材包）、`import`（可导入）、`prompts`（可 AI 扩写）、
-`generate`（可出片）。
+输出能力：`offline_pack` / `import` / `prompts` / `generate`。
 
-- 只有 `offline_pack` → 走离线流程，交付包并让用户导入后点「AI 重写」。
-- 有 `import/prompts/generate` → 走在线增强流程，质量最好。
-- 工作台没启动时，可询问用户是否允许启动 `start.bat`；不要擅自占用 GPU 出片。
+- 有 `import` → 走在线设计流程（能用工作台的音频分析、LLM 视觉扩写、出片）；
+- 只有 `offline_pack` → 走离线设计流程，提示词由 Agent 自己写；
+- 工作台没启动时询问用户是否允许启动 `start.bat`；不要擅自占 GPU。
 
-## 1. 与用户确认输入
+## 1. 收集输入并确认方向
 
-先确认项目类型（MV / 数字人口播），再按对应清单收集：
+先确认项目类型（MV / 数字人口播），再收集：
 
-1. **参考图**：人物（1 张，必须）、场景、服装造型、道具/配角，最多 9 张。
-   逐张和用户确认 `role` 与用途；角色错位会导致提示词写错。
-2. **音频**：mp3/wav/m4a/flac/mp4 等；确认时长。
-3. **歌词 / 口播稿**：文本或文件；没有则说明会由音频分析推断。
-4. **模式**：演唱/MV（singing）或口播（speaking）。
-5. **名称**、**目标段长/最长段长**（5–15s，默认 8/12）、**画幅**、**输出帧率**（24/25/30）、
-   **拼接方式**（hard 硬切 / seam）。
-6. **风格/滤镜**（可选）：可从工作台 `/api/creative-catalog` 按名字取 prompt 文本，
-   也可用户自定义。
-7. **创作要求**（material_note）：人物/场景/服装/必须出现的动作，用 `@图N` 指参考图。
-8. **是否允许直接导入工作台 / 直接出片**（出片耗时且占 GPU，必须单独确认）。
+1. **参考图**：人物 1 张（必须）、场景、服装造型、道具/配角；最多 9 张；
+   逐张确认 `role`（performer/environment/appearance/subject/other）。
+2. **音频**：mp3/wav/m4a/flac/mp4；确认时长、是否单人、是否已去噪。
+3. **歌词/口播稿**：文本或文件；最好带逐句时间或至少分段。
+4. **模式/名称/参数**：singing 或 speaking；目标/最长段长（5–15s，推荐 8/12）、
+   画幅、帧率（24/25/30）、拼接（hard/seam）。
+5. **风格/滤镜/创作要求**：可从 `/api/creative-catalog` 选预设 prompt，也可自定义。
+6. **是否允许直接导入/出片**（出片占 GPU，必须单独确认）。
 
-### 数字人口播额外确认
+> Checkpoint A：把「主题/角色/场景/风格/画幅/参考图角色/是否出片」和用户确认后再设计。
 
-- 人物参考图是否正面/半身、光线均匀、五官清晰（决定口型与身份稳定性）；
-- 口播音频是否已去噪、是否单人；口播稿是否与音频逐句对应；
-- 景别：默认中近景半身口播；如要全身/坐姿讲解，在 `segments[].brief` 里写清
-  （注意导演层口播是固定机位，景别以简报为准）；
-- 是否需要背景图（房间/纯色/虚拟背景）；背景里有文字时提示词会要求不可读；
-- 长口播：>15 秒会拆成多段，段间是硬切但构图一致；如果要更连续的观感可考虑 seam
-  （仅适合同一固定机位），并在交付时说明风险；
-- 是否需要多角色对话：默认不支持多人同框各自对口型，建议按说话人拆分音频/分段。
+## 2. 设计阶段（核心，不能跳过）
 
-用户没说清楚的先问，不要猜。
+按 [references/design-workflow.md](references/design-workflow.md) 完成：
 
-## 2. 准备素材目录
+1. **拆歌/拆稿**：按乐句、鼓点、气口、段落、语义分句设计分段（3–15s），
+   做一张分段表（时间/歌词/能量/段落功能/视觉类型）。
+2. **画面设计**：主题、角色弧线、场景、视觉母题、镜头语言、参考图使用、
+   每段画面任务、转场/入场；做分镜设计表（时间/歌词/段意/景别/机位/运镜/动作/
+   场景/参考图/入场风险）。
+3. **逐段提示词**：每段写 `brief`（六行中文）+ `final_prompt`（H3 六段英文），
+   参考图用 `<Picture N>`，performance 声明 `<Audio 1>`，声音两段 N/A，
+   无字幕/水印声明。
+4. **Checkpoint B**：把分镜表给用户逐段确认/修改。
+5. **Checkpoint C**：展示 2–3 段代表提示词与参数，说明风险；确认后才可出片。
+
+**没有经过 A/B/C 三次确认、没有写完全部提示词，不允许进入打包交付。**
+
+## 3. 在线设计流程（工作台可用，推荐）
+
+1. 打**素材包**（只含音频、参考图、项目参数；先不写 cuts/segments），导入：
+
+   ```bash
+   python scripts/import_pack.py --pack material.h3pack.zip --json
+   ```
+
+2. 导出设计草稿（含工作台分析出的自动切点、歌词、能量、镜头规划）：
+
+   ```bash
+   python scripts/dump_design.py --project-id <id> --out design.json
+   ```
+
+3. **Agent 编辑 design.json**：调整 `cuts_seconds`，逐段填写
+   `design_intent`、`brief`、`final_prompt`、`visual_type`、`motion`，补全
+   `style`/`filter`/`material_note`/`generation`。这一步就是“设计”，不是照抄自动结果。
+   如果改切点导致段数变化：先只提交 cuts（segments 留空）应用，再重新
+   `dump_design.py` 后填逐段设计。
+
+4. 应用设计并校验：
+
+   ```bash
+   python scripts/apply_design.py --project-id <id> --design design.json \
+       --recheck --require-prompts
+   ```
+
+5. 把 design.json 对应的分镜表写成 `design.md`，交给用户确认；修改后重复 3–4。
+
+6. 导出完整包（自动附 design.md）：
+
+   ```bash
+   python scripts/apply_design.py --project-id <id> --design design.json --recheck \
+       --export-out my-mv.h3pack.zip --design-doc design.md
+   ```
+
+7. 严格校验：
+
+   ```bash
+   python scripts/validate_pack.py my-mv.h3pack.zip --require-prompts --require-cuts
+   ```
+
+8. 用户确认后出片（先出 1 段确认形象/口型/风格，再批量）：
+
+   ```bash
+   python scripts/import_pack.py --project-id <id> --generate --wait
+   ```
+
+9. 交付：包、design.md、校验输出、项目 id、成片路径/下载地址。
+
+## 4. 离线设计流程（工作台不可用）
+
+1. 按设计结果直接写 `manifest.json`：`timeline.cuts_seconds` +
+   `segments[]`（每段 design_intent 记进 design.md，brief/final_prompt/visual_type/
+   motion/lyrics 全填好）。
+2. 写 `design.md`（分镜表/设计说明）一起放进包。
+3. 严格校验并打包：
+
+   ```bash
+   python scripts/validate_pack.py ./my-mv --require-prompts --require-cuts \
+       --zip my-mv.h3pack.zip
+   ```
+
+4. 交付：拖进工作台即可生成，无需手动改提示词。
+
+## 5. 包内容要求
 
 ```text
 <name>/
-├─ manifest.json
-├─ audio/source.<ext>
-└─ refs/ref_01.<ext> …
+├─ manifest.json      # 完整设计：mode/参数/style/filter/cuts/segments(全部 brief+final_prompt)
+├─ design.md          # 分镜表与设计说明（推荐，允许放进包）
+├─ audio/source.*     # 音频
+└─ refs/ref_01.* …   # 参考图，角色与设计一致
 ```
 
-- 音频按扩展名原样放 `audio/`；参考图放 `refs/`。
-- 文件名可保留原样，manifest 里用相对路径引用。
-- 先用 `python scripts/validate_pack.py <name目录>` 校验，再 `--zip <name>.h3pack.zip`。
+- 允许的额外文件：`.md` / `.txt` / `.json`；不放生成视频、成片、settings.json。
+- `segments[]` 至少：`index`/`start`/`end`、`visual_type`、`brief`、`lyrics`、`motion`、
+  `final_prompt`；有已合并风格/滤镜/运镜时带 `prompt_overlays`。
+- 每段 3–15 秒；切点严格递增且符合音乐/语义。
 
-## 3. 写 manifest
+## 6. 硬性规则
 
-最小可用（无 timeline/segments，导入后自动分段）：
+- 不允许机械打包：没有分镜设计、没有写提示词就交付，视为不合格。
+- 不允许空 `final_prompt` 的设计包；`--require-prompts` 必须 PASS。
+- 不允许 `cuts_seconds` 缺失的设计包；`--require-cuts` 必须 PASS。
+- 参考图角色必须先确认；performer 只放 1 张。
+- 生成/出片前必须单独获得用户许可。
+- 多人对话默认不分别对口型，按说话人拆音频/项目。
+- 不改写用户原始素材；所有中间文件放临时目录；不把用户 key/项目数据打进包。
 
-```json
-{
-  "schema": "h3-mv-pack",
-  "version": 1,
-  "name": "作品名",
-  "mode": "singing",
-  "audio": "audio/source.wav",
-  "refs": [{"file": "refs/ref_01.png", "role": "performer", "title": "角色设定"}],
-  "project": {
-    "target_seconds": 8,
-    "max_seconds": 12,
-    "script": "歌词……",
-    "material_note": "全片创作要求……",
-    "style": "",
-    "filter": "",
-    "generation": {"output_fps": 24, "aspect_ratio": "9:16 (Portrait Widescreen)", "stitch": "hard"}
-  }
-}
-```
+## 7. 交付清单
 
-完整字段（timeline、segments、prompt_overlays、ref_ids 等）见
-[references/package-format.md](references/package-format.md)。
-
-- **数字人口播**：把 `"mode": "speaking"`；`script` 填口播稿；推荐
-  `target_seconds 8–12`、`max_seconds 12–15`；`generation.aspect_ratio` 常用
-  `9:16 (Portrait Widescreen)` 或 `16:9`；长口播按句/气口给 `cuts` 或留空自动分。
-- 如果用户给了精确时间轴（如 LRC/剪辑表），写 `timeline.cuts_seconds`（秒，递增）。
-- 想预设某段的简报/提示词/运镜，写 `segments[]`，用 `index` 或 `start/end` 匹配。
-- 提示词使用 H3 六段结构，规则见 [references/prompt-rules.md](references/prompt-rules.md)；
-  数字人专项见 [references/digital-human.md](references/digital-human.md)。
-
-## 4A. 在线增强流程（推荐）
-
-1. `python scripts/import_pack.py --pack <name>.h3pack.zip --base-url http://127.0.0.1:8787 --json`
-   - 返回新项目 id；没有 timeline 的包导入时会按 `mode` 自动分析分段
-     （speaking 会走固定机位口播规划）。
-2. 如用户需要完整提示词：
-   - `--expand-prompts`（调用 `/api/projects/{id}/prompts`，用工作台本机 LLM + 参考图扩写，最一致）；
-   - 或逐段 `/segments/{i}/prompt` 精修。
-3. 从工作台导出最终包（含分段、提示词、参数）：
-   `python scripts/import_pack.py --base-url ... --export <project_id> --export-out <name>.h3pack.zip`
-   再用 `scripts/validate_pack.py` 校验。
-4. 如用户明确允许出片：
-   `python scripts/import_pack.py --base-url ... --generate <project_id> --wait`
-   轮询任务快照；完成后告知成片路径与下载地址（`/api/projects/{id}/download`）。
-5. 数字人建议先只生成 1 段让用户确认口型/形象，再批量出片；出片前确认音轨与段长。
-6. 交付：包路径、项目 id、校验输出、成片路径（如有）。
-
-## 4B. 离线流程（工作台不可用）
-
-1. 按 manifest 写包；提示词可由你按 [references/prompt-rules.md](references/prompt-rules.md)
-   与 [references/digital-human.md](references/digital-human.md) 直接创作，
-   写进 `segments[].final_prompt`（没有把握就留空，让用户导入后点「AI 重写」）。
-2. 没有时间轴时不要瞎写 `cuts_seconds`，留空让工作台自动分析。
-3. `python scripts/validate_pack.py <目录> --zip <name>.h3pack.zip` 必须通过。
-4. 交付并说明：打开工作台 → 左栏「导入 MV 包」拖入即可（MV 和数字人共用这个入口）。
-
-## 5. 硬性规则
-
-- 不要把工作台 `data/settings.json`（含 LLM key）、`data/projects/` 或成片塞进包。
-- 包内只放音频/图片/manifest/README；不要放符号链接、路径穿越文件。
-- 单包建议 < 2GB；参考图最多 9 张。
-- 不要删除或覆盖用户原始素材；所有编辑在临时目录进行。
-- 生成/出片前必须得到用户确认，避免误占 GPU。
-- 数字人多人同框默认只驱动一条人声、无法分别对口型；多人对话要拆音频/分段处理。
-- 导入失败时读工作台返回的错误（如“切点两侧不足 3 秒”“参考图格式不支持”），修正后重试。
-
-## 6. 交付清单
-
-- [ ] `.h3pack.zip` 路径
-- [ ] `validate_pack.py` 全部 PASS 输出
-- [ ] 包内内容摘要（mode=singing/speaking、段数/参考图/是否有提示词/时间轴）
-- [ ] 导入方法（拖入左栏或 API）
+- [ ] `.h3pack.zip` 路径与 `design.md`
+- [ ] `validate_pack.py --require-prompts --require-cuts` 全 PASS
+- [ ] 分镜表（段数/时间/歌词/画面/参考图）
+- [ ] 每段提示词摘要与参数
+- [ ] 用户已确认 A/B/C 三个检查点
 - [ ] 如已出片：成片路径/下载地址、时长与分辨率

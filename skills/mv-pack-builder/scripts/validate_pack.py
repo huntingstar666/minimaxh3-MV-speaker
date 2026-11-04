@@ -97,12 +97,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="校验 H3 MV 包")
     parser.add_argument("path", help="包目录或 .h3pack.zip")
     parser.add_argument("--zip", dest="zip_out", help="校验通过后打包到该路径")
+    parser.add_argument("--require-prompts", action="store_true",
+                        help="设计稿模式：每段必须有 final_prompt，否则失败")
+    parser.add_argument("--require-cuts", action="store_true",
+                        help="设计稿模式：必须提供 timeline.cuts_seconds")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     path = Path(args.path).resolve()
     if not path.exists():
         raise SystemExit(f"路径不存在：{path}")
+    if path.is_file() and path.suffix.lower() not in {".zip", ".h3pack"}:
+        raise SystemExit("路径必须是 MV 包目录，或 .zip / .h3pack.zip 文件。")
     manifest, root_or_names = load_package(path)
     is_dir = isinstance(root_or_names, Path)
     root = root_or_names if is_dir else path.parent
@@ -175,6 +181,8 @@ def main() -> int:
             if value < 3:
                 fail(f"cut {value}s 太早（首段至少 3 秒）")
             last = value
+    if getattr(args, "require_cuts", False) and not cuts:
+        fail("设计稿模式要求 timeline.cuts_seconds 不为空")
     segments = manifest.get("segments") or []
     if not isinstance(segments, list):
         fail("segments 必须是数组")
@@ -198,6 +206,13 @@ def main() -> int:
                 fail(f"segments[{index}].ref_ids 越界")
     if not segments and not cuts:
         warn("没有时间轴和分段覆盖：导入后将自动分析分段")
+    if getattr(args, "require_prompts", False):
+        missing = [index for index, item in enumerate(segments)
+                   if not str(item.get("final_prompt") or "").strip()]
+        if not segments:
+            fail("设计稿模式要求 segments[] 且每段都有 final_prompt")
+        elif missing:
+            fail(f"设计稿模式缺少 final_prompt 的分段：{[index + 1 for index in missing]}")
 
     if errors:
         print("FAIL")
