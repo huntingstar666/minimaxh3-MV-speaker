@@ -380,6 +380,39 @@ def main() -> int:
               and len(material_resp.json()["project"].get("segments") or []) >= 1, 
               str(material_resp.json().get("detail") if material_resp.status_code != 200 else ""))
 
+        # 数字人口播包：mode=speaking，导入后固定机位，提示词声明 <Audio 1>
+        speaking = io.BytesIO()
+        with zipfile.ZipFile(speaking, "w") as archive:
+            archive.writestr("manifest.json", json.dumps({
+                "schema": "h3-mv-pack", "version": 1, "name": "数字人包",
+                "mode": "speaking", "audio": "audio/source.wav",
+                "refs": [{"file": "refs/ref.png", "role": "performer", "title": "主播"}],
+                "project": {"target_seconds": 8, "max_seconds": 12,
+                            "script": "大家好，这是一段口播测试。"},
+            }, ensure_ascii=False))
+            archive.writestr("audio/source.wav", (DATA_DIR / "smoke.wav").read_bytes())
+            archive.writestr("refs/ref.png", png)
+        speaking_resp = client.post("/api/projects/import", files={
+            "package": ("speaking.h3pack.zip", speaking.getvalue(), "application/zip")})
+        if speaking_resp.status_code == 200:
+            speaking_project = speaking_resp.json()["project"]
+            first = (speaking_project.get("segments") or [{}])[0]
+            check("数字人包导入为 speaking 模式",
+                  speaking_project.get("mode") == "speaking" and len(speaking_project.get("segments") or []) >= 1,
+                  f"mode={speaking_project.get('mode')}")
+            check("数字人导演为固定机位",
+                  first.get("camera_move_family") == "steady", str(first.get("camera_move_family")))
+            prompt_resp = client.post(
+                f"/api/projects/{speaking_project['id']}/segments/0/prompt",
+                json={"llm": {"enabled": False}})
+            prompt_resp.raise_for_status()
+            text = prompt_resp.json()["project"]["segments"][0]["final_prompt"]
+            check("口播提示词声明 Audio 1 且固定机位",
+                  "<Audio 1>" in text and "locked-off" in text.lower(), text[:60])
+        else:
+            check("数字人包导入为 speaking 模式", False,
+                  str(speaking_resp.json().get("detail")) if speaking_resp.status_code != 200 else "")
+
         bad = client.post("/api/projects/import", files={
             "package": ("bad.zip", b"not a zip", "application/zip")})
         check("非法包被拒绝", bad.status_code == 400, str(bad.status_code))

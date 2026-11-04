@@ -1,0 +1,49 @@
+{
+  "schema": "h3-mv-pack",
+  "version": 1,
+  "name": "示例：产品讲解数字人",
+  "created": "2026-11-05T00:00:00+08:00",
+  "mode": "speaking",
+  "audio": "audio/voice.mp3",
+  "refs": [
+    {
+      "file": "refs/ref_01.png",
+      "role": "performer",
+      "title": "主播人物参考",
+      "description": "正面半身，黑色西装，室内柔光"
+    },
+    {
+      "file": "refs/ref_02.jpg",
+      "role": "environment",
+      "title": "办公室背景",
+      "description": "浅色书架与绿植，背景干净无文字"
+    }
+  ],
+  "project": {
+    "target_seconds": 8,
+    "max_seconds": 12,
+    "script": "大家好，今天给大家介绍……",
+    "material_note": "主播使用 @图1，背景参考 @图2；固定中近景口播，自然手势，不要出现字幕。",
+    "style": "",
+    "filter": "",
+    "generation": {
+      "output_fps": 24,
+      "aspect_ratio": "9:16 (Portrait Widescreen)",
+      "stitch": "hard"
+    }
+  },
+  "timeline": {
+    "cuts_seconds": [],
+    "use_asr": false
+  },
+  "segments": [
+    {
+      "index": 0,
+      "visual_type": "performance",
+      "brief": "画面任务：人物口播\n声音关系：人物跟随本段人声做自然可见口型，停顿和呼吸与音频一致\n开场构图：沿用参考画面的原有构图，保持人物位置、人物尺度、身体可见范围、头顶留白和裁切边界\n主体动作：自然口播，保留眨眼、呼吸和克制的小幅头部、肩部与手势动作\n镜头运动：全程固定机位单一连续镜头，背景透视和构图跨段保持一致\n结束构图：保持与开场一致的人物尺度、位置、裁切边界和背景透视",
+      "lyrics": "",
+      "motion": "",
+      "final_prompt": ""
+    }
+  ]
+}
