@@ -73,7 +73,7 @@ Agent 在画面设计阶段要先把创意放开，再盘点“实现这个创�
 ### 采纳（用户提供/同意生成）
 
 1. 拿到图片后**先确认角色**（performer/environment/appearance/subject），不要放错；
-2. 在线：加进项目参考图，离线：放进 `refs/` 并更新 manifest；在线命令示例：
+2. Agent 把图放进 `refs/` 并更新 manifest；如需用工作台预览，可用 `add_refs.py`：
 
    ```bash
    python scripts/add_refs.py --project-id <id> \

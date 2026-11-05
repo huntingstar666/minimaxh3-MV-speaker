@@ -144,11 +144,12 @@
 
 ## 7. 工作流建议
 
+**准备由 Agent 全流程完成；工作台只用于用户最终预览/微调/出片。**
+
 1. 环境自检 → 选音频腔（mode 1/2/3）→ 完成设计/节拍/提示词。
 2. 产出 `.h3avatar.zip`（manifest + design/beats + 音频/参考图 + design.md），
    跑 `validate_avatar_pack.py --require-prompts`。
-3. 导入数字人工作台（import/export 已支持；页面「最近作品」有导入/导出按钮，
-   也可用脚本/HTTP）：
+3. 最后把包交给用户预览（页面「最近作品」导入，或 Agent 用脚本/HTTP 导入）：
 
    ```bash
    python scripts/import_avatar_pack.py --pack my-avatar.h3avatar.zip

@@ -19,10 +19,10 @@
 
 - 获取音频分析：BPM、段落（intro / verse / pre-chorus / chorus / bridge / outro）、
   能量变化、气口、歌词逐句时间。
-- 在线：先导入素材包，工作台 `analyze` 会自动给分段/歌词/能量；用
-  `dump_design.py` 导出草稿后**人工调整切点**，让切点落在乐句、鼓点、气口、段落交界。
-- 离线：用户给 LRC/时间戳最好；没有就按歌词句数与歌曲结构估算，但要在确认阶段
-  给用户看时间表。
+- 这一步由 Agent 完成：用本地工具/脚本（ffprobe、音频分析、ASR、LRC/时间戳）读取素材；
+  如果用户给了 LRC/逐句时间最好，没有就按歌词结构与时长设计切点，并在确认阶段给用户看表。
+- 仅当 Agent 判断确有需要时，才把工作台 `analyze` 当内部工具（导入素材包 →
+  `dump_design.py` 草稿）；**不要要求用户去工作台做分析**，也不把工作台当主流程。
 - 分段规则：一般 3–15 秒（推荐 5–15）；特殊段落可放宽到 30 秒，但必须在设计审阅时
   与用户确认；不要切在字中间；长音/副歌可以保留完整乐句；段落交界优先落在低能量/气口。
 
@@ -72,8 +72,8 @@
 向用户提出**具体建议**：需要什么图、用在哪几段、补了会怎样、没有时的 fallback。
 由用户决定：
 
-- **采纳**：收图 → 确认 role → 加入 refs（在线 `add_refs.py`，离线放进 `refs/` 并更新
-  manifest）→ 更新 design/ref_ids/`<Picture N>` → 重新审阅；
+- **采纳**：Agent 收图 → 确认 role → 加入 refs（可调用 `add_refs.py` 或直接放进
+  `refs/` 并更新 manifest）→ 更新 design/ref_ids/`<Picture N>` → 重新审阅；
 - **不采纳**：按用户想法改设计（换构图/光线/动作/道具替代），记录“原创意 → 用户选择
   → 最终方案”，不要静默删掉创意。
 
@@ -181,33 +181,24 @@
 
 > 任何一次修改都要回到对应 Checkpoint 重新确认，不要跳过。
 
-## 5. 阶段五：落地（在线 / 离线）
+## 5. 阶段五：落地（Agent 全流程）
 
-### 在线（工作台可用，推荐）
+**默认全部由 Agent 完成，工作台只做最终预览/微调/出片。**
 
-1. 打**素材包**（只有音频/参考图/项目参数；不写 segments/cuts），导入；
-2. `dump_design.py` 导出 `design.json`（含自动切点、歌词、能量、镜头规划）；
-3. Agent 先完成**画面设计**：调整 `cuts_seconds`、逐段写 `design_intent/brief/
-   visual_type/motion`，补项目 style/filter/material_note/generation，写 `design.md`；
-   - 如果调整切点导致段数变化：先把 `design.json` 的 `segments` 留空、只带
-     `cuts_seconds` 应用（`apply_design.py` 会提示），再重新 `dump_design.py` 得到
-     新分段，然后逐段填写；
-4. **Checkpoint B 审阅**：把 `design.md` 分镜表交用户审阅，听取意见并修改，
-   再次确认；
-5. 审阅通过后才写逐段 `final_prompt`；
-6. `apply_design.py` 应用 design → `--recheck` 校验 → 打印每段提示词状态；
-7. 导出完整包（`--export-out`），把 `design.md` 附加进包（`--design-doc`）；
-8. `validate_pack.py --require-prompts --require-cuts` 严格校验；
-9. **Checkpoint C** 确认提示词/参数后出片；先出 1 段给用户确认再批量。
+1. Agent 自己读素材、分析音频/歌词、定分段，完成拆歌/拆稿与画面设计；
+2. **Checkpoint B** 把分镜表交用户审阅并修改；
+3. 审阅通过后 Agent 逐段写 `brief` + 提示词（MV `final_prompt`、数字人 `prompt`），
+   按对应格式文档与校验器自检；
+4. 生成 `manifest.json` / `.h3pack.zip` / `.h3avatar.zip` + `design.md`；
+5. 严格校验（MV `validate_pack.py`，数字人 `validate_avatar_pack.py`）；
+6. **Checkpoint C** 确认提示词/参数后，再把包交给用户在**工作台**预览、微调、生成；
+   不要要求用户在工作台里重新分析、分段、写提示词。
 
-### 离线（工作台不可用）
+> 可选：如果音频分析确实需要项目接口，Agent 可以把工作台当内部工具（导入素材→
+> dump_design→分析），这属于 Agent 的加速手段，不是用户流程；不推荐作为默认路径。
 
-1. 先完成拆歌/拆稿与画面设计，写 `design.md` 分镜表；**Checkpoint B 用户审阅并修改**；
-2. 审阅通过后按 design 生成 `manifest.json`：写 `timeline.cuts_seconds` 和
-   `segments[]`（每段 brief/final_prompt/visual_type/motion）；
-3. 把 `design.md`（含审阅记录）放进包；
-4. `validate_pack.py --require-prompts --require-cuts` 校验后 `--zip`；
-5. 交付：拖进工作台即可生成，无需手工改提示词。
+数字人落地流程见 [digital-human/README.md](digital-human/README.md) 与
+[avatar-package-format.md](avatar-package-format.md)。
 
 ## 6. 完成标准（缺一不可）
 
@@ -254,5 +245,5 @@
 }
 ```
 
-`design.json` 是工作草稿，不直接进包；最终包由 `apply_design.py --export-out` 或离线
-manifest 生成。`design.md` 是给人看的设计说明/分镜表，可附加进包。
+`design.json` 是 Agent 的工作草稿，不直接进包；最终包由 `apply_design.py --export-out`
+或 Agent 手动生成的 manifest 产出。用户只在最后预览/微调。

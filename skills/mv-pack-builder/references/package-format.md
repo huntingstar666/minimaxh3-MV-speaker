@@ -183,8 +183,8 @@ python skills/mv-pack-builder/scripts/validate_pack.py 我的MV.h3pack.zip \
   --require-prompts --require-cuts
 ```
 
-配套技能 `mv-pack-builder` 的默认产物就是设计包：它会先拆歌/拆稿、设计分镜与逐段
-提示词，和用户确认后才打包；在线模式下还会直接导入工作台、应用设计、导出并校验。
+配套技能 `mv-pack-builder` 的默认产物就是设计包：Agent 负责拆歌/拆稿、设计分镜与
+逐段提示词，和用户确认后打包；工作台只用于用户最终预览/微调/出片。
 
 ## 3. 导入时发生什么
 
@@ -219,6 +219,6 @@ python skills/mv-pack-builder/scripts/validate_pack.py 我的MV.h3pack.zip \
 ## 5. 用配套技能自动生成包
 
 `skills/mv-pack-builder/` 是配套的 MV 创作技能（含环境自检 + 包校验 + 导入脚本）。
-它会把「参考角色图 + 音频 + 歌词 + 风格/参数」按本格式组织成 `.h3pack.zip`，
-并在工作台可用时直接导入、生成提示词，甚至出片。安装与使用见
+Agent 会把「参考角色图 + 音频 + 歌词 + 风格/参数」按本格式组织成 `.h3pack.zip`，
+并完成设计与提示词；工作台只用于用户最终预览、手动微调、生成。安装与使用见
 `skills/README.md`。
