@@ -13,7 +13,10 @@
   "min_seconds": 5.16,
   "audio": {"file": "audio/source.wav"},
   "voice": null,
+  "voices": [],
   "voice_description": "",
+  "material_note": "主播使用 @图1，场景使用 @图2；固定机位中近景口播，右侧信息卡，不遮挡面部与手部。",
+  "speakers": [],
   "refs": [
     {"file": "refs/ref_01.png", "role": "performer", "title": "主播", "description": "浅灰针织衫、短发的成年女性"},
     {"file": "refs/ref_02.png", "role": "environment", "title": "书房", "description": "暖白墙面书房，右侧空白书墙"}
@@ -57,6 +60,8 @@
       "frames": 294,
       "start_frame": 0,
       "end_frame": 294,
+      "note": "本段使用 @图1 人物、@图2 场景；信息卡从右侧进入并在句尾前退场。",
+      "ref_ids": null,
       "beats": [
         {
           "index": 0,

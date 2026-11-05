@@ -11,6 +11,9 @@
   POST /avatar/api/projects/import  multipart: package[, name]
   GET  /avatar/api/projects/{id}/export
 
+服务端 pack import 目前不落 material_note / segments[].note / ref_ids；
+本脚本导入后会通过 PATCH 补写这三类导演化字段（speakers 暂不补）。
+
 只依赖标准库。
 """
 from __future__ import annotations
@@ -21,7 +24,10 @@ import sys
 import urllib.error
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
+
+MANIFEST_NAMES = ("manifest.json", "h3avatar.json", "avatar.json")
 
 
 def request(url: str, method: str = "GET", data: bytes | None = None,
@@ -40,6 +46,51 @@ def error_detail(body: bytes) -> str:
         return str(json.loads(body.decode("utf-8")).get("detail"))
     except Exception:  # noqa: BLE001
         return body.decode("utf-8", errors="replace")[:500]
+
+
+def read_manifest(pack: Path) -> dict:
+    with zipfile.ZipFile(pack) as archive:
+        names = [info.filename.replace("\\", "/") for info in archive.infolist()
+                 if not info.is_dir()]
+        candidates = [name for name in names if Path(name).name in MANIFEST_NAMES]
+        if not candidates:
+            raise SystemExit("包内缺少 manifest.json")
+        manifest_name = sorted(candidates, key=lambda item: item.count("/"))[0]
+        return json.loads(archive.read(manifest_name).decode("utf-8-sig"))
+
+
+def patch_json(base: str, path: str, payload: dict) -> bool:
+    status, body = request(base + path, method="PATCH",
+                           data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                           headers={"Content-Type": "application/json"})
+    if status >= 400:
+        print(f"  补写失败 {path}（HTTP {status}）：{error_detail(body)}")
+        return False
+    return True
+
+
+def apply_director_fields(base: str, project_id: str, manifest: dict) -> dict:
+    """包导入接口尚未落盘的导演化字段，用 PATCH 补写。
+
+    material_note / segments[].note / segments[].ref_ids 属于工作台项目字段；
+    当前 pack import 只落 mode/design/segments/prompt，故导入后补写。
+    """
+    applied: list[str] = []
+    material_note = str(manifest.get("material_note") or "").strip()
+    if material_note and patch_json(base, f"/avatar/api/projects/{project_id}",
+                                    {"material_note": material_note}):
+        applied.append("material_note")
+    for index, segment in enumerate(manifest.get("segments") or []):
+        payload = {}
+        note = str(segment.get("note") or "").strip()
+        if note:
+            payload["note"] = note
+        if isinstance(segment.get("ref_ids"), list):
+            payload["ref_ids"] = segment["ref_ids"]
+        if payload and patch_json(base, f"/avatar/api/projects/{project_id}/segments/{index}",
+                                  payload):
+            applied.append(f"segment[{index}].{'/'.join(payload)}")
+    return {"applied": applied}
 
 
 def import_pack(base: str, pack: Path, name: str | None) -> dict:
@@ -112,6 +163,20 @@ def main() -> int:
               f"参考图={summary.get('refs')}")
         for warning in imported.get("warnings") or []:
             print("  警告：", warning)
+        # 服务端 pack import 目前不落 material_note / segment.note / ref_ids，
+        # 技能导入脚本在导入后补写，保证设计层不丢。
+        try:
+            manifest = read_manifest(pack)
+            director = apply_director_fields(base, project_id, manifest)
+            result["director"] = director
+            if director.get("applied"):
+                print(f"  已补写导演化字段：{', '.join(director['applied'])}")
+            elif manifest.get("material_note") or any(
+                    (segment.get("note") or segment.get("ref_ids"))
+                    for segment in manifest.get("segments") or []):
+                print("  警告：包内有 material_note / note / ref_ids，但补写失败")
+        except Exception as error:  # noqa: BLE001
+            print(f"  警告：补写导演化字段失败：{error}")
 
     if args.export_out:
         if not project_id:

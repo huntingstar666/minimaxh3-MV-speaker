@@ -95,12 +95,14 @@ python scripts/env_check.py --project <h3-workbench 目录>
 5. **Checkpoint B：画面设计审阅（强制）**：把分镜表 + 设计说明 + 补图建议/决定
    交给用户逐段审阅，明确问：故事/画面是否对、哪段不对、镜头/动作/节奏/参考图
    要不要改、有没有不想出现的元素；记录意见并修改设计，修改后再次确认。
-   **审阅未通过，不允许写 final_prompt、不允许打包。**
-6. **逐段提示词**：每段写 `brief`（六行中文）+ `final_prompt`（H3 六段英文）。
-   - **MV（singing）**：严格按 [references/mv-prompt-format.md](references/mv-prompt-format.md)
-     写；`performance` 声明 `<Audio 1>`、声音两段 N/A、无字幕/水印声明；
-   - **数字人（speaking）**：严格按 [references/digital-human/README.md](references/digital-human/README.md)
-     与选定的 `digital-human/voices/*.md` 写；不要套用 MV 的音频规则：
+   **审阅未通过，不允许写提示词、不允许打包。**
+6. **逐段提示词**：每段写 `brief`（六行中文）+ 提示词（H3 六段英文）。
+   - **MV（singing）**：写 `final_prompt`，严格按
+     [references/mv-prompt-format.md](references/mv-prompt-format.md)；
+     `performance` 声明 `<Audio 1>`、声音两段 N/A、无字幕/水印声明；
+   - **数字人（mode 1/2/3）**：写 `segments[].prompt`，严格按
+     [references/digital-human/README.md](references/digital-human/README.md) 与选定的
+     `digital-human/voices/*.md`；不要套用 MV 的音频规则：
      - A 音频驱动：禁止一切 `<Audio N>`，声音字段写平台运行时驱动音频时间线；
      - B 参考音色：定义 `<Audio 1>`、summary 写 `audio reference`、retention 写
        `<Audio 1>: reference`，不复制波形与原话；
@@ -122,6 +124,11 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - 效果系统六个“一”：字体语言、卡片材质、图标族、运动语法、主强调色（+最多一个辅色）、
   入场方向/深度逻辑；一个语义节拍只用一个主族，不混搭无关美学。
 - 三腔提示词完整规则、示例、20 条自检见 `digital-human/voices/*.md`。
+- **导演化字段（新）**：项目 `material_note`、每段 `note` 支持 `@图N`/`@音频N`；
+  `segments[].ref_ids` 控制本段用图，提示词 `<Picture n>` 按本段启用顺序从 1 编号；
+  mode 2 可用 `voices[]`（最多 6 个音色素材，不与人物绑定），提示词用 `<Audio N>`。
+  这些字段写进 `.h3avatar.zip`；服务端 pack 目前只落 voices，其余由
+  `import_avatar_pack.py` 导入后 PATCH 补写（页面按钮导入不补）。
 - **数字人包额外要产出结构化字段**（`.h3avatar.zip`）：
   `mode: 1|2|3`、`workflow: locked_audio|ref_native`、`design`（audio_mode、效果密度、
   安全区、style_system 六个“一”、voice_card、graphics_budget、graphics_mode、brand）、
@@ -203,7 +210,7 @@ python scripts/env_check.py --project <h3-workbench 目录>
    `segments[]`（每段 design_intent 记进 design.md，brief/final_prompt/visual_type/
    motion/lyrics 全填好；`<Picture N>` 按最终参考图顺序核对）。
    - MV 的 `final_prompt` 按 [references/mv-prompt-format.md](references/mv-prompt-format.md) 逐段写；
-   - 数字人的 `final_prompt` 按选定 `digital-human/voices/*.md` 的 Ref2VA 六段规则写，
+   - 数字人的 `segments[].prompt` 按选定 `digital-human/voices/*.md` 的 Ref2VA 六段规则写，
      并用 `validate_digital_human_prompt.py --audio-mode …` 自检。
 4. 写 `design.md`（分镜表/设计说明/创意缺口决策/用户审阅意见）一起放进包。
 5. 严格校验并打包：
@@ -259,6 +266,11 @@ python scripts/env_check.py --project <h3-workbench 目录>
 
 - 导入服务端会一次性落库，`prompt_meta` 由服务端重算（包内 lint 快照不权威）；
   有 lint error 不阻断，但会进 warnings/页面红字；
+- 导演化字段 `material_note`/`segments[].note`/`ref_ids` 不在服务端 pack 导入字段里；
+  用 `import_avatar_pack.py` 导入会在之后 PATCH 补写，页面按钮导入不会补；
+  `speakers` 目前不补写；
+- 多音色 `voices[]` 导入已支持；服务端导出多音色项目仍可能因 `voice/ref.wav`
+  检查失败，roundtrip 导出需等项目侧修复；
 - mode1 包内 frames 会按累计帧比例映射到真实音频长度，总帧与音频时长差 >24 帧会 warning；
   成片时长 = 音频实际时长；
 - `graphics_mode=overlay` 会保留 beats，生成时由后端 overlay 叠加；
@@ -289,14 +301,17 @@ python scripts/env_check.py --project <h3-workbench 目录>
 ### 数字人：`.h3avatar.zip`
 
 - `manifest.json`：`h3-avatar-pack`，含 `mode/workflow/design/refs/segments`；
-- 每个 segment 含 `text/chars/seconds/frames/start_frame/end_frame/beats/prompt/prompt_meta`；
+- 每个 segment 含 `text/chars/seconds/frames/start_frame/end_frame/beats/prompt/prompt_meta`，
+  建议带 `note`/`ref_ids`；项目建议带 `material_note`（创作要求）；
+- mode2 可带 `voices[]`（最多 6 个音色素材）或旧的 `voice.file`；音色不与人物绑定；
 - `design` 含 audio_mode、效果密度、安全区、style_system、voice_card、graphics_budget、
   graphics_mode、brand；
 - 帧数必须是契约的 H3 合法帧数（5+17k，124–719，约 5.17–29.96s；
   15s 是推荐值，30s 档用 719 帧），
   `seconds ≈ frames/24`，`chars ≈ seconds × chars_per_second`；
-- 文件：mode1 `audio/source.wav`、mode2 `voice/reference.wav`、mode3 无音频；
-- `design.md` 记录音频腔、节拍表、审阅/创意决策；
+- 文件：mode1 `audio/source.wav`、mode2 `voice/reference.wav` 或 `voices/*.wav`、
+  mode3 无音频；
+- `design.md` 记录音频腔、节拍表、创作要求/@素材、审阅/创意决策；
 - 严格校验：`validate_avatar_pack.py <目录> --require-prompts --zip <name>.h3avatar.zip`。
 
 ## 6. 硬性规则
@@ -306,6 +321,10 @@ python scripts/env_check.py --project <h3-workbench 目录>
   `voices/*.md` 写，禁止混装音频标签（A/C 无 `<Audio N>`，B 必须绑定 `<Audio 1>`）。
 - 数字人必须做语速预算（5 书面字/秒）与图形生命周期检查；图形无退场、图层累积、
   遮挡脸/口/眼/手/产品/麦克风，均视为不合格。
+- 导演化字段：`material_note`/`note` 的 `@图N` 是全局图号，提示词 `<Picture n>` 是
+  本段启用顺序；`@音频N` 只有 mode2 可用；`ref_ids` 不能越界；`voices[]` 最多 6 个。
+- 页面按钮导入不会补写 `material_note`/`note`/`ref_ids`；要保这些字段用
+  `import_avatar_pack.py` 导入（脚本 PATCH 补写）；`speakers` 暂不补。
 - 数字人多人同框默认不分别对口型；按说话人拆音频/项目。
 - **创意优先**：先自由发散，再盘点素材缺口；不得因为初始素材少而限制创意或静默降级。
 - 发现好创意缺参考图时，必须向用户说明缺什么、补了有什么效果、fallback 是什么，
@@ -315,7 +334,8 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - **两种包格式不能混**：MV 只产出 `h3-mv-pack`（`.h3pack.zip`）；数字人默认产出
   `h3-avatar-pack`（`.h3avatar.zip`）。只有用户明确要求兼容旧数字人时才给
   `.h3pack.zip`（`mode: speaking`）。
-- 不允许空 `final_prompt` 的设计包；`--require-prompts` 必须 PASS。
+- 不允许空 `final_prompt`（MV）或空 `segments[].prompt`（数字人）的设计包；
+  `--require-prompts` 必须 PASS。
 - MV 不允许 `cuts_seconds` 缺失；数字人包不允许缺少 `design/beats` 与合法帧数。
 - 单段默认建议 ≤15 秒（H3 推荐区间）；超过 15 秒必须说明是高配置放宽并征得用户同意。
 - 数字人包必须符合契约帧数 5+17k、124–719（约 5.17–29.96s）；15s 是推荐上限，

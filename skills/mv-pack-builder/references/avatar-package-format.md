@@ -64,6 +64,8 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
   "voice": null,
   "voices": [],
   "voice_description": "",
+  "material_note": "主播使用 @图1，场景使用 @图2；固定机位中近景口播。",
+  "speakers": [],
 
   "refs": [
     {"file": "refs/ref_01.png", "role": "performer", "title": "主播", "description": "正面半身"},
@@ -101,10 +103,12 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
       "index": 0,
       "text": "这套方法只有三步……",
       "chars": 56,
-      "seconds": 12.0,
-      "frames": 290,
+      "seconds": 12.25,
+      "frames": 294,
       "start_frame": 0,
-      "end_frame": 290,
+      "end_frame": 294,
+      "note": "本段使用 @图1 人物、@图2 场景；信息卡从右侧进入并在句尾前退场。",
+      "ref_ids": null,
       "beats": [
         {
           "index": 0,
@@ -155,6 +159,50 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
 
 数字人提示词全部 **Ref2VA 六段式**，规则见 `digital-human/voices/A|B|C-*.md`；
 写完后用 `validate_digital_human_prompt.py --audio-mode runtime|reference|generated` 校验。
+
+## 3.1 导演化字段（创作要求 / 每段选图 / 多音色）
+
+工作台新增：
+
+| 字段 | 位置 | 说明 |
+| --- | --- | --- |
+| `material_note` | 项目级 | 全局创作要求；支持 `@图N`、模式 2 支持 `@音频N` |
+| `segments[].note` | 分段 | 本段创作要求；同样支持 `@图N`/`@音频N` |
+| `segments[].ref_ids` | 分段 | 本段启用的参考图（全局下标数组，`null`=全部）；决定提示词局部 `<Picture n>` 编号 |
+| `voices[]` | 项目级 | mode 2 多音色：`{file,name}`，最多 6 个；音色是素材，不与人物绑定 |
+| `speakers[]` | 项目级 | 可选人物提示表（id/name/picture_index/voice_id）；目前包导入/导出不保证保留 |
+
+`@图N` 与 `<Picture N>` 是两套编号：
+
+- `@图N` 是素材库**全局编号**（1 开始），用于 `material_note`/`note`；
+- `segments[].ref_ids` 选中子集后，提示词里的 `<Picture n>` 按**本段启用顺序**从 1 开始；
+  例如 `ref_ids=[1,2]`（全局图 2、图 3）时，提示词用 `<Picture 1>`=图2、`<Picture 2>`=图3；
+- `@图N` 只能引用本段 `ref_ids` 启用的图，否则工作台会报「本段未启用」；
+- mode 2 的 `@音频N` 按 `voices[]` 顺序编号；A/C 腔没有音频素材。
+
+多音色：
+
+```json
+"voices": [
+  {"file": "voice/voice_01.wav", "name": "主播本音"},
+  {"file": "voice/voice_02.wav", "name": "旁白低沉"}
+]
+```
+
+mode 2 必须给 `voice.file` **或** `voices[]`（二者同时存在时以 `voices[]` 为准）；
+旧包只带 `voice.file` 也兼容。mode 1/3 不允许 `voices`。
+
+> 多音色已知限制（本次维护核对）：服务端 **import 已支持 voices[]**，但 **export 仍会
+> 先检查 `voice/ref.wav`**；只有多音色文件、没有 `voice/ref.wav` 的项目导出可能返回
+> “mode 2 缺少 voice/ref.wav”。在项目侧修复前，多音色项目先不要依赖 roundtrip 导出；
+> 技能导入脚本仍能正常导入并补写创作要求。
+
+> 包导入/导出的现状（本次维护核对）：工作台 `pack.py` 已支持 `voices[]`；
+> 但 `material_note` / `segments[].note` / `segments[].ref_ids` / `speakers` 还没有进
+> pack 的导入/导出字段。技能 `import_avatar_pack.py` 会在导入后通过 PATCH 补写
+> `material_note` / `note` / `ref_ids`；页面直接点「导入」不会补写这些字段。
+> 服务端导出的包暂不包含它们，roundtrip 可能丢失；需要完整保留时等项目侧补 pack 字段，
+> 或在导入后手工在页面检查。
 
 ## 4. 节拍 `beats[]`
 
@@ -230,6 +278,9 @@ python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3a
   audio/voice（出现即 400）。**草稿包允许 `prompt` 为空**：导入后补写，返回一条 warning；
   设计包仍建议每段都有 prompt（`--require-prompts` 会检查）。lint error 不阻断导入，但会在
   warnings / prompt_meta 里显示。
+- **`material_note` / `segments[].note` / `segments[].ref_ids` / `speakers` 不在服务端
+  pack 导入字段里**：服务端不会报错也不会落库；技能 `import_avatar_pack.py` 会在导入后
+  PATCH 补写前三项（speakers 暂不补），页面按钮导入不补。需要完整保留时用脚本导入。
 
 ### 导入语义
 
@@ -242,7 +293,9 @@ python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3a
   >24 帧会有 warning，但项目可用，成片时长=音频实际时长；
 - beats 原样保留（字段归一化，不丢 visible_copy/lifecycle 等）；
 - `generation` 目前只取 `aspect_ratio` / `output_fps`，其它字段忽略（生成参数用工作台
-  默认值 + 项目设置）。
+  默认值 + 项目设置）；
+- 技能脚本额外补写 `material_note`、每段 `note`、`ref_ids`；导出时服务端 pack 暂不写回
+  这些字段，roundtrip 可能丢失（项目侧后续补 pack 字段）。
 
 ### overlay
 
@@ -254,6 +307,8 @@ job 自动走 `backend/avatar/overlay.py`（ffmpeg drawtext/overlay）叠加，t
 
 数字人页面「最近作品」面板已提供「导入 .h3avatar 包 / 导出当前包」按钮；
 也可以继续用 `import_avatar_pack.py` 或 curl（更稳、可脚本化），两者等价。
+注意：**页面导入不会补写 `material_note`/`note`/`ref_ids`**；这些导演化字段要用
+`import_avatar_pack.py` 导入（脚本在 import 后 PATCH 补写），或导入后在页面手动补。
 
 ## 7. 与 `.h3pack.zip` 的关系
 

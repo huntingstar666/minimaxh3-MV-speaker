@@ -117,7 +117,8 @@ def number(value, label, low, high):
     return result
 
 
-def check_prompt(text: str, label: str, audio_mode: str, graphics_mode: str) -> None:
+def check_prompt(text: str, label: str, audio_mode: str, graphics_mode: str,
+                 picture_count: int = 0, audio_count: int = 0) -> None:
     value = str(text or "").strip()
     if not value:
         return
@@ -127,6 +128,13 @@ def check_prompt(text: str, label: str, audio_mode: str, graphics_mode: str) -> 
         return
     if positions != sorted(positions):
         fail(f"{label} 六段标题顺序不正确")
+    pictures = {int(match) for match in re.findall(r"<Picture\s+(\d+)>", value)}
+    if picture_count and any(not 1 <= number <= picture_count for number in pictures):
+        fail(f"{label} <Picture N> 越界：本段只有 {picture_count} 张参考图")
+    audios = {int(match) for match in re.findall(r"<Audio\s+(\d+)>", value)}
+    if audio_mode == "reference" and audio_count and any(
+            not 1 <= number <= audio_count for number in audios):
+        fail(f"{label} <Audio N> 越界：当前只有 {audio_count} 个音色素材")
     shots = re.findall(r"\[\s*shot\s*1\s*\]", value, re.IGNORECASE)
     if len(shots) != 1:
         fail(f"{label} 必须且只能有一个 [Shot 1]")
@@ -179,13 +187,56 @@ def check_prompt(text: str, label: str, audio_mode: str, graphics_mode: str) -> 
         warn(f"{label} 提示词偏短")
 
 
+def check_instruction(text: str, label: str, mode: int, ref_count: int,
+                      voice_count: int, ref_indices: list[int] | None = None) -> None:
+    """检查创作要求里的 @图N / @音频N（全局编号，@图 还受本段 ref_ids 限制）。"""
+    value = str(text or "")
+    if not value:
+        return
+    allowed = set(ref_indices) if ref_indices is not None else set(range(ref_count))
+    for match in re.finditer(r"@\s*(图|图片|音频)\s*(\d+)", value, re.IGNORECASE):
+        kind = "audio" if match.group(1) == "音频" else "picture"
+        number = int(match.group(2))
+        if kind == "picture":
+            if not 1 <= number <= ref_count:
+                fail(f"{label} @图{number} 越界（共 {ref_count} 张参考图）")
+            elif number - 1 not in allowed:
+                fail(f"{label} @图{number} 不在本段启用的参考图里")
+        else:
+            if mode != 2:
+                fail(f"{label} @音频{number} 只有 mode2 参考音色可用")
+            elif not 1 <= number <= max(voice_count, 1):
+                fail(f"{label} @音频{number} 越界（共 {voice_count} 个音色素材）")
+
+
 def check_segment(item: dict, index: int, mode: int, cps: float,
-                  root, names, graphics_mode: str) -> None:
+                  root, names, graphics_mode: str, refs: list[dict],
+                  voice_count: int) -> None:
     label = f"segments[{index}]"
     if item.get("index") != index:
         warn(f"{label}.index 建议按顺序填写")
     text = str(item.get("text") or "")
     chars = item.get("chars")
+    ref_ids = item.get("ref_ids")
+    if ref_ids is not None:
+        if not isinstance(ref_ids, list):
+            fail(f"{label}.ref_ids 必须是整数数组或 null")
+            ref_ids = None
+        else:
+            cleaned = [value for value in ref_ids if isinstance(value, int)]
+            if len(cleaned) != len(ref_ids):
+                fail(f"{label}.ref_ids 只能包含整数")
+            elif any(not 0 <= value < len(refs) for value in cleaned):
+                fail(f"{label}.ref_ids 越界（共 {len(refs)} 张参考图）")
+            elif not cleaned:
+                ref_ids = None
+            else:
+                ref_ids = sorted(set(cleaned))
+    selected = ref_ids if ref_ids is not None else list(range(len(refs)))
+    picture_count = len(selected) if refs else 0
+    if "note" in item:
+        check_instruction(str(item.get("note") or ""), f"{label}.note", mode,
+                          len(refs), voice_count, selected)
     if mode in (2, 3) and not text.strip():
         fail(f"{label} mode{mode} 必须有台词 text")
     try:
@@ -256,7 +307,7 @@ def check_segment(item: dict, index: int, mode: int, cps: float,
     prompt = str(item.get("prompt") or "")
     if prompt:
         check_prompt(prompt, f"{label}.prompt", str(MODES[mode][1]),
-                     graphics_mode)
+                     graphics_mode, picture_count, voice_count)
     else:
         warn(f"{label} 没有 prompt")
     meta = item.get("prompt_meta") or {}
@@ -309,23 +360,39 @@ def _run(args) -> int:
     number(manifest.get("max_seconds", 12.0), "max_seconds", 5, 30)
     audio = manifest.get("audio")
     voice = manifest.get("voice")
+    voices_raw = manifest.get("voices") if isinstance(manifest.get("voices"), list) else []
+    voice_count = 0
     if mode == 1:
         if not isinstance(audio, dict) or not audio.get("file"):
             fail("mode 1 必须提供 audio.file")
         else:
             check_exists(str(audio["file"]), "audio", root, names)
-        if voice:
-            fail("mode 1 不应包含 voice（参考音色）；后端导入会直接拒绝")
+        if voice or voices_raw:
+            fail("mode 1 不应包含 voice / voices（参考音色）；后端导入会直接拒绝")
     elif mode == 2:
-        if not isinstance(voice, dict) or not voice.get("file"):
-            fail("mode 2 必须提供 voice.file")
-        else:
-            check_exists(str(voice["file"]), "voice", root, names)
         if audio:
             fail("mode 2 不应包含 audio（驱动音频）；后端导入会直接拒绝")
+        if voices_raw:
+            if len(voices_raw) > 6:
+                fail("voices 最多 6 个音色")
+            for index, item in enumerate(voices_raw):
+                if not isinstance(item, dict) or not item.get("file"):
+                    fail(f"voices[{index}].file 不能为空")
+                    continue
+                check_exists(str(item["file"]), f"voices[{index}]", root, names)
+                if Path(str(item["file"])).suffix.lower() not in AUDIO_EXT:
+                    fail(f"voices[{index}] 不是支持的音频格式")
+                if not str(item.get("name") or "").strip():
+                    warn(f"voices[{index}] 建议填写 name")
+            voice_count = len(voices_raw)
+        elif isinstance(voice, dict) and voice.get("file"):
+            check_exists(str(voice["file"]), "voice", root, names)
+            voice_count = 1
+        else:
+            fail("mode 2 必须提供 voice.file 或 voices[]")
     else:
-        if audio or voice:
-            fail("mode 3 不应包含 audio / voice；后端导入会直接拒绝")
+        if audio or voice or voices_raw:
+            fail("mode 3 不应包含 audio / voice / voices；后端导入会直接拒绝")
         if not str(manifest.get("voice_description") or "").strip():
             warn("mode 3 建议填写 voice_description 或完整 voice_card")
     refs = manifest.get("refs") or []
@@ -346,6 +413,27 @@ def _run(args) -> int:
             fail(f"refs[{index}].role 不支持")
     if not any(isinstance(ref, dict) and ref.get("role") == "performer" for ref in refs):
         warn("没有 performer 人物参考图")
+    material_note = str(manifest.get("material_note") or "")
+    if material_note:
+        check_instruction(material_note, "material_note", mode, len(refs), voice_count)
+    speakers = manifest.get("speakers")
+    if speakers is not None:
+        if not isinstance(speakers, list):
+            fail("speakers 必须是数组")
+        else:
+            for index, speaker in enumerate(speakers):
+                if not isinstance(speaker, dict):
+                    fail(f"speakers[{index}] 必须是对象")
+                    continue
+                picture = speaker.get("picture_index")
+                if picture is not None and not (isinstance(picture, int)
+                                                and 0 <= picture < len(refs)):
+                    fail(f"speakers[{index}].picture_index 越界")
+                if speaker.get("voice_id") and mode != 2:
+                    fail(f"speakers[{index}].voice_id 只有 mode2 可用")
+            if speakers:
+                warn("speakers 目前由工作台项目字段保存；包导入脚本会尝试补写，"
+                     "页面导入/导出可能不保留")
     design = manifest.get("design") or {}
     if not isinstance(design, dict):
         fail("design 必须是对象")
@@ -400,7 +488,8 @@ def _run(args) -> int:
         if not isinstance(item, dict):
             fail(f"segments[{index}] 必须是对象")
             continue
-        check_segment(item, index, mode, cps, root, names, graphics_mode)
+        check_segment(item, index, mode, cps, root, names, graphics_mode, refs,
+                      voice_count)
         start_frame = item.get("start_frame")
         end_frame = item.get("end_frame")
         if isinstance(start_frame, int) and isinstance(end_frame, int):

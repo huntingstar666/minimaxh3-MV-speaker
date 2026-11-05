@@ -8,7 +8,7 @@
 
 - 全部使用 **Ref2VA 六段式**：`subject_definitions → summary → retention_analysis →
   detailed_description → overall_soundscape → non_diegetic_music`；
-- 先选**音频腔 A/B/C**，再按对应系统提示词写 `final_prompt`；
+- 先选**音频腔 A/B/C**，再按对应系统提示词写每段 `segments[].prompt`；
 - 说话人永远是画面主角；动态图形只服务语义，出现必有退场；
 - 详细集成、三腔选择、上游拆解见 [digital-human/README.md](digital-human/README.md)。
 
@@ -83,10 +83,13 @@
    同时只保留 1 组；锚点/深度/安全区/遮挡写清；文案引号写死并声明字形稳定。
 5. **效果系统**：一个字体语言、一种卡片材质、一个图标族、一套运动语法、
    一主一辅色；先按四轴分类（信息格式 × 运动行为 × 空间行为 × 视觉风格）。
-6. **Checkpoint B 审阅**：分镜 + 图形节拍表 + 创意/补图决定交用户审阅、修改。
-7. **写提示词**：只按选定 `voices/*.md` 的六段规则写；台词放 `<d>[中文] …</d>`；
+6. **导演化字段**：写全局 `material_note`、每段 `note`（支持 `@图N`；mode2 支持
+   `@音频N`）、每段 `ref_ids`（本段启用参考图）和 mode2 的 `voices[]`（最多 6）。
+   提示词里的 `<Picture n>` 是“本段启用顺序”，不是全局图号；`@图N` 才是全局图号。
+7. **Checkpoint B 审阅**：分镜 + 图形节拍表 + 创意/补图决定交用户审阅、修改。
+8. **写提示词**：只按选定 `voices/*.md` 的六段规则写；台词放 `<d>[中文] …</d>`；
    A 腔禁止音频标签，B 腔写 `<Audio 1>` 绑定，C 腔写 voice card。
-8. **校验**：`python scripts/validate_digital_human_prompt.py PROMPT --audio-mode runtime|reference|generated`；
+9. **校验**：`python scripts/validate_digital_human_prompt.py PROMPT --audio-mode runtime|reference|generated`；
    再打包跑 `validate_avatar_pack.py ./my-avatar --require-prompts`。
 
 ## 5. 口播简报模板（brief）
@@ -124,7 +127,7 @@
 结束构图：结束在可自然承接下一分段的空间构图
 ```
 
-## 6. final_prompt 自检
+## 6. prompt 自检
 
 - 六段齐全、顺序正确；只有一个 `[Shot 1]`；无 Base 字段；
 - 选定的腔与音频标签规则一致（A/C 无 `<Audio N>`；B 有 `<Audio 1>` + `audio reference` +

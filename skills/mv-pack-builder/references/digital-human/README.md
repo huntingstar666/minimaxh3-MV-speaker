@@ -83,35 +83,38 @@ overall_soundscape → non_diegetic_music`
 
 ## 3. 和我们技能的设计流程怎么合并
 
-数字人（`mode: speaking`）走与 MV 相同的设计骨架，但增加以下内容：
+数字人走与 MV 相同的设计骨架，但增加以下内容：
 
 1. **输入**：口播稿/台词、时长、画幅、平台、固定机位还是允许轻微运镜、人物/场景/服装/
    道具参考图、品牌色/字体、效果密度、画面障碍物、音频腔（A/B/C）。
 2. **创意扩展**：仍先自由发散（开场钩子、关键卡片、产品/数据可视化、空间/道具创意），
    再盘点缺口与补图建议；不要因为素材少而放弃好点子。
-3. **拆稿/节拍**：按语义节拍分段；每段 3–15 秒（特殊可到 30 秒并确认）；
+3. **拆稿/节拍**：按语义节拍分段；每段 5–15 秒为主（30s 档需确认）；
    计算每段字数与目标语速，保证 5 字/秒左右自然说完。
 4. **画面设计**：固定机位/口播构图基线 + 图形层设计（信息格式/运动/空间/风格），
    写清每个图形的触发词、锚点、深度、入场/停留/退场、干净恢复；保护脸/口/眼/手/产品/麦克风。
 5. **人物表演设计**：视线、口型、呼吸、眨眼、手势、姿态恢复；每个节拍有因果。
-6. **Checkpoint B 审阅**：分镜 + 图形节拍表 + 创意/补图决定交用户审阅修改。
-7. **写提示词**：只按选定的 `voices/*.md` 的 Ref2VA 六段规则写 `final_prompt`；
+6. **导演化字段**：全局 `material_note` + 每段 `note`（`@图N`；mode2 可用 `@音频N`）、
+   每段 `ref_ids`（本段启用图）、mode2 `voices[]`（最多 6 个音色）；提示词
+   `<Picture n>` 用本段启用顺序，`@图N` 才是全局图号。
+7. **Checkpoint B 审阅**：分镜 + 图形节拍表 + 创意/补图决定交用户审阅修改。
+8. **写提示词**：只按选定的 `voices/*.md` 的 Ref2VA 六段规则写 `prompt`；
    A 腔不写音频标签；B 腔写 `<Audio 1>` 绑定；C 腔写 10 维 voice card；
    台词放在 `<d>[中文] …</d>`；可见文字用引号写死并声明稳定。
-8. **校验**：用 `scripts/validate_digital_human_prompt.py --audio-mode …` 跑结构检查；
-   再把提示词放进包，跑 `validate_pack.py --require-prompts`。
-9. **Checkpoint C 审阅**：给用户看代表段提示词、语速/字数、图形密度、风险；确认后出片。
+9. **校验**：用 `scripts/validate_digital_human_prompt.py --audio-mode …` 跑结构检查；
+   再把提示词放进 `.h3avatar.zip`，跑 `validate_avatar_pack.py --require-prompts`。
+10. **Checkpoint C 审阅**：给用户看代表段提示词、语速/字数、图形密度、风险；确认后出片。
 
 ## 4. 数字人包内容
 
-- `mode: "speaking"`
-- `segments[].final_prompt`：Ref2VA 六段式，按选定腔写；每段单镜头；
-- `segments[].brief`：画面任务/声音关系/构图/动作/运镜/结束构图（口播固定机位）；
+- `.h3avatar.zip`，`schema=h3-avatar-pack`，`mode 1/2/3`；
+- 每段 `prompt`：Ref2VA 六段式，按选定腔写；每段单镜头；
+- 每段 `beats`：画面/图形节拍；每段 `note`/`ref_ids`；项目 `material_note`；
+- mode2 的 `voice.file` 或 `voices[]`；mode3 的 `design.voice_card`；
 - `design.md`：记录口播音腔（A/B/C）、每段字数与语速、voice card（C 腔）、
   图形节拍表（触发词/入场/停留/退场/恢复）、创意缺口决策、审阅记录；
 - 参考图：performer 1 张；environment/appearance/subject 按设计；
-- 如工作台/渲染链路暂不支持某腔或图形层，按项目侧当前能力降级（例如先不写图形，
-  只做纯口播），并在 `design.md` 说明等待新功能。
+- 导入后页面有设计预览/试听；包内导演化字段用 `import_avatar_pack.py` 补写。
 
 ## 5. 文件地图
 
