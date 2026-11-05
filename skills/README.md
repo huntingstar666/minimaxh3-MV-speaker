@@ -54,6 +54,10 @@ mode2 多音色 `voices[]`；这些导演化字段由服务端 pack import/expor
 **提示词由 Agent 亲自撰写**，不依赖工作台本地 Ollama；不要用页面「AI 扩写/重写」
 或 `import_pack.py --expand-prompts` 作为默认生成方式。
 
+**资源限制**：参考图 ≤50MB/张、音频 ≤200MB、`.h3avatar.zip` ≤2GB；
+生成前工作台会检查磁盘余量。`env_check.py` 磁盘 <5GB 会 WARN，先跑
+`tools/cleanup_storage.py` 预览/清理再生成。
+
 **流程分工**：准备工作（读素材、音频/歌词分析、分段、创意分镜、提示词、打包、校验）
 全部由 Agent 完成；用户面前的工作台只用于最终预览、手动微调、出片。
 Agent 可以无头调用工作台 API/脚本（音频分析、自动分段、导入/导出、校验）作为工具，

@@ -82,6 +82,10 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - 只有 `offline_pack` → 完全离线交付包，Agent 用本地工具分析素材；
   两种情况下提示词都由 Agent 亲自写；
 - 工作台没启动时询问用户是否允许启动 `start.bat`；不要擅自占 GPU。
+- 资源限制：参考图单文件 ≤50MB、音频 ≤200MB、`.h3avatar.zip` ≤2GB；
+  生成前工作台会检查磁盘余量（默认 `min_free_gb=2`）。
+  `env_check.py` 在磁盘 <5GB 时会给 WARN；先跑 `tools/cleanup_storage.py`
+  预览/清理，再开始生成，避免写到一半磁盘满。
 
 ## 1. 收集输入并确认方向
 

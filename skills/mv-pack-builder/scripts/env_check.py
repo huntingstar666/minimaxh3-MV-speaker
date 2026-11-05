@@ -50,12 +50,21 @@ def check_project(path: Path) -> bool:
         record("PASS", "项目 venv", str(venv))
     else:
         record("WARN", "项目 venv", "未找到 .venv，可用系统 Python")
-    data = path / "data" / "projects"
+    data = path / "data"
     try:
-        usage = shutil.disk_usage(path)
-        record("PASS", "磁盘剩余", f"{usage.free / 1024 ** 3:.1f}GB")
+        usage = shutil.disk_usage(data if data.exists() else path)
+        free_gb = usage.free / 1024 ** 3
+        if free_gb < 5:
+            record("WARN", "磁盘剩余", f"{free_gb:.1f}GB；生成前先跑 tools/cleanup_storage.py 预览/清理")
+        else:
+            record("PASS", "磁盘剩余", f"{free_gb:.1f}GB")
     except OSError:
         record("WARN", "磁盘剩余", "无法读取")
+    cleanup = path / "tools" / "cleanup_storage.py"
+    if cleanup.is_file():
+        record("PASS", "存储清理工具", str(cleanup))
+    else:
+        record("WARN", "存储清理工具", "未找到 tools/cleanup_storage.py")
     return True
 
 
@@ -112,12 +121,16 @@ def check_workbench(base_url: str) -> None:
             record("PASS", "导出接口", "/api/projects/{id}/export")
         else:
             record("WARN", "导出接口", "工作台版本较旧，没有导出接口")
+        if "/api/maintenance/usage" in paths:
+            record("PASS", "资源维护接口", "/api/maintenance/usage")
+        else:
+            record("WARN", "资源维护接口", "没有维护接口；仍可用 tools/cleanup_storage.py")
     except Exception as error:  # noqa: BLE001
         record("WARN", "接口检查", str(error))
     if capabilities["import"] and capabilities["prompts"] and capabilities["generate"]:
-        record("PASS", "能力", "全流程：导入 → 扩写 → 出片")
+        record("PASS", "能力", "全流程：Agent 写提示词 → 导入 → 预览/出片")
     elif capabilities["import"]:
-        record("PASS", "能力", "可导入并保存包，出片/扩写需在页面手动操作")
+        record("PASS", "能力", "可导入并保存包；出片在页面手动操作")
 
 
 def check_comfy(comfy_url: str) -> None:

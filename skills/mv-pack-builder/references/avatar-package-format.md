@@ -268,6 +268,8 @@ python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3a
   （多音色：每项 `{file, name}`，最多 6 个，文件必须在包内且为音频；旧包只有 `voice.file` 也兼容）；
   mode3 不应有音频；mode1/mode3 出现 `voices` 视为非法；
 - `refs[].file` 必须在包内且是图片、role 合法、≤9 张；
+- 资源限制：参考图单文件 ≤50MB、音频 ≤200MB、包 ≤2GB；生成前工作台检查磁盘余量
+  （默认 `min_free_gb=2`）；磁盘紧张先跑 `tools/cleanup_storage.py` 预览/清理；
 - `segments ≤ 200`；`design.audio_mode` 必填并与 mode 匹配；mode1 不得带 voice、mode3 不得带
   audio/voice（出现即 400）。**草稿包允许 `prompt` 为空**：导入后补写，返回一条 warning；
   设计包仍建议每段都有 prompt（`--require-prompts` 会检查）。lint error 不阻断导入，但会在
