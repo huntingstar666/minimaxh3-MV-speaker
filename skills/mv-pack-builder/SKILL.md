@@ -58,11 +58,14 @@ python scripts/env_check.py --project <h3-workbench 目录>
    逐张确认 `role`（performer/environment/appearance/subject/other）。
    **初始不完整没关系**：设计阶段会主动提出补图建议，用户采纳后再补。
 2. **音频**：mp3/wav/m4a/flac/mp4；确认时长、是否单人、是否已去噪。
+   - 数字人 mode2 用参考音色：最好给 2–15s 样本（推荐 12s）；给完整录音也可以，
+     工作台会自动截 12s 样本并可调起点/试听，但**包内只放最终样本**
+     （`voice/file` → `voice/reference.wav`），不要把整段录音塞进 `.h3avatar.zip`。
 3. **歌词/口播稿**：文本或文件；最好带逐句时间或至少分段。
 4. **模式/名称/参数**：MV 无子模式；数字人 `mode 1/2/3`（A/B/C）。
    MV 目标/最长段长 5–30s（推荐 8/12，单段一般 ≤15s）；数字人按契约单段
-   124–362 帧（约 5.17–15.08s，目标/最长推荐 8/12）；画幅、帧率（24/25/30）、
-   拼接（hard/seam）。
+   124–719 帧（5+17k，约 5.17–29.96s；15s 是推荐上限，30s 档可用），
+   目标/最长推荐 8/12、上限 30；画幅、帧率（24/25/30）、拼接（hard/seam）。
 5. **风格/滤镜/创作要求**：可从 `/api/creative-catalog` 选预设 prompt，也可自定义。
 6. **是否允许直接导入/出片**（出片占 GPU，必须单独确认）。
 7. **数字人必须选音频腔（三选一）**：A 音频驱动 / B 参考音色 / C 无音频参考。
@@ -239,7 +242,8 @@ python scripts/env_check.py --project <h3-workbench 目录>
        --zip my-avatar.h3avatar.zip
    ```
 
-5. 数字人工作台已支持 import/export，直接导入（页面暂无按钮，用 HTTP/脚本）：
+5. 数字人工作台已支持 import/export，可直接导入（页面「最近作品」也有导入/导出按钮；
+   脚本/HTTP 更稳）：
 
    ```bash
    python scripts/import_avatar_pack.py --pack my-avatar.h3avatar.zip
@@ -258,8 +262,8 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - mode1 包内 frames 会按累计帧比例映射到真实音频长度，总帧与音频时长差 >24 帧会 warning；
   成片时长 = 音频实际时长；
 - `graphics_mode=overlay` 会保留 beats，生成时由后端 overlay 叠加；
-- 页面还没有「导入 .h3avatar.zip」按钮（前端契约未排），不要声称能拖入；
-  用 `import_avatar_pack.py` 或 curl；
+- 数字人页面「最近作品」面板已有「导入 .h3avatar 包 / 导出当前包」按钮，
+  也可以直接用 `import_avatar_pack.py` 或 curl；两种方式等价；
 - 旧版数字人 `.h3pack.zip`（`mode: speaking`）仅作兼容；用户明确要 MV 导入时才用，
   且不能再混入 avatar 的 `design/beats/mode:1` 字段。
 
@@ -288,7 +292,8 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - 每个 segment 含 `text/chars/seconds/frames/start_frame/end_frame/beats/prompt/prompt_meta`；
 - `design` 含 audio_mode、效果密度、安全区、style_system、voice_card、graphics_budget、
   graphics_mode、brand；
-- 帧数必须是契约的 H3 合法帧数（5+17k，124–362，即约 5.17–15.08s），
+- 帧数必须是契约的 H3 合法帧数（5+17k，124–719，约 5.17–29.96s；
+  15s 是推荐值，30s 档用 719 帧），
   `seconds ≈ frames/24`，`chars ≈ seconds × chars_per_second`；
 - 文件：mode1 `audio/source.wav`、mode2 `voice/reference.wav`、mode3 无音频；
 - `design.md` 记录音频腔、节拍表、审阅/创意决策；
@@ -313,7 +318,8 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - 不允许空 `final_prompt` 的设计包；`--require-prompts` 必须 PASS。
 - MV 不允许 `cuts_seconds` 缺失；数字人包不允许缺少 `design/beats` 与合法帧数。
 - 单段默认建议 ≤15 秒（H3 推荐区间）；超过 15 秒必须说明是高配置放宽并征得用户同意。
-- 数字人包必须符合契约帧数 5+17k、124–362（约 5.17–15.08s），不能按 MV 的 30s 上限写。
+- 数字人包必须符合契约帧数 5+17k、124–719（约 5.17–29.96s）；15s 是推荐上限，
+  30s 档需用户确认，不能按普通口播默认写满 30s。
 - 参考图角色必须先确认；performer 只放 1 张。
 - 生成/出片前必须单独获得用户许可。
 - 多人对话默认不分别对口型，按说话人拆音频/项目。

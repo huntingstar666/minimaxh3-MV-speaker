@@ -12,8 +12,8 @@
 兼容，详见 [../avatar-package-format.md](../avatar-package-format.md)。
 
 数字人工作台已支持 `POST /avatar/api/projects/import` 与
-`GET /avatar/api/projects/{id}/export`；用 `scripts/import_avatar_pack.py` 导入/导出；
-页面暂无导入按钮（前端契约未排），所以走脚本/HTTP，不要说能拖入。
+`GET /avatar/api/projects/{id}/export`；页面「最近作品」面板已有导入/导出按钮，
+也可用 `scripts/import_avatar_pack.py` 走 HTTP（更稳、可脚本化）。
 
 数字人提示词**全部使用 MiniMax H3 Ref2VA 六段式**：
 
@@ -27,7 +27,7 @@ overall_soundscape → non_diegetic_music`
 | 腔 | 使用场景 | 音频标签规则 | 声音字段 |
 | --- | --- | --- | --- |
 | **A · 音频驱动** | 平台/工作流提供成品口播音频，H3 只做画面与口型 | **禁止一切 `<Audio N>`/音频保留行/audio reference** | `overall_soundscape` 写“平台运行时驱动音频提供最终时间线…”；`non_diegetic_music` 默认 N/A |
-| **B · 参考音色** | 有一段录音，借它的音色/语速/表达说**新台词** | 必须定义 `<Audio 1>` 并绑定说话人；summary 写 `audio reference`；retention 写 `<Audio 1>: reference` | 声音由参考引导；不复制波形与原话 |
+| **B · 参考音色** | 有一段录音，借它的音色/语速/表达说**新台词** | 必须定义 `<Audio 1>` 并绑定说话人；summary 写 `audio reference`；retention 写 `<Audio 1>: reference` | 声音由参考引导；不复制波形与原话。工作台可传完整录音（≤10 分钟）自动截 12s 样本，也可调起点/长度 |
 | **C · 无音频参考** | 没有驱动音频也没有音色样本，H3 原生生成语音 | **禁止 `<Audio N>`** | 必须先写 10 维 voice card（女/男/中性、听感年龄、音高、共鸣质感、咬字、节奏停顿、重音句尾、情绪、麦克风、房间底噪、anti-style） |
 
 选择规则：

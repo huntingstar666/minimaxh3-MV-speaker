@@ -147,6 +147,7 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
 | `workflow` | `locked_audio` | `ref_native` | `ref_native` |
 | `design.audio_mode` | `runtime` | `reference` | `generated` |
 | 音频文件 | `audio/source.wav` 必需 | `voice/reference.wav` 必需 | 都不需要 |
+| 参考音色 | — | 2–15s 样本（推荐 12s）；包内只放最终样本，完整录音由工作台页面/API 截取 | — |
 | 台词 | 可有可无（ASR/比例分配） | `script` + `<d>` 必需 | `script` + `<d>` 必需 |
 | 提示词音频标签 | 禁止任何 `<Audio N>` | 必须 `<Audio 1>` + `audio reference` + `<Audio 1>: reference` | 禁止 `<Audio N>` |
 | 声音设计 | 平台驱动音频，不写 voice card | 参考录音音色/语速/表达 | `design.voice_card` 10 维必填，提示词写 voice card |
@@ -248,8 +249,8 @@ job 自动走 `backend/avatar/overlay.py`（ffmpeg drawtext/overlay）叠加，t
 
 ### 页面入口
 
-数字人页面目前还没有「导入 .h3avatar.zip」按钮/拖拽入口（前端契约未排），
-技能请用 HTTP 接口/`import_avatar_pack.py` 导入；一键拖入是前端小改动，可另行排期。
+数字人页面「最近作品」面板已提供「导入 .h3avatar 包 / 导出当前包」按钮；
+也可以继续用 `import_avatar_pack.py` 或 curl（更稳、可脚本化），两者等价。
 
 ## 7. 与 `.h3pack.zip` 的关系
 
