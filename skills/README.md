@@ -43,9 +43,8 @@ cp -r ./mv-pack-builder ~/.agents/skills/
 B 腔可传完整录音自动截 12s 音色样本；包可直接经页面「最近作品」或
 `import_avatar_pack.py`/HTTP 导入数字人工作台。
 数字人还支持 `material_note`/每段 `note` 里的 `@图N`/`@音频N`、每段 `ref_ids` 选图、
-mode2 多音色 `voices[]`；这些导演化字段由 `import_avatar_pack.py` 导入后补写
-（服务端 pack 目前只落 voices）。注意：多音色项目导出目前受服务端
-`voice/ref.wav` 检查限制，roundtrip 导出可能失败，待项目侧修复。
+mode2 多音色 `voices[]`；这些导演化字段由服务端 pack import/export 原样携带，
+页面按钮与 `import_avatar_pack.py` 等价；多音色项目导出已修复。
 
 技能会先做环境自检，然后进入**设计流程**：拆歌/拆稿 → 自由创意发散 → 素材盘点与
 补图建议 → 画面设计/分镜表 → **交用户审阅、听取意见并修改** → 逐段提示词 →

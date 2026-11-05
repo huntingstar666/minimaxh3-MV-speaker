@@ -170,7 +170,7 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
 | `segments[].note` | 分段 | 本段创作要求；同样支持 `@图N`/`@音频N` |
 | `segments[].ref_ids` | 分段 | 本段启用的参考图（全局下标数组，`null`=全部）；决定提示词局部 `<Picture n>` 编号 |
 | `voices[]` | 项目级 | mode 2 多音色：`{file,name}`，最多 6 个；音色是素材，不与人物绑定 |
-| `speakers[]` | 项目级 | 可选人物提示表（id/name/picture_index/voice_id）；目前包导入/导出不保证保留 |
+| `speakers[]` | 项目级 | 可选人物提示表（id/name/picture_index/voice_id）；服务端 import/export 原样保留 |
 
 `@图N` 与 `<Picture N>` 是两套编号：
 

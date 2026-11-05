@@ -127,8 +127,8 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - **导演化字段（新）**：项目 `material_note`、每段 `note` 支持 `@图N`/`@音频N`；
   `segments[].ref_ids` 控制本段用图，提示词 `<Picture n>` 按本段启用顺序从 1 编号；
   mode 2 可用 `voices[]`（最多 6 个音色素材，不与人物绑定），提示词用 `<Audio N>`。
-  这些字段写进 `.h3avatar.zip`；服务端 pack 目前只落 voices，其余由
-  `import_avatar_pack.py` 导入后 PATCH 补写（页面按钮导入不补）。
+  这些字段写进 `.h3avatar.zip`；服务端 pack import/export 已原样携带
+  （含 voices），页面按钮与脚本导入等价，不需要导入后再补写。
 - **数字人包额外要产出结构化字段**（`.h3avatar.zip`）：
   `mode: 1|2|3`、`workflow: locked_audio|ref_native`、`design`（audio_mode、效果密度、
   安全区、style_system 六个“一”、voice_card、graphics_budget、graphics_mode、brand）、
@@ -266,11 +266,9 @@ python scripts/env_check.py --project <h3-workbench 目录>
 
 - 导入服务端会一次性落库，`prompt_meta` 由服务端重算（包内 lint 快照不权威）；
   有 lint error 不阻断，但会进 warnings/页面红字；
-- 导演化字段 `material_note`/`segments[].note`/`ref_ids` 不在服务端 pack 导入字段里；
-  用 `import_avatar_pack.py` 导入会在之后 PATCH 补写，页面按钮导入不会补；
-  `speakers` 目前不补写；
-- 多音色 `voices[]` 导入已支持；服务端导出多音色项目仍可能因 `voice/ref.wav`
-  检查失败，roundtrip 导出需等项目侧修复；
+- 导演化字段 `material_note`/`segments[].note`/`ref_ids`/`speakers` 由服务端 pack
+  import/export 原样落库与写回；页面按钮和脚本导入走同一路径；
+- `voices[]` 多音色导入已支持，多音色项目导出已修复（按 voices 导出，reference 取第一个）；
 - mode1 包内 frames 会按累计帧比例映射到真实音频长度，总帧与音频时长差 >24 帧会 warning；
   成片时长 = 音频实际时长；
 - `graphics_mode=overlay` 会保留 beats，生成时由后端 overlay 叠加；
@@ -323,8 +321,8 @@ python scripts/env_check.py --project <h3-workbench 目录>
   遮挡脸/口/眼/手/产品/麦克风，均视为不合格。
 - 导演化字段：`material_note`/`note` 的 `@图N` 是全局图号，提示词 `<Picture n>` 是
   本段启用顺序；`@音频N` 只有 mode2 可用；`ref_ids` 不能越界；`voices[]` 最多 6 个。
-- 页面按钮导入不会补写 `material_note`/`note`/`ref_ids`；要保这些字段用
-  `import_avatar_pack.py` 导入（脚本 PATCH 补写）；`speakers` 暂不补。
+- 页面按钮与 `import_avatar_pack.py` 使用同一服务端 pack，导演化字段都会落库；
+  要求 roundtrip 时用服务端 export + 技能校验器验证。
 - 数字人多人同框默认不分别对口型；按说话人拆音频/项目。
 - **创意优先**：先自由发散，再盘点素材缺口；不得因为初始素材少而限制创意或静默降级。
 - 发现好创意缺参考图时，必须向用户说明缺什么、补了有什么效果、fallback 是什么，

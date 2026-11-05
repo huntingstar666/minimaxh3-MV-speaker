@@ -114,7 +114,8 @@ overall_soundscape → non_diegetic_music`
 - `design.md`：记录口播音腔（A/B/C）、每段字数与语速、voice card（C 腔）、
   图形节拍表（触发词/入场/停留/退场/恢复）、创意缺口决策、审阅记录；
 - 参考图：performer 1 张；environment/appearance/subject 按设计；
-- 导入后页面有设计预览/试听；包内导演化字段用 `import_avatar_pack.py` 补写。
+- 导入后页面有设计预览/试听；包内导演化字段由服务端 pack import/export 原样保留，
+  页面按钮与 `import_avatar_pack.py` 等价。
 
 ## 5. 文件地图
 

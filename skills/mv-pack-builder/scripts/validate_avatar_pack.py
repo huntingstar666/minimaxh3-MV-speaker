@@ -179,7 +179,7 @@ def check_prompt(text: str, label: str, audio_mode: str, graphics_mode: str,
             warn(f"{label} 含有引号文案但缺少字形/断行稳定条款")
     if not re.search(r"眨眼|blink", value, re.IGNORECASE):
         warn(f"{label} 缺少眨眼/人物生命感描述")
-    if not re.search(r"呼吸|breath", value, re.IGNORECASE):
+    if not re.search(r"呼吸|吸气|呼气|换气|吞咽|breath|inhale|exhale", value, re.IGNORECASE):
         warn(f"{label} 缺少呼吸描述")
     if len(value) > 7000:
         warn(f"{label} 超过技能建议的 7000 字符")
@@ -431,9 +431,6 @@ def _run(args) -> int:
                     fail(f"speakers[{index}].picture_index 越界")
                 if speaker.get("voice_id") and mode != 2:
                     fail(f"speakers[{index}].voice_id 只有 mode2 可用")
-            if speakers:
-                warn("speakers 为可选人物提示表；工作台导入/导出会原样保留"
-                     "（picture_index 越界会被忽略）")
     design = manifest.get("design") or {}
     if not isinstance(design, dict):
         fail("design 必须是对象")
