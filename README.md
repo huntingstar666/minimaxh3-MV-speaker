@@ -7,6 +7,94 @@
 - 渲染：本地 ComfyUI（`SelfLiftAvatarH3Sampler` + `MiniMaxH3ReferenceToVideo`）
 - 长视频：**不使用尾帧续接**，按原节点的「全局运镜规划 + 固定参考图 + 逐段独立生成 + 精确拼接」策略实现，避免误差累积导致画面劣化
 
+## 0. 给 Agent 的快速入门（用本项目技能产 MV / 数字人）
+
+本项目同时包含：
+
+- **H3 工作台**：给用户最终预览、手动微调、生成/下载；
+- **Agent 技能**：`skills/mv-pack-builder/`，负责准备工作的全流程（拆歌/拆稿、分镜、提示词、打包、校验）。
+
+> 如果你只是手动使用工作台，跳过本节直接看 §1。  
+> 如果你是 Agent，请先读 [SKILL.md](skills/mv-pack-builder/SKILL.md) 和 [技能 README](skills/README.md)。
+
+### 0.1 读取/安装技能
+
+技能入口：
+
+- [SKILL.md](skills/mv-pack-builder/SKILL.md) —— 完整工作流、硬性规则；
+- [references/design-workflow.md](skills/mv-pack-builder/references/design-workflow.md) —— 设计/审阅/阶段；
+- [references/mv-prompt-format.md](skills/mv-pack-builder/references/mv-prompt-format.md) —— MV 六段式；
+- [references/digital-human/README.md](skills/mv-pack-builder/references/digital-human/README.md) —— 数字人三腔与动态图形；
+- [references/avatar-package-format.md](skills/mv-pack-builder/references/avatar-package-format.md) —— `.h3avatar.zip` 格式。
+
+安装到本机 Agent（可选，推荐给需要重复使用的环境）：
+
+```powershell
+Copy-Item -Recurse -Force .\skills\mv-pack-builder "$env:USERPROFILE\.agents\skills\mv-pack-builder"
+```
+
+重启 Agent 会话后即可在技能列表看到 `mv-pack-builder`。
+
+### 0.2 先做环境自检
+
+```powershell
+python skills/mv-pack-builder/scripts/env_check.py --project .
+```
+
+关注输出里的 `offline_pack / import / prompts / generate`：
+
+- 有 `import`：Agent 可无头调用工作台 API 做音频分析/分段/导入导出，最后交给用户预览；
+- 只有 `offline_pack`：仍可完全离线产包，用本地 ffmpeg/脚本分析素材；
+- `prompts` 只是页面 AI 辅助，**不用于本技能写提示词**。
+
+### 0.3 需要向用户确认
+
+- 项目类型：MV / 数字人口播；数字人还要选 **A 音频驱动 / B 参考音色 / C 无音频参考**；
+- 素材：参考图（`performer` 1 张主身份，其他角色可多张，总 ≤9）、音频/参考音色、歌词/口播稿；
+- 参数：画幅、帧率、目标/最长段长、硬切/seam、风格/滤镜、效果密度；
+- 工作台只用于最终预览/微调；准备阶段不要让用户去页面拖素材、点分析、点 AI 扩写。
+
+### 0.4 产出两种包
+
+| 类型 | 包 | schema | 严格校验命令 |
+| --- | --- | --- | --- |
+| MV | `.h3pack.zip` | `h3-mv-pack` | `validate_pack.py --require-prompts --require-cuts` |
+| 数字人 | `.h3avatar.zip` | `h3-avatar-pack` | `validate_avatar_pack.py --require-prompts` |
+
+```powershell
+# MV
+python skills/mv-pack-builder/scripts/validate_pack.py .\my-mv --require-prompts --require-cuts --zip .\my-mv.h3pack.zip
+
+# 数字人
+python skills/mv-pack-builder/scripts/validate_avatar_pack.py .\my-avatar --require-prompts --zip .\my-avatar.h3avatar.zip
+```
+
+### 0.5 标准流程
+
+0. 环境自检；
+1. 收集输入并确认方向（Checkpoint A）；
+2. 自由创意 → 做分镜/画面设计 → **用户审阅**（Checkpoint B）；
+3. **Agent 亲自写提示词**（MV `final_prompt`，数字人 `segments[].prompt`），逐段自检；
+4. 组装 `.h3pack.zip` / `.h3avatar.zip` + `design.md`；
+5. 跑上面的严格校验；
+6. 交给用户在**工作台**预览/微调/生成（或由 Agent 用 `import_pack.py` / `import_avatar_pack.py` 导入）。
+
+### 0.6 硬性规则（防止踩坑）
+
+- 提示词必须由 Agent 亲自写；不要默认调用工作台 `/prompts`、`--expand-prompts` 或页面 AI 扩写；
+- 每段必须有非空提示词；没写提示词、没做分镜、没审阅就交付 = 不合格；
+- 参考图 `performer` 只放 1 张主身份图；其他角度/服装用 `appearance`/`other`，配角/道具用 `subject`，总 ≤9；
+- 数字人单段为契约帧数 `5+17k`（124–719，约 5.17–29.96s），15s 是推荐上限；
+- 包内不要放生成视频、成片、`settings.json`、API key；
+- 大文件/磁盘：参考图 ≤50MB、音频 ≤200MB、数字人包 ≤2GB；磁盘紧张先跑 `tools/cleanup_storage.py`。
+
+### 0.7 继续读
+
+- 技能目录：[skills/mv-pack-builder/](skills/mv-pack-builder/)；
+- 分享/部署：[docs/分享与部署.md](docs/分享与部署.md)；
+- 数据链路与限制：[docs/数据链路与已知限制.md](docs/数据链路与已知限制.md)；
+- 资源/显存管理：[docs/资源与显存管理.md](docs/资源与显存管理.md)。
+
 ## 1. 快速开始
 
 ```bash
