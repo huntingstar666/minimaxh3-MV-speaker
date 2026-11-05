@@ -27,7 +27,20 @@ DEFAULTS: dict[str, Any] = {
         "enabled": False,
         "temperature": 0.4,
         "max_tokens": 8192,
+        "unload_before_generation": True,
     },
+    "asr": {
+        "unload_after_use": True,
+    },
+    "storage": {
+        "auto_cleanup": True,
+        "temp_days": 1,
+        "comfy_keep_days": 7,
+        "comfy_keep_latest": 300,
+        "min_free_gb": 2,
+        "project_keep_days": 0,
+    },
+    "comfy_free_after_job": False,
     "generation": {
         "unet": "",
         "clip": "",
@@ -122,6 +135,18 @@ def _coerce(config: dict[str, Any]) -> dict[str, Any]:
         llm["max_tokens"] = int(_clamp_float(llm.get("max_tokens"), 256, 65536, 8192))
         llm["api_key"] = str(llm.get("api_key") or "")
         llm["model"] = str(llm.get("model") or "")
+    storage = config.get("storage")
+    if isinstance(storage, dict):
+        storage["auto_cleanup"] = bool(storage.get("auto_cleanup", True))
+        storage["temp_days"] = _clamp_float(storage.get("temp_days"), 0.0, 365.0, 1.0)
+        storage["comfy_keep_days"] = _clamp_float(
+            storage.get("comfy_keep_days"), 0.0, 3650.0, 7.0)
+        storage["comfy_keep_latest"] = int(_clamp_float(
+            storage.get("comfy_keep_latest"), 0, 100000, 300))
+        storage["min_free_gb"] = _clamp_float(storage.get("min_free_gb"), 0.0, 1000.0, 2.0)
+        storage["project_keep_days"] = _clamp_float(
+            storage.get("project_keep_days"), 0.0, 3650.0, 0.0)
+    config["comfy_free_after_job"] = bool(config.get("comfy_free_after_job", False))
     generation = config.get("generation")
     if isinstance(generation, dict):
         generation["crf"] = int(_clamp_float(generation.get("crf"), 0, 51, 19))

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from urllib.parse import urlsplit
 
 
 def normalize_base(url: str) -> str:
@@ -91,6 +92,32 @@ def chat(config: dict[str, Any], messages: list[dict], images: list[Path] | None
             if attempt == 0:
                 time.sleep(1.2)
     raise RuntimeError(f"LLM 调用失败：{last_error}")
+
+
+def unload_local(config: dict[str, Any] | None = None) -> str:
+    """如果是本机 Ollama，请求它立即卸载模型，把显存让给 H3。
+
+    用 Ollama 原生接口 `POST /api/generate` + `keep_alive=0s`；
+    非本机 / 非 Ollama / 失败都静默返回状态，不影响生成。
+    """
+    config = config or {}
+    base = normalize_base(str(config.get("base_url") or ""))
+    model = str(config.get("model") or "").strip()
+    if not base or not model:
+        return "skip"
+    try:
+        parts = urlsplit(base)
+    except ValueError:
+        return "bad-url"
+    if parts.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        return "remote"
+    root = base[:-3].rstrip("/") if base.rstrip("/").endswith("/v1") else base.rstrip("/")
+    try:
+        response = httpx.post(f"{root}/api/generate", timeout=5,
+                              json={"model": model, "keep_alive": "0s", "prompt": ""})
+        return "ok" if response.status_code < 400 else f"http-{response.status_code}"
+    except Exception as error:  # noqa: BLE001
+        return f"error: {error}"[:120]
 
 
 def strip_fences(text: str) -> str:

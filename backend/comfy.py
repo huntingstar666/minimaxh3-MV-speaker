@@ -223,6 +223,18 @@ def queue_state() -> dict[str, Any]:
             "pending": payload.get("queue_pending") or []}
 
 
+def free_memory(unload_models: bool = True) -> bool:
+    """请求 ComfyUI 卸载模型并释放显存；失败不抛（只是优化项）。"""
+    try:
+        with http(10) as client:
+            client.post(_url("/free"),
+                        json={"unload_models": bool(unload_models),
+                              "free_memory": True})
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def interrupt() -> None:
     try:
         with http(10) as client:

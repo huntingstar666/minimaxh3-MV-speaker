@@ -16,8 +16,8 @@ from typing import Any
 
 import numpy as np
 
-from . import (audio, comfy, director, frames, llm, media, prompts, seam, segmenter,
-               settings, store, workflow)
+from . import (asr, audio, comfy, director, frames, llm, maintenance, media, prompts,
+               seam, segmenter, settings, store, workflow)
 
 
 GPU_LOCK = threading.Lock()
@@ -435,16 +435,36 @@ class JobRunner:
         return self.snapshot(project_id)
 
     # ------------------------------- 主流程 -------------------------------
+    def _release_before_generation(self, project_id: str) -> None:
+        try:
+            cfg = settings.load()
+            maintenance.ensure_disk_space(float((cfg.get("storage") or {})
+                                                .get("min_free_gb", 2.0)))
+            llm_cfg = cfg.get("llm") or {}
+            if llm_cfg.get("unload_before_generation", True):
+                llm.unload_local(llm_cfg)
+            if (cfg.get("asr") or {}).get("unload_after_use", True):
+                asr.unload()
+        except RuntimeError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            self._log(project_id, f"显存/磁盘准备失败（继续生成）：{error}", "warning")
+
     def _run(self, project_id: str, options: dict[str, Any]) -> None:
         acquired = False
         try:
-            if not GPU_LOCK.acquire(blocking=False):
+            event = self.cancel_events.get(project_id) or threading.Event()
+            while not event.is_set():
+                if GPU_LOCK.acquire(timeout=1.0):
+                    acquired = True
+                    break
                 self._update(project_id, status="queued", stage="queued",
                              message="GPU 被其他任务占用，排队中…")
-                GPU_LOCK.acquire()
-            acquired = True
+            if not acquired:
+                raise comfy.ComfyError("任务已取消。")
             self.active_project = project_id
             self._update(project_id, status="running", stage="prepare", message="准备素材")
+            self._release_before_generation(project_id)
             project = store.get(project_id)
             if ensure_takes(project, project_id):
                 store.save(project)
@@ -515,6 +535,12 @@ class JobRunner:
             self.active_project = None
             if acquired:
                 GPU_LOCK.release()
+            try:
+                if settings.load().get("comfy_free_after_job"):
+                    comfy.free_memory()
+            except Exception:  # noqa: BLE001
+                pass
+            self.cancel_events.pop(project_id, None)
 
     def _resolve_generation(self, project: dict, options: dict) -> dict[str, Any]:
         generation = settings.load().get("generation", {}).copy()

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import audio as audio_utils
-from .. import comfy, media, settings
+from .. import asr, comfy, llm, maintenance, media, settings
 from .. import workflow as mv_workflow
 from ..jobs import GPU_LOCK
 from . import audio_pipeline, config, design as design_mod, plan, store, workflow
@@ -200,18 +200,38 @@ class AvatarRunner:
         return False
 
     # ------------------------------ 主流程 ------------------------------
+    def _release_before_generation(self, project_id: str) -> None:
+        try:
+            cfg = settings.load()
+            maintenance.ensure_disk_space(float((cfg.get("storage") or {})
+                                                .get("min_free_gb", 2.0)))
+            llm_cfg = cfg.get("llm") or {}
+            if llm_cfg.get("unload_before_generation", True):
+                llm.unload_local(llm_cfg)
+            if (cfg.get("asr") or {}).get("unload_after_use", True):
+                asr.unload()
+        except RuntimeError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            self._log(project_id, f"显存/磁盘准备失败（继续生成）：{error}", "warning")
+
     def _run(self, project_id: str, options: dict[str, Any]) -> None:
         acquired = False
         job = self.jobs.get(project_id) or {}
         try:
-            if not GPU_LOCK.acquire(blocking=False):
+            event = self.cancel_events.get(project_id) or threading.Event()
+            while not event.is_set():
+                if GPU_LOCK.acquire(timeout=1.0):
+                    acquired = True
+                    break
                 self._update(project_id, persist=True, status="queued", stage="queued",
                              message="GPU 被其他任务占用，排队中…")
-                GPU_LOCK.acquire()
-            acquired = True
+            if not acquired:
+                raise comfy.ComfyError("任务已取消。")
             self.active_project = project_id
             self._update(project_id, persist=True, status="running", stage="prepare",
                          message="准备素材", progress=0.01)
+            self._release_before_generation(project_id)
             project = store.get(project_id)
             if int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE:
                 self._run_mode1(project_id, project, options)
@@ -276,6 +296,12 @@ class AvatarRunner:
                     GPU_LOCK.release()
                 except RuntimeError:
                     pass
+            try:
+                if settings.load().get("comfy_free_after_job"):
+                    comfy.free_memory()
+            except Exception:  # noqa: BLE001
+                pass
+            self.cancel_events.pop(project_id, None)
 
     def _finish_run(self, project_id: str) -> None:
         latest = store.get(project_id)

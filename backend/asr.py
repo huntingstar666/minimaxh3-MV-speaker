@@ -52,6 +52,22 @@ def _evict_models(keep: str) -> None:
         gc.collect()
 
 
+def unload() -> int:
+    """清空 Whisper 模型缓存，尽量把显存还给 ComfyUI。"""
+    import gc  # noqa: PLC0415
+    with _model_lock:
+        count = len(_model_cache)
+        _model_cache.clear()
+    gc.collect()
+    try:
+        import torch  # type: ignore  # noqa: PLC0415
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        pass
+    return count
+
+
 def _load(model_name: str):
     with _model_lock:
         cached = _model_cache.get(model_name)

@@ -30,6 +30,22 @@ APP_VERSION = "1.0.0"
 ALLOWED_AUDIO = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4",
                  ".mov", ".mkv", ".webm"}
 ALLOWED_IMAGE = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+MAX_IMAGE_BYTES = 50 * 1024 * 1024
+MAX_AUDIO_BYTES = 200 * 1024 * 1024
+MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def _check_upload_size(upload: UploadFile, limit: int, label: str) -> None:
+    try:
+        current = upload.file.tell()
+        upload.file.seek(0, 2)
+        size = upload.file.tell()
+        upload.file.seek(current)
+    except (OSError, AttributeError):
+        return
+    if size > limit:
+        raise HTTPException(400, f"{label}过大：{size / 1024 / 1024:.1f}MB"
+                                 f"（上限 {limit // 1024 // 1024}MB）")
 VALID_ROLES = {"performer", "environment", "appearance", "subject", "other"}
 
 WEB_DIR = settings.WEB_DIR / "avatar"
@@ -228,6 +244,7 @@ def _make_voice_sample(project_id: str, start_seconds: float = 0.0,
 
 
 def _save_voice(project_id: str, upload: UploadFile) -> dict[str, Any]:
+    _check_upload_size(upload, MAX_AUDIO_BYTES, "参考音频")
     """上传参考音频：原始录音存 voice/source.wav，再截一段音色样本 voice/ref.wav。
 
     以前直接把整段当 ref.wav，并硬限制 60 秒；用户上传 180 秒完整录音会被拒。
@@ -300,6 +317,7 @@ def _llm_config() -> dict[str, Any]:
 
 
 def _save_project_audio(project_id: str, upload: UploadFile) -> dict[str, Any]:
+    _check_upload_size(upload, MAX_AUDIO_BYTES, "驱动音频")
     """模式 1 的驱动音频：解码成 source.wav 并返回元信息。"""
     suffix = Path(upload.filename or "").suffix.lower()
     if suffix not in ALLOWED_AUDIO:
@@ -396,6 +414,7 @@ def list_projects() -> dict[str, Any]:
 @app.post("/api/projects/import")
 def import_project(package: UploadFile = File(...), name: str | None = Form(None)) -> dict[str, Any]:
     """导入数字人包（.h3avatar.zip / .zip，schema=h3-avatar-pack）。"""
+    _check_upload_size(package, MAX_PACKAGE_BYTES, "数字人包")
     filename = package.filename or "package.zip"
     if not filename.lower().endswith((".zip", ".h3avatar", ".h3avatar.zip")):
         raise HTTPException(400, "请上传 .h3avatar.zip 或 .zip 包。")
@@ -616,6 +635,7 @@ def delete_project(project_id: str) -> dict[str, Any]:
 @app.post("/api/projects/{project_id}/refs")
 def add_ref(project_id: str, role: str = Form("performer"), title: str = Form(""),
             description: str = Form(""), image: UploadFile = File(...)) -> dict[str, Any]:
+    _check_upload_size(image, MAX_IMAGE_BYTES, "参考图")
     project = _project(project_id)
     suffix = Path(image.filename or "").suffix.lower()
     if suffix not in ALLOWED_IMAGE:

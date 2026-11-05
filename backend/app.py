@@ -17,14 +17,30 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
-from . import (asr, audio, comfy, director, frames, jobs, llm, media, pack, presets,
-               prompts, seam_nodes, settings, store)
+from . import (asr, audio, comfy, director, frames, jobs, llm, maintenance, media, pack,
+               presets, prompts, seam_nodes, settings, store)
 from .errors import ParamError
 from .avatar import app as avatar_app
 
 APP_VERSION = "1.0.0"
 ALLOWED_AUDIO = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4", ".mov", ".mkv", ".webm"}
 ALLOWED_IMAGE = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+MAX_IMAGE_BYTES = 50 * 1024 * 1024
+MAX_AUDIO_BYTES = 200 * 1024 * 1024
+MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def _check_upload_size(upload: UploadFile, limit: int, label: str) -> None:
+    try:
+        current = upload.file.tell()
+        upload.file.seek(0, 2)
+        size = upload.file.tell()
+        upload.file.seek(current)
+    except (OSError, AttributeError):
+        return
+    if size > limit:
+        raise HTTPException(400, f"{label}过大：{size / 1024 / 1024:.1f}MB"
+                                 f"（上限 {limit // 1024 // 1024}MB）")
 _IMAGE_MAGIC = {
     ".png": (b"\x89PNG\r\n\x1a\n",),
     ".jpg": (b"\xff\xd8\xff",),
@@ -114,6 +130,27 @@ def _deploy_seam_nodes() -> None:
         seam_nodes.deploy()
     except Exception:  # noqa: BLE001
         pass
+    maintenance.start_auto_cleanup()
+
+
+@app.get("/api/maintenance/usage")
+def maintenance_usage() -> dict[str, Any]:
+    return maintenance.usage()
+
+
+@app.post("/api/maintenance/cleanup")
+def maintenance_cleanup(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = payload or {}
+    storage = settings.load().get("storage") or {}
+    return maintenance.cleanup(
+        dry_run=bool(data.get("dry_run", True)),
+        temp_days=float(data.get("temp_days", storage.get("temp_days", 1))),
+        comfy_keep_days=float(data.get("comfy_keep_days", storage.get("comfy_keep_days", 7))),
+        comfy_keep_latest=int(data.get("comfy_keep_latest",
+                                   storage.get("comfy_keep_latest", 300))),
+        project_keep_days=float(data.get("project_keep_days",
+                                         storage.get("project_keep_days", 0))),
+    )
 
 
 @app.get("/api/seam-nodes")
@@ -487,6 +524,7 @@ def _segment_manifest(project: dict[str, Any], row: dict[str, Any]) -> dict[str,
 @app.post("/api/projects/{project_id}/refs")
 def add_ref(project_id: str, role: str = Form("performer"), title: str = Form(""),
             description: str = Form(""), image: UploadFile = File(...)) -> dict[str, Any]:
+    _check_upload_size(image, MAX_IMAGE_BYTES, "参考图")
     suffix = Path(image.filename or "").suffix.lower()
     if suffix not in ALLOWED_IMAGE:
         raise HTTPException(400, f"不支持的图片格式：{suffix or '未知'}")
