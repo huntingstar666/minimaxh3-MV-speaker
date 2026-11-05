@@ -51,6 +51,9 @@ mode2 多音色 `voices[]`；这些导演化字段由服务端 pack import/expor
 确认参数 → 产出完整设计包 → 可选出片。不是机械打包素材；初始参考图不全会主动提出
 补图建议，用户采纳/不采纳都不会限制创意发挥。
 
+**提示词由 Agent 亲自撰写**，不依赖工作台本地 Ollama；不要用页面「AI 扩写/重写」
+或 `import_pack.py --expand-prompts` 作为默认生成方式。
+
 ## 目录
 
 ```text
@@ -86,7 +89,7 @@ mv-pack-builder/
    ├─ validate_digital_human_prompt.py  数字人 A/B/C 三腔 + Ref2VA 六段结构 lint
    ├─ validate_avatar_pack.py  数字人 .h3avatar.zip 包校验/打包
    ├─ import_avatar_pack.py    数字人 .h3avatar.zip 导入/导出（avatar API）
-   └─ import_pack.py           导入 / AI 扩写 / 生成 / 导出（MV）
+   └─ import_pack.py           导入 / 出片 / 导出（MV；提示词由 Agent 写，不用工作台 LLM）
 ```
 
 ## 快速自检

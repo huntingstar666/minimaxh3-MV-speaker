@@ -5,6 +5,10 @@
 数字人（`mode: "speaking"`）不走这里的 MV 规则，见
 [digital-human/README.md](digital-human/README.md) 与三腔系统提示词。
 
+> **技能要求 Agent 亲自写 `final_prompt`，不默认调用工作台 LLM。**
+> 下面保留 SYSTEM_GUARD 原文，是为了让 Agent 手写时与工作台校验/行为对齐；
+> 只有用户明确要求时才调用工作台的 AI 扩写，且必须逐段重写/校验。
+
 ## 1. 默认系统提示词（SYSTEM_GUARD）
 
 工作台调用 LLM 扩写时，system message 是下面全文 + 项目 `prompt_rule`（为空时用默认

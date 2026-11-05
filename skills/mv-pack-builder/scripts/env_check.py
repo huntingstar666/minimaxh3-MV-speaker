@@ -94,10 +94,12 @@ def check_workbench(base_url: str) -> None:
     else:
         record("WARN", "ffmpeg（工作台视角）", "工作台没找到 ffmpeg")
     if health.get("llm"):
-        record("PASS", "LLM 已启用", "可让工作台 AI 扩写提示词")
+        record("PASS", "LLM 已启用（仅页面辅助）",
+               "提示词由 Agent 亲自写；不要把工作台 LLM 当默认生成器")
         capabilities["prompts"] = True
     else:
-        record("WARN", "LLM 未启用", "需要 Agent 自己写提示词，或导入后手动 AI 重写")
+        record("WARN", "LLM 未启用",
+               "不影响 Agent 写提示词；只影响页面手动 AI 辅助")
     try:
         status, body = request(f"{base_url.rstrip('/')}/openapi.json", timeout=8)
         paths = (json.loads(body.decode("utf-8")) or {}).get("paths") or {}

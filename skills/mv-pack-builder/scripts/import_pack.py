@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""把 MV 包导入工作台，可选扩写提示词、出片、导出完整包。
+"""把 MV 包导入工作台，可选出片/导出完整包。
 
-用法示例：
+技能规范：提示词由 Agent 亲自写，默认不调用工作台 LLM 扩写。
   python import_pack.py --pack my-mv.h3pack.zip
-  python import_pack.py --pack my-mv.h3pack.zip --expand-prompts --export-out complete.h3pack.zip
   python import_pack.py --project-id <id> --generate --wait
   python import_pack.py --project-id <id> --export-out project.h3pack.zip
 
@@ -108,7 +107,8 @@ def main() -> int:
     parser.add_argument("--pack", help="要导入的 .h3pack.zip")
     parser.add_argument("--name", help="导入后的项目名（可选）")
     parser.add_argument("--project-id", help="已导入的项目 id")
-    parser.add_argument("--expand-prompts", action="store_true", help="让工作台 AI 扩写全部分镜")
+    parser.add_argument("--expand-prompts", action="store_true",
+                        help="不推荐：仅用户明确要求时让工作台本地 LLM 扩写；技能默认由 Agent 写")
     parser.add_argument("--generate", action="store_true", help="开始生成（占 GPU，需用户确认）")
     parser.add_argument("--wait", action="store_true", help="等待生成结束")
     parser.add_argument("--export", dest="export_id", help="导出该项目为 MV 包")
@@ -140,6 +140,7 @@ def main() -> int:
     if args.expand_prompts:
         if not project_id:
             raise SystemExit("--expand-prompts 需要 --project-id 或先 --pack")
+        print("警告：技能规范要求提示词由 Agent 亲自写；--expand-prompts 仅用于用户明确要求。")
         print("扩写全部提示词（本机 LLM 可能较慢）…")
         expanded = post_json(f"{base}/api/projects/{project_id}/prompts", {}, timeout=3600)
         warnings = expanded.get("warnings") or []

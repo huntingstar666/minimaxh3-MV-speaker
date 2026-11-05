@@ -1,6 +1,6 @@
 ---
 name: mv-pack-builder
-description: 为 H3 数字人·MV 工作台设计并制作可直接导入/交付的两种包：MV 用 .h3pack.zip，数字人口播用 .h3avatar.zip（对齐数字人工作台契约）。技能包含拆歌/拆稿、创意发散与补图建议、分镜/画面审阅、逐段提示词；数字人支持 A 音频驱动 / B 参考音色 / C 无音频参考三腔与口播动态图形导演，全部采用 Ref2VA 六段式；含环境自检、校验、导入和出片流程。
+description: 为 H3 数字人·MV 工作台设计并制作可直接导入/交付的两种包：MV 用 .h3pack.zip，数字人口播用 .h3avatar.zip（对齐数字人工作台契约）。技能包含拆歌/拆稿、创意发散与补图建议、分镜/画面审阅、逐段提示词；提示词由 Agent 亲自撰写（不依赖工作台本地 LLM）；数字人支持 A 音频驱动 / B 参考音色 / C 无音频参考三腔与口播动态图形导演，全部采用 Ref2VA 六段式；含环境自检、校验、导入和出片流程。
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
@@ -38,6 +38,19 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 > 再盘点缺什么参考图，主动向用户提出补图建议；用户采纳就补图，不采纳就按用户
 > 想法改。绝不能因为用户一开始给的素材少，就自我审查、只做保守方案。
 
+## 提示词作者规则（硬性）
+
+**最终提示词必须由 Agent 亲自写**，这是本技能的核心交付，不是调用接口的副作用。
+
+- MV 的 `final_prompt`、数字人的 `segments[].prompt` 都由 Agent 基于设计、素材事实、
+  三腔规则和校验器逐段撰写；写完必须逐条自检。
+- **不要把工作台的 `/prompts`、`import_pack.py --expand-prompts` 当成默认生成器**；
+  本机 LLM 是基础 Ollama，算力有限，质量和效率都不如 Agent，默认调用属于浪费。
+- 工作台 LLM 只在两种情况下使用：用户明确要求对比/辅助，或项目侧功能必须调用；
+  即便如此，Agent 也要逐段重写/校验后才能交付，不能原样当最终稿。
+- 页面上的“AI 重写/扩写”是给用户手动使用的辅助功能，不是技能的工作流。
+- 本技能只把提示词写进包/项目，不依赖工作台 LLM 也能完整交付。
+
 ## 0. 环境自检（必做）
 
 ```bash
@@ -45,9 +58,11 @@ python scripts/env_check.py --project <h3-workbench 目录>
 ```
 
 输出能力：`offline_pack` / `import` / `prompts` / `generate`。
+其中 `prompts` 只表示工作台页面 AI 辅助可用，**不是**本技能的提示词来源；
+技能提示词始终由 Agent 亲自写。
 
-- 有 `import` → 走在线设计流程（能用工作台的音频分析、LLM 视觉扩写、出片）；
-- 只有 `offline_pack` → 走离线设计流程，提示词由 Agent 自己写；
+- 有 `import` → 走在线设计流程（用工作台的音频分析、导入/导出、出片；**提示词仍由 Agent 写**）；
+- 只有 `offline_pack` → 走离线设计流程；两种情况下提示词都由 Agent 亲自写；
 - 工作台没启动时询问用户是否允许启动 `start.bat`；不要擅自占 GPU。
 
 ## 1. 收集输入并确认方向
@@ -96,7 +111,8 @@ python scripts/env_check.py --project <h3-workbench 目录>
    交给用户逐段审阅，明确问：故事/画面是否对、哪段不对、镜头/动作/节奏/参考图
    要不要改、有没有不想出现的元素；记录意见并修改设计，修改后再次确认。
    **审阅未通过，不允许写提示词、不允许打包。**
-6. **逐段提示词**：每段写 `brief`（六行中文）+ 提示词（H3 六段英文）。
+6. **逐段提示词（Agent 亲自写）**：每段写 `brief`（六行中文）+ 提示词（H3 六段英文）。
+   不调用工作台 LLM 扩写；Agent 按下方规则逐段撰写并自检。
    - **MV（singing）**：写 `final_prompt`，严格按
      [references/mv-prompt-format.md](references/mv-prompt-format.md)；
      `performance` 声明 `<Audio 1>`、声音两段 N/A、无字幕/水印声明；
@@ -315,6 +331,8 @@ python scripts/env_check.py --project <h3-workbench 目录>
 ## 6. 硬性规则
 
 - 不允许机械打包：没有分镜设计、没有写提示词就交付，视为不合格。
+- **提示词必须由 Agent 亲自写**；不得用工作台 `/prompts` / `--expand-prompts` 作为默认
+  生成器，本地 Ollama 仅作辅助且不能直接当交付稿。
 - **所有数字人提示词必须走 Ref2VA 六段式**；三腔 A/B/C 互斥，一次只按一份
   `voices/*.md` 写，禁止混装音频标签（A/C 无 `<Audio N>`，B 必须绑定 `<Audio 1>`）。
 - 数字人必须做语速预算（5 书面字/秒）与图形生命周期检查；图形无退场、图层累积、
