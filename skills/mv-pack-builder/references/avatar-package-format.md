@@ -192,17 +192,11 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
 mode 2 必须给 `voice.file` **或** `voices[]`（二者同时存在时以 `voices[]` 为准）；
 旧包只带 `voice.file` 也兼容。mode 1/3 不允许 `voices`。
 
-> 多音色已知限制（本次维护核对）：服务端 **import 已支持 voices[]**，但 **export 仍会
-> 先检查 `voice/ref.wav`**；只有多音色文件、没有 `voice/ref.wav` 的项目导出可能返回
-> “mode 2 缺少 voice/ref.wav”。在项目侧修复前，多音色项目先不要依赖 roundtrip 导出；
-> 技能导入脚本仍能正常导入并补写创作要求。
-
-> 包导入/导出的现状（本次维护核对）：工作台 `pack.py` 已支持 `voices[]`；
-> 但 `material_note` / `segments[].note` / `segments[].ref_ids` / `speakers` 还没有进
-> pack 的导入/导出字段。技能 `import_avatar_pack.py` 会在导入后通过 PATCH 补写
-> `material_note` / `note` / `ref_ids`；页面直接点「导入」不会补写这些字段。
-> 服务端导出的包暂不包含它们，roundtrip 可能丢失；需要完整保留时等项目侧补 pack 字段，
-> 或在导入后手工在页面检查。
+> 已修复（2026-11-05）：服务端 `pack.py` 的 import/export 已原样携带
+> `material_note` / `speakers` / `segments[].note` / `segments[].ref_ids` / `voices[]`；
+> 页面导入与 `import_avatar_pack.py` 等价，不需要导入后再 PATCH 补写。
+> 多音色项目导出不再强制 `voice/ref.wav`：按 `voices[]` 导出全部音色，
+> `voice/reference.wav` 取第一个音色（旧单音色包继续兼容）。
 
 ## 4. 节拍 `beats[]`
 
@@ -278,9 +272,10 @@ python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3a
   audio/voice（出现即 400）。**草稿包允许 `prompt` 为空**：导入后补写，返回一条 warning；
   设计包仍建议每段都有 prompt（`--require-prompts` 会检查）。lint error 不阻断导入，但会在
   warnings / prompt_meta 里显示。
-- **`material_note` / `segments[].note` / `segments[].ref_ids` / `speakers` 不在服务端
-  pack 导入字段里**：服务端不会报错也不会落库；技能 `import_avatar_pack.py` 会在导入后
-  PATCH 补写前三项（speakers 暂不补），页面按钮导入不补。需要完整保留时用脚本导入。
+- **导演化字段参与服务端校验并原样落库**：`material_note` / `segments[].note` 里的
+  `@图N`/`@音频N` 必须是合法引用（越界、本模式不可用、本段未启用的图 → 400）；
+  `segments[].ref_ids` 下标越界 → 400；`speakers` 可选，`picture_index` 越界会被忽略。
+  导入/导出 roundtrip 保持这些字段不变。
 
 ### 导入语义
 
@@ -294,8 +289,8 @@ python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3a
 - beats 原样保留（字段归一化，不丢 visible_copy/lifecycle 等）；
 - `generation` 目前只取 `aspect_ratio` / `output_fps`，其它字段忽略（生成参数用工作台
   默认值 + 项目设置）；
-- 技能脚本额外补写 `material_note`、每段 `note`、`ref_ids`；导出时服务端 pack 暂不写回
-  这些字段，roundtrip 可能丢失（项目侧后续补 pack 字段）。
+- 服务端 pack 会原样写回 `material_note`、每段 `note`、`ref_ids`、`speakers`；
+  roundtrip 不再丢失这些字段。
 
 ### overlay
 
@@ -307,8 +302,8 @@ job 自动走 `backend/avatar/overlay.py`（ffmpeg drawtext/overlay）叠加，t
 
 数字人页面「最近作品」面板已提供「导入 .h3avatar 包 / 导出当前包」按钮；
 也可以继续用 `import_avatar_pack.py` 或 curl（更稳、可脚本化），两者等价。
-注意：**页面导入不会补写 `material_note`/`note`/`ref_ids`**；这些导演化字段要用
-`import_avatar_pack.py` 导入（脚本在 import 后 PATCH 补写），或导入后在页面手动补。
+注意：页面导入与 `import_avatar_pack.py` 走同一服务端 pack，导演化字段
+（`material_note`/`note`/`ref_ids`/`speakers`/`voices`）会一并落库，无需再手工补写。
 
 ## 7. 与 `.h3pack.zip` 的关系
 

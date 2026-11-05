@@ -245,6 +245,72 @@ def main() -> int:
                   "<Audio 1>" in (p2["segments"][0].get("prompt") or ""))
 
         # ------------------------------------------------------------------
+        # 3b) 导演化字段 + 多音色：import -> export -> import roundtrip
+        # ------------------------------------------------------------------
+        director_seg = dict(mode2_seg)
+        director_seg.update({"note": "让 @图1 的角色用 @音频2 的音色说话", "ref_ids": [0]})
+        manifest2b = dict(manifest2)
+        manifest2b.update({
+            "name": "示例包-m2-director",
+            "material_note": "整体轻松科普感，人物在画面左侧",
+            "speakers": [{"id": "s1", "name": "主播", "picture_index": 0, "voice_id": "v1"}],
+            "voices": [
+                {"file": "voice/voice_01.wav", "name": "女主"},
+                {"file": "voice/voice_02.wav", "name": "旁白"},
+            ],
+            "segments": [director_seg],
+        })
+        pack2b = DATA_DIR / "mode2-director.h3avatar.zip"
+        write_pack(pack2b, manifest2b, {
+            "voice/voice_01.wav": make_wav(5.0),
+            "voice/voice_02.wav": make_wav(4.0),
+            "refs/ref_01.png": PNG,
+        })
+        imported2b = import_pack(client, pack2b, name="导入导演化模式2")
+        check("导入 导演化 mode2 包", imported2b.status_code == 200, str(imported2b.status_code))
+        if imported2b.status_code == 200:
+            p2b = imported2b.json()["project"]
+            check("material_note 落库",
+                  p2b.get("material_note") == "整体轻松科普感，人物在画面左侧")
+            check("speakers 落库", len(p2b.get("speakers") or []) == 1
+                  and p2b["speakers"][0].get("name") == "主播")
+            check("segments[].note 落库",
+                  (p2b["segments"][0].get("note") or "")
+                  == "让 @图1 的角色用 @音频2 的音色说话")
+            check("segments[].ref_ids 落库", p2b["segments"][0].get("ref_ids") == [0])
+            check("多音色 voices 落库", len(p2b.get("voices") or []) == 2
+                  and [item.get("name") for item in p2b["voices"]] == ["女主", "旁白"])
+            exported2b = client.get(f"/api/projects/{p2b['id']}/export")
+            check("多音色项目可导出", exported2b.status_code == 200
+                  and exported2b.content[:2] == b"PK", str(exported2b.status_code))
+            export2b_path = DATA_DIR / "roundtrip-director.h3avatar.zip"
+            export2b_path.write_bytes(exported2b.content)
+            with zipfile.ZipFile(io.BytesIO(exported2b.content)) as zf:
+                em = json.loads(zf.read("manifest.json"))
+                names2b = set(zf.namelist())
+            check("导出含导演化字段",
+                  em.get("material_note") == "整体轻松科普感，人物在画面左侧"
+                  and len(em.get("speakers") or []) == 1
+                  and (em.get("segments") or [{}])[0].get("note")
+                  == "让 @图1 的角色用 @音频2 的音色说话"
+                  and (em.get("segments") or [{}])[0].get("ref_ids") == [0])
+            check("导出含多音色文件", len(em.get("voices") or []) == 2
+                  and "voice/voice_01.wav" in names2b and "voice/voice_02.wav" in names2b)
+            reimported2b = import_pack(client, export2b_path, name="再导入导演化模式2")
+            check("导出后再导入 200", reimported2b.status_code == 200, str(reimported2b.status_code))
+            if reimported2b.status_code == 200:
+                r2b = reimported2b.json()["project"]
+                check("roundtrip 导演化字段不变",
+                      r2b.get("material_note") == p2b.get("material_note")
+                      and (r2b["segments"][0].get("note") or "")
+                      == (p2b["segments"][0].get("note") or "")
+                      and r2b["segments"][0].get("ref_ids") == p2b["segments"][0].get("ref_ids")
+                      and [item.get("name") for item in (r2b.get("voices") or [])]
+                      == [item.get("name") for item in (p2b.get("voices") or [])])
+        else:
+            print(imported2b.text[:300])
+
+        # ------------------------------------------------------------------
         # 4) mode3 + overlay 包
         # ------------------------------------------------------------------
         overlay_beats = [{

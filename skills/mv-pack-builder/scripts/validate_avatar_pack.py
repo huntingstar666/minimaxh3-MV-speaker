@@ -432,8 +432,8 @@ def _run(args) -> int:
                 if speaker.get("voice_id") and mode != 2:
                     fail(f"speakers[{index}].voice_id 只有 mode2 可用")
             if speakers:
-                warn("speakers 目前由工作台项目字段保存；包导入脚本会尝试补写，"
-                     "页面导入/导出可能不保留")
+                warn("speakers 为可选人物提示表；工作台导入/导出会原样保留"
+                     "（picture_index 越界会被忽略）")
     design = manifest.get("design") or {}
     if not isinstance(design, dict):
         fail("design 必须是对象")

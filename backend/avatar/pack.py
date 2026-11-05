@@ -256,6 +256,24 @@ def validate_manifest(manifest: Any, names: set[str]) -> dict[str, Any]:
             raw_start, raw_end = start, start + frames_value
         start = int(raw_end)
         beats = plan.normalize_beats(item.get("beats"))
+        note = str(item.get("note") or "").strip()
+        raw_ref_ids = item.get("ref_ids")
+        ref_ids: list[int] | None = None
+        if raw_ref_ids is not None:
+            if not isinstance(raw_ref_ids, list):
+                _fail(f"segments[{index}].ref_ids 必须是整数数组或 null。")
+            try:
+                ref_ids = sorted({int(value) for value in raw_ref_ids})
+            except (TypeError, ValueError):
+                _fail(f"segments[{index}].ref_ids 必须是整数数组。")
+            if any(value < 0 or value >= len(refs) for value in ref_ids):
+                _fail(f"segments[{index}].ref_ids 越界（本包共 {len(refs)} 张参考图）。")
+            if not ref_ids:
+                ref_ids = None
+        if note:
+            _, note_errors = plan.parse_instruction(note, mode, len(refs), len(voices))
+            if note_errors:
+                _fail(f"segments[{index}].note 素材引用无效：" + "；".join(note_errors))
         seconds = round(frames_value / config.FPS, 3)
         normalized.append({
             "index": index,
@@ -269,10 +287,33 @@ def validate_manifest(manifest: Any, names: set[str]) -> dict[str, Any]:
             "prompt": prompt,
             "prompt_source": str(item.get("prompt_source") or "import"),
             "prompt_meta": item.get("prompt_meta") if isinstance(item.get("prompt_meta"), dict) else {},
+            "note": note,
+            "ref_ids": ref_ids,
         })
+    material_note = str(manifest.get("material_note") or "").strip()
+    if material_note:
+        _, note_errors = plan.parse_instruction(material_note, mode, len(refs), len(voices))
+        if note_errors:
+            _fail("material_note 的素材引用无效：" + "；".join(note_errors))
+    speakers: list[dict[str, Any]] = []
+    raw_speakers = manifest.get("speakers")
+    if isinstance(raw_speakers, list):
+        for index, item in enumerate(raw_speakers[:20]):
+            if not isinstance(item, dict):
+                continue
+            picture_index = item.get("picture_index")
+            speakers.append({
+                "id": str(item.get("id") or f"s{index + 1}")[:40],
+                "name": str(item.get("name") or f"人物 {index + 1}")[:40],
+                "picture_index": picture_index if isinstance(picture_index, int)
+                and 0 <= picture_index < len(refs) else None,
+                "voice_id": str(item.get("voice_id") or "")[:40],
+            })
     return {
         "schema": SCHEMA, "version": VERSION, "mode": mode,
         "name": str(manifest.get("name") or "导入的数字人").strip()[:80],
+        "material_note": material_note,
+        "speakers": speakers,
         "language": str(manifest.get("language") or config.DEFAULT_LANGUAGE),
         "script": script, "chars_per_second": cps,
         "target_seconds": target, "max_seconds": maximum,
@@ -326,6 +367,8 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
             warnings.append("C 腔包没有 voice_description / voice_card，声音会退回通用默认声线。")
         try:
             project["language"] = parsed["language"]
+            project["material_note"] = parsed.get("material_note") or ""
+            project["speakers"] = parsed.get("speakers") or []
             project["voice_description"] = parsed.get("voice_description") or ""
             project["design"] = parsed["design"]
             project["design"]["audio_mode"] = MODE_AUDIO[mode]
@@ -453,6 +496,8 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
                                        [w["message"] for w in (lint.get("warnings") or [])],
                     "prompt_meta": meta,
                     "beats": item.get("beats") or [],
+                    "note": str(item.get("note") or ""),
+                    "ref_ids": item.get("ref_ids"),
                     "status": "idle",
                     "error": None,
                     "takes": [],
@@ -526,8 +571,18 @@ def export_pack(project_id: str) -> Path:
         _fail("项目没有分段，无法导出。")
     if mode == 1 and not (base / "source.wav").is_file():
         _fail("mode 1 缺少 source.wav，无法导出。")
-    if mode == 2 and not (base / "voice" / "ref.wav").is_file():
-        _fail("mode 2 缺少 voice/ref.wav，无法导出。")
+    if mode == 2:
+        def _voice_exists(item: dict[str, Any]) -> bool:
+            filename = str(item.get("filename") or "")
+            if not filename:
+                return False
+            return (base / filename).is_file() \
+                or (base / "voice" / Path(filename).name).is_file()
+        has_any_voice = any(_voice_exists(item)
+                            for item in (project.get("voices") or [])
+                            if isinstance(item, dict))
+        if not has_any_voice and not (base / "voice" / "ref.wav").is_file():
+            _fail("mode 2 缺少可导出的音色文件。")
 
     manifest_segments = []
     start = 0
@@ -552,6 +607,8 @@ def export_pack(project_id: str) -> Path:
             "prompt": str(segment.get("prompt") or ""),
             "prompt_source": str(segment.get("prompt_source") or "manual"),
             "prompt_meta": segment.get("prompt_meta") or {},
+            "note": str(segment.get("note") or ""),
+            "ref_ids": segment.get("ref_ids") if isinstance(segment.get("ref_ids"), list) else None,
         })
         start += frames
 
@@ -575,6 +632,8 @@ def export_pack(project_id: str) -> Path:
                     for index, item in enumerate(project.get("voices") or [])]
                    if mode == 2 and project.get("voices") else []),
         "voice_description": str(project.get("voice_description") or ""),
+        "material_note": str(project.get("material_note") or ""),
+        "speakers": project.get("speakers") or [],
         "refs": [],
         "design": design,
         "generation": {
