@@ -1046,6 +1046,7 @@ def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[
             structural = True
     if structural:
         # 台词/帧数变了：旧 take 不再适用，清空并重算全部分段的时间轴
+        old_takes = list(row.get("takes") or [])
         row.update(takes=[], selected_take=None, output=None, status="idle", error=None,
                    prompt="", prompt_source="", prompt_warnings=[])
         if text_changed and not frames_given:
@@ -1061,6 +1062,14 @@ def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[
         row["prompt_source"] = "manual" if text else ""
         row["prompt_warnings"] = []
     store.save(project)
+    for old in old_takes if "old_takes" in locals() else []:
+        for key in ("file", "thumb"):
+            value = str(old.get(key) or "")
+            if value:
+                try:
+                    (store.project_dir(project_id) / value).unlink()
+                except OSError:
+                    pass
     return {"ok": True, "project": project}
 
 

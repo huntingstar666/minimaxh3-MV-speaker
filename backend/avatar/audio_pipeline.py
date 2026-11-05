@@ -223,6 +223,27 @@ def _clean_cuts(cuts: list[int], total_frames: int, max_frames: int) -> list[int
     return cleaned
 
 
+def _purge_discarded_takes(project_id: str, old_rows: list[dict[str, Any]],
+                           new_rows: list[dict[str, Any]]) -> None:
+    """切点变化后，旧分段里没有被新分段继承的 take 文件要删除，避免孤儿视频。"""
+    keep: set[str] = set()
+    for row in new_rows:
+        for take in row.get("takes") or []:
+            for key in ("file", "thumb"):
+                value = str(take.get(key) or "")
+                if value:
+                    keep.add(value)
+    for row in old_rows:
+        for take in row.get("takes") or []:
+            for key in ("file", "thumb"):
+                value = str(take.get(key) or "")
+                if value and value not in keep:
+                    try:
+                        (store.project_dir(project_id) / value).unlink()
+                    except OSError:
+                        pass
+
+
 def _apply_rows(project: dict[str, Any], cuts_frames: list[int],
                 transcript: dict[str, Any] | None,
                 analysis: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -234,6 +255,7 @@ def _apply_rows(project: dict[str, Any], cuts_frames: list[int],
     if not rows:
         raise ValueError("没有生成任何分段，请检查音频与切点。")
     project["segments"] = rows
+    _purge_discarded_takes(str(project.get("id") or ""), old_rows, rows)
     cuts = [int(row["end_frame"]) for row in rows[:-1]]
     waveform = dict((analysis or {}).get("waveform") or {})
     # waveform.cuts 用秒，方便前端拖动；顶层 analysis.cuts 保留帧号（内部真源）

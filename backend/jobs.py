@@ -934,6 +934,7 @@ class JobRunner:
             "segment_signature": cuts_signature({"segments": segments}),
         }
         self._commit(project_id, project)
+        shutil.rmtree(work, ignore_errors=True)
         self._log(project_id, f"seam 成片完成（{len(segments)} 段，重叠 "
                               f"{seam.DEFAULT_OVERLAP} 帧）")
         self._update(project_id, status="completed", stage="done", progress=1.0,
@@ -1029,6 +1030,7 @@ class JobRunner:
             "take_signature": take_signature(project),
         }
         self._commit(project_id, project)
+        shutil.rmtree(work, ignore_errors=True)
         self._log(project_id, "成片拼接完成")
         self._update(project_id, status="completed", stage="done", progress=1.0,
                      message="成片已完成", finished=time.time())

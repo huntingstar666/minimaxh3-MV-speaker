@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import shutil
 import threading
 import time
 import traceback
@@ -171,9 +172,21 @@ class AvatarRunner:
         with self.lock:
             job = self.jobs.get(project_id)
             active = bool(job and job.get("status") in {"queued", "running"})
-        if active:
-            comfy.interrupt()
-            self._log(project_id, "已请求中断，正在收尾…", "warning")
+        # 只有“正在跑的、属于本项目的 ComfyUI prompt”才 interrupt；
+        # 排队中的任务只置取消标记，避免误打断 ComfyUI 里别人的生成。
+        prompt_id = ""
+        try:
+            project = store.get(project_id)
+            for row in project.get("segments") or []:
+                if row.get("status") == "running" and row.get("prompt_id"):
+                    prompt_id = str(row["prompt_id"])
+                    break
+        except Exception:  # noqa: BLE001
+            prompt_id = ""
+        if active and prompt_id:
+            result = comfy.cancel_prompt(prompt_id)
+            if result != "none":
+                self._log(project_id, "已请求中断，正在收尾…", "warning")
         return self.snapshot(project_id)
 
     def wait(self, project_id: str, timeout: float = 60.0) -> bool:
@@ -748,6 +761,7 @@ class AvatarRunner:
             "stale": False,
         }
         store.mutate(project_id, lambda latest: latest.__setitem__("final", meta))
+        shutil.rmtree(work, ignore_errors=True)
         return meta
 
     def _assemble_mode1(self, project_id: str, project: dict[str, Any]) -> dict[str, Any]:
@@ -799,6 +813,7 @@ class AvatarRunner:
             "audio_source": "original",
         }
         store.mutate(project_id, lambda latest: latest.__setitem__("final", meta))
+        shutil.rmtree(work, ignore_errors=True)
         return meta
 
 
