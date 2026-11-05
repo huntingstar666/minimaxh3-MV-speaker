@@ -193,6 +193,11 @@ const state = {
   audioFailed: false,
   beatsDraft: {},
   lintOverride: {},
+  mention: { items: [], active: 0, target: null, onPick: null, trimAt: false },
+  generatingPrompt: {},
+  promptTicker: null,
+  auditionIndex: null,
+  auditionEnd: 0,
 };
 
 /* ---------------- 基础工具 ---------------- */
@@ -571,6 +576,12 @@ const api = {
   deleteProject: (id) => request(projectPath(id), { method: "DELETE" }),
   uploadVoice: (id, file) =>
     request(`${projectPath(id)}/voice`, { method: "POST", form: formData({}, "voice", file) }),
+  addVoice: (id, file, name = "") =>
+    request(`${projectPath(id)}/voices`, { method: "POST", form: formData({ name }, "voice", file) }),
+  patchVoice: (id, voiceId, name) =>
+    request(`${projectPath(id)}/voices/${voiceId}`, { method: "PATCH", body: { name } }),
+  deleteVoiceItem: (id, voiceId) =>
+    request(`${projectPath(id)}/voices/${voiceId}`, { method: "DELETE" }),
   voiceSample: (id, body) =>
     request(`${projectPath(id)}/voice/sample`, { method: "POST", body }),
   deleteVoice: (id) => request(`${projectPath(id)}/voice`, { method: "DELETE" }),
@@ -637,6 +648,7 @@ function readForm() {
     mode: state.mode,
     script: $("#f-script").value.replace(/\s+$/g, "").replace(/^\s+/g, ""),
     voice_description: $("#f-voice-desc").value.trim(),
+    material_note: $("#f-material-note")?.value.trim() || "",
     chars_per_second: Number(cps.toFixed(2)),
     target_seconds: target,
     max_seconds: max,
@@ -737,6 +749,7 @@ function fillForm(project) {
   $("#f-target").value = project.target_seconds ?? 8;
   $("#f-max").value = project.max_seconds ?? 12;
   $("#f-voice-desc").value = project.voice_description || "";
+  if ($("#f-material-note")) $("#f-material-note").value = project.material_note || "";
   $("#asr-enabled").checked = project.asr?.enabled !== false;
   if (project.asr?.model) setSelectValue($("#asr-model"), project.asr.model === "base" ? "base" : "small");
   if (project.asr?.language) setSelectValue($("#asr-language"), project.asr.language === "auto" ? "auto" : "zh");
@@ -755,6 +768,7 @@ function resetForm() {
   $("#f-target").value = "8";
   $("#f-max").value = "12";
   $("#f-voice-desc").value = "";
+  if ($("#f-material-note")) $("#f-material-note").value = "";
   $("#f-seed").value = "0";
   $("#asr-enabled").checked = true;
   setSelectValue($("#asr-model"), "small");
@@ -1343,6 +1357,51 @@ function modeHintText(mode) {
   return "无音频参考：只用台词与音色描述，按约 5 字/秒规划每段时长，视频自带生成音频。";
 }
 
+async function switchMode(mode) {
+  const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 2;
+  const project = state.project;
+  if (!project || Number(project.mode) === value) {
+    setMode(value);
+    return;
+  }
+  const ok = await confirmDialog(
+    "切换创作模式",
+    `当前作品是「${MODE_LABEL[Number(project.mode)]}」，切换为「${MODE_LABEL[value]}」`
+      + "会重置分段、素材与生成结果（项目名和设定保留）。是否切换？",
+    "切换模式"
+  );
+  if (!ok) {
+    // 用户取消：把高亮还原成作品真实模式，避免“看着是模式 2、实际还是模式 1”
+    setMode(Number(project.mode), { quiet: true });
+    return;
+  }
+  // 模式 1 的台词来自音频识别（project.script 可能为空）：切到 2/3 前把分段台词抄进台词框，
+  // 切换后就能直接按台词重建分段，不会出现“切完什么都没有”。
+  const oldScript = String(project.script || "").trim();
+  const derivedScript = (project.segments || []).map((row) => String(row.text || "").trim())
+    .filter(Boolean).join("");
+  const payload = { mode: value };
+  if (value !== 1 && !oldScript && derivedScript) payload.script = derivedScript;
+  await withBusy(document.querySelector(`[data-mode-card="${value}"]`), async () => {
+    const data = await api.patchProject(project.id, payload);
+    state.pendingVoice = null;
+    state.pendingAudio = null;
+    applyProject(data.project, { fill: true });
+    setMode(value, { quiet: true });
+    await loadProjects();
+    // 模式 2/3 没有音频时间轴：切过来后按现有台词自动重建分段，避免“分段没了”
+    if (value !== 1 && String(data.project.script || "").trim()
+        && !(data.project.segments || []).length) {
+      toast("正在按台词重建分段…", "info", 4000);
+      await planSegments({ silent: true });
+    }
+    toast(`已切换为「${MODE_LABEL[value]}」并保存到当前作品`, "ok");
+  }).catch((err) => {
+    toast(`切换模式失败：${err.message}`, "err", 7000);
+    setMode(Number(project.mode), { quiet: true });
+  });
+}
+
 function setMode(mode, { quiet = false } = {}) {
   const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 2;
   state.mode = value;
@@ -1432,6 +1491,75 @@ async function toggleVoiceAudition() {
   }
 }
 
+function voiceFileUrl(project, voice) {
+  const filename = String(voice?.filename || "");
+  if (!project || !filename) return "";
+  const path = filename.includes("/") ? filename : `voice/${filename}`;
+  return mediaUrl(project.id, path, voice.uploaded);
+}
+
+function renderVoiceList() {
+  const box = $("#voice-list");
+  if (!box) return;
+  const project = state.project;
+  if (state.mode !== 2) { box.innerHTML = ""; box.classList.add("hidden"); return; }
+  let items = [];
+  if (project && Array.isArray(project.voices) && project.voices.length) {
+    items = project.voices.map((voice, index) => ({ voice, primary: index === 0 }));
+  } else if (project && project.voice) {
+    items = [{ voice: project.voice, primary: true }];
+  } else if (state.pendingVoice) {
+    items = [{ voice: { name: state.pendingVoice.name, filename: state.pendingVoice.name,
+      duration: state.pendingVoice._probeDuration || 0, pending: true }, primary: true }];
+  }
+  box.classList.toggle("hidden", !items.length);
+  box.innerHTML = items.map(({ voice, primary }) => {
+    const duration = num(voice.sample_length) || num(voice.duration);
+    return `<div class="av-voice-item ${primary ? "active" : ""}" data-voice-id="${esc(String(voice.id || ""))}">
+      <input class="input av-voice-name" data-voice-name value="${esc(String(voice.name || voice.filename || "音色"))}"
+        ${voice.pending ? "disabled" : ""} title="改个名字，方便在创作要求里引用">
+      ${primary ? '<span class="av-voice-tag">主音色</span>' : ""}
+      <span class="av-voice-dur">${duration > 0 ? `${duration.toFixed(1)}s` : "已选择"}</span>
+      <button class="btn ghost sm" type="button" data-voice-audition title="试听这个音色">试听</button>
+      ${voice.pending ? "" : `<button class="btn ghost sm" type="button" data-voice-delete title="删除这个音色">删除</button>`}
+    </div>`;
+  }).join("");
+}
+
+function auditionVoice(voice) {
+  const el = $("#voice-audition");
+  const src = voiceFileUrl(state.project, voice);
+  if (!el || !src) { toast("这个音色还没有可试听的文件", "warn"); return; }
+  el.src = src;
+  el.play().catch(() => toast("无法播放这个音色", "err"));
+}
+
+async function renameVoice(voiceId, name) {
+  const p = state.project;
+  if (!p || !voiceId) return;
+  try {
+    const data = await api.patchVoice(p.id, voiceId, name);
+    state.project = data.project;
+    toast(`音色已改名为「${name}」`, "ok", 2600);
+  } catch (error) {
+    toast(`音色改名失败：${error.message}`, "err", 6000);
+  }
+}
+
+async function removeVoice(voiceId) {
+  const p = state.project;
+  if (!p || !voiceId) return;
+  const ok = await confirmDialog("删除音色", "删除后，引用这个音色的提示词可能失效。继续？", "删除");
+  if (!ok) return;
+  try {
+    const data = await api.deleteVoiceItem(p.id, voiceId);
+    applyProject(data.project, { fill: false, segments: false });
+    toast("音色已删除", "ok", 3000);
+  } catch (error) {
+    toast(`删除音色失败：${error.message}`, "err", 6000);
+  }
+}
+
 function renderVoice() {
   const voice = currentVoice();
   const drop = $("#voice-drop");
@@ -1492,6 +1620,7 @@ function renderVoice() {
       $("#btn-voice-audition").disabled = false;
     }
   }
+  renderVoiceList();
 }
 
 async function saveVoiceSample() {
@@ -1593,17 +1722,19 @@ function probeAudioDuration(file) {
 
 async function handleVoiceFile(file) {
   if (!file) return;
+  if (state.project && Number(state.project.mode) !== 2) {
+    toast(`当前作品是「${MODE_LABEL[Number(state.project.mode)]}」，不能上传参考音频；`
+      + "请先把左侧模式切到「参考音色」并确认切换（或新建模式 2 作品）", "warn", 8000);
+    return;
+  }
   const duration = await probeAudioDuration(file);
   if (state.project) {
     await withBusy($("#btn-voice-replace"), async () => {
-      const data = await api.uploadVoice(state.project.id, file);
+      const data = await api.addVoice(state.project.id, file, "");
       state.pendingVoice = null;
       applyProject(data.project, { fill: false, segments: false });
-      const voice = data.project?.voice || {};
-      const sample = num(voice.sample_length);
-      toast(sample > 0 && num(voice.source_duration) > sample + 0.1
-        ? `参考音频已上传：原音 ${num(voice.source_duration).toFixed(1)} 秒，已自动截取 ${sample.toFixed(1)} 秒音色样本`
-        : "参考音频已上传", "ok");
+      const count = (data.project?.voices || []).length;
+      toast(`已添加音色「${data.voice?.name || "音色"}」（共 ${count} 个）`, "ok");
     }).catch((err) => toast(`音频上传失败：${err.message}`, "err"));
     return;
   }
@@ -1633,6 +1764,11 @@ async function deleteVoice() {
 
 async function handleAudioFile(file) {
   if (!file) return;
+  if (state.project && Number(state.project.mode) !== 1) {
+    toast(`当前作品是「${MODE_LABEL[Number(state.project.mode)]}」，不能上传驱动音频；`
+      + "请先把左侧模式切到「音频驱动」并确认切换（或新建模式 1 作品）", "warn", 8000);
+    return;
+  }
   const duration = await probeAudioDuration(file);
   state.pendingAudio = file;
   file._probeDuration = duration;
@@ -2421,6 +2557,8 @@ async function planSegments({ silent = false } = {}) {
       applyProject(data.project, { fill: false });
       await loadProjects();
       if (!silent) {
+        const list = $("#seg-list");
+        if (list) list.scrollIntoView({ behavior: "smooth", block: "start" });
         const warnings = data.warnings || [];
         toast(
           warnings.length
@@ -2495,28 +2633,333 @@ function promptMetaInner(seg) {
     ${lintDetails}`;
 }
 
+function refRoleLabel(role) {
+  return ({ performer: "人物", environment: "场景", appearance: "服装",
+    subject: "配角/道具", other: "其他" })[role] || role || "其他";
+}
+
+function noteMaterialHint() {
+  const p = state.project;
+  if (!p) return "";
+  const refCount = (p.refs || []).length;
+  const mode = Number(p.mode) || 3;
+  const voiceCount = mode === 2
+    ? (p.voices?.length || (p.voice?.filename ? 1 : 0)) : 0;
+  const parts = [];
+  if (refCount) parts.push(`图片 ${refCount} 张（@图1…@图${refCount}）`);
+  if (voiceCount) parts.push(`音色 ${voiceCount} 个（@音频1…@音频${voiceCount}）`);
+  return parts.length ? "可用：" + parts.join(" · ") : "当前没有可引用素材";
+}
+
+function toggleSegmentAudition(index) {
+  const p = state.project;
+  const audio = $("#av-audio");
+  if (!p || !audio) return;
+  if (state.auditionIndex === index) {
+    audio.pause();
+    state.auditionIndex = null;
+    renderSegments();
+    return;
+  }
+  syncAudioSource(p);
+  state.auditionIndex = index;
+  state.auditionEnd = segmentEnd(p, index);
+  audio.currentTime = Math.max(0, segmentStart(p, index));
+  audio.play().catch(() => {
+    state.auditionIndex = null;
+    toast("无法播放音频，请检查源文件", "err");
+    renderSegments();
+  });
+  renderSegments();
+}
+
+function stopSegmentAudition() {
+  if (state.auditionIndex === null) return;
+  $("#av-audio")?.pause();
+  state.auditionIndex = null;
+  renderSegments();
+}
+
+function openTakePreview(project, seg, takeId) {
+  const take = (seg?.takes || []).find((item) => String(item.take_id) === String(takeId));
+  if (!take?.file) { toast("这条片段还没有视频文件", "warn"); return; }
+  const modal = $("#modal-take-preview");
+  const video = $("#take-preview-video");
+  $("#take-preview-title").textContent = `第 ${Number(seg.index) + 1} 段 · 片段预览`;
+  video.src = mediaUrl(project.id, take.file, take.created);
+  modal.hidden = false;
+  const close = () => {
+    video.pause();
+    video.removeAttribute("src");
+    modal.hidden = true;
+    $$("[data-close]", modal).forEach((btn) => btn.removeEventListener("click", close));
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (event) => { if (event.key === "Escape") close(); };
+  $$("[data-close]", modal).forEach((btn) => btn.addEventListener("click", close));
+  document.addEventListener("keydown", onKey);
+}
+
+function openImagePreview(src, title) {
+  const modal = $("#modal-image-preview");
+  const img = $("#image-preview-img");
+  if (!modal || !img || !src) return;
+  img.src = src;
+  img.alt = title || "参考图";
+  $("#image-preview-title").textContent = title || "参考图预览";
+  modal.hidden = false;
+  const close = () => {
+    img.removeAttribute("src");
+    modal.hidden = true;
+    $$("[data-close]", modal).forEach((btn) => btn.removeEventListener("click", close));
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (event) => { if (event.key === "Escape") close(); };
+  $$("[data-close]", modal).forEach((btn) => btn.addEventListener("click", close));
+  document.addEventListener("keydown", onKey);
+}
+
+function segmentRefsHtml(project, seg) {
+  const refs = project.refs || [];
+  if (!refs.length) return "";
+  const selected = Array.isArray(seg.ref_ids)
+    ? seg.ref_ids.filter((value) => Number.isInteger(value) && value >= 0 && value < refs.length)
+    : refs.map((_, index) => index);
+  const mapping = selected.length
+    ? selected.map((global, local) => `<Picture ${local + 1}>=图${global + 1}`).join(" · ")
+    : "本段没有启用任何参考图";
+  return `<div class="av-seg-refs">
+    <div class="av-seg-refs-head"><span>本段参考图</span>
+      <span class="hint">默认全用；点缩略图可预览；只把勾选的图发给 AI / H3（编号即入参顺序）</span></div>
+    <div class="av-ref-check-list">
+      ${refs.map((ref, index) => {
+        const thumb = mediaUrl(project.id, `refs/${ref.filename}`, ref.added);
+        const title = `图${index + 1} · ${ref.title || ref.filename}`;
+        return `<span class="av-ref-item">
+          <button class="av-ref-thumb-btn" type="button" data-action="ref-preview"
+            data-src="${esc(thumb)}" data-title="${esc(title)}" title="预览这张参考图">
+            <img class="av-ref-thumb" src="${esc(thumb)}" alt="${esc(title)}" loading="lazy">
+          </button>
+          <label class="av-ref-check">
+            <input type="checkbox" data-ref-check data-index="${seg.index}" data-ref="${index}"
+              ${selected.includes(index) ? "checked" : ""}>
+            <span>图${index + 1} · ${esc(ref.title || ref.filename)}<em>${refRoleLabel(ref.role)}</em></span>
+          </label>
+        </span>`;
+      }).join("")}
+    </div>
+    <div class="av-ref-map">${esc(mapping)}</div>
+  </div>`;
+}
+
+function segmentVoicesHtml(project, seg) {
+  if (Number(project.mode) !== 2) return "";
+  const voices = (project.voices || []).length
+    ? project.voices
+    : (project.voice ? [project.voice] : []);
+  if (!voices.length) {
+    return `<div class="av-seg-voices"><div class="av-seg-voices-head">
+      <span>本段音色</span><span class="hint">还没有音色：先在左侧「参考音色」上传</span></div></div>`;
+  }
+  const note = String(seg.note || "");
+  const prompt = String(seg.prompt || "");
+  return `<div class="av-seg-voices">
+    <div class="av-seg-voices-head"><span>本段音色</span>
+      <span class="hint">点「试听」听参考音色；谁用哪个写在创作要求里</span></div>
+    <div class="av-voice-mini-list">
+      ${voices.map((voice, index) => {
+        const used = new RegExp(`@音频${index + 1}\\b`).test(note)
+          || new RegExp(`<Audio ${index + 1}>`).test(prompt);
+        return `<span class="av-voice-mini ${used ? "used" : ""}" data-seg-voice-id="${esc(String(voice.id || ""))}" data-seg-voice-index="${index}">
+          <span>音频${index + 1} · ${esc(voice.name || voice.filename || "音色")}</span>
+          <button class="btn ghost sm" type="button" data-action="seg-voice-audition"
+            data-index="${seg.index}" data-voice-id="${esc(String(voice.id || ""))}" data-voice-index="${index}">试听</button>
+          ${used ? "<em>本段引用</em>" : ""}
+        </span>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
+function segmentNoteHtml(seg) {
+  const mode = Number(state.project?.mode) || 3;
+  return `<div class="av-seg-note">
+    <div class="av-seg-note-head"><span>本段创作要求</span>
+      <span class="hint">优先级最高 · 支持 @图N${mode === 2 ? " / @音频N" : ""}</span></div>
+    <textarea class="av-note-area" data-note-index="${seg.index}" spellcheck="false"
+      placeholder="例：让 @图1 的角色${mode === 2 ? "用 @音频1 的音色" : ""}在 @图2 的背景下讲话；镜头慢慢推近。">${esc(seg.note || "")}</textarea>
+    <div class="av-note-tools">
+      <button class="btn ghost sm" type="button" data-action="note-mention" data-index="${seg.index}">@ 引用素材</button>
+      <span class="av-note-map">${esc(noteMaterialHint())}</span>
+    </div>
+  </div>`;
+}
+
+const persistSegmentRefs = debounce(async (index, refIds) => {
+  const p = state.project;
+  if (!p) return;
+  try {
+    const data = await api.patchSegment(p.id, index, { ref_ids: refIds });
+    state.project = data.project;
+    renderSegments();
+    toast(refIds === null ? "本段已改为使用全部参考图"
+      : `本段参考图已更新（${refIds.length} 张）`, "info", 3200);
+  } catch (error) {
+    toast(`本段参考图保存失败：${error.message}`, "err", 6000);
+  }
+}, 500);
+
+const persistSegmentNote = debounce(async (index, value) => {
+  const p = state.project;
+  if (!p) return;
+  try {
+    const data = await api.patchSegment(p.id, index, { note: value });
+    state.project = data.project;
+  } catch (error) {
+    toast(`本段创作要求保存失败：${error.message}`, "err", 6000);
+  }
+}, 700);
+
+function mentionCandidates() {
+  const p = state.project;
+  const items = [];
+  (p?.refs || []).forEach((ref, i) => {
+    items.push({ type: "picture", index: i + 1, token: `@图${i + 1}`,
+      label: `图${i + 1} · ${ref.title || ref.filename}`,
+      sub: refRoleLabel(ref.role),
+      thumb: mediaUrl(p.id, `refs/${ref.filename}`, ref.added) });
+  });
+  if (Number(p?.mode) === 2) {
+    const voices = p.voices?.length
+      ? p.voices
+      : (p.voice?.filename ? [{ name: "默认音色", filename: p.voice.filename, uploaded: p.voice.uploaded }] : []);
+    voices.forEach((voice, i) => {
+      items.push({ type: "audio", index: i + 1, token: `@音频${i + 1}`,
+        label: `音频${i + 1} · ${voice.name || "音色"}`,
+        sub: "音色素材（不是人物身份绑定）",
+        audio: voiceFileUrl(p, voice) });
+    });
+  }
+  return items;
+}
+
+function renderMentionList() {
+  const list = $("#mention-list");
+  if (!list) return;
+  list.innerHTML = state.mention.items.map((item, i) => `
+    <div class="mention-item ${i === state.mention.active ? "active" : ""}" data-mention-index="${i}">
+      ${item.thumb ? `<img src="${esc(item.thumb)}" alt="">`
+        : `<span class="mi-icon"><svg><use href="#i-wave"/></svg></span>`}
+      <span class="mi-body"><span class="mi-label">${esc(item.label)}</span>
+        <span class="mi-sub">${esc(item.sub || "")}</span></span>
+    </div>`).join("");
+}
+
+function renderMentionPreview() {
+  const box = $("#mention-preview");
+  const item = state.mention.items[state.mention.active];
+  if (!box) return;
+  box.innerHTML = !item ? '<span class="hint">选择素材可预览</span>'
+    : item.thumb ? `<img src="${esc(item.thumb)}" alt="${esc(item.label)}">`
+    : `<audio controls preload="none" src="${esc(item.audio || "")}"></audio>`;
+}
+
+function closeMentionPop() {
+  $("#mention-pop")?.classList.add("hidden");
+  const insertBtn = $("#btn-mention-insert");
+  if (insertBtn) insertBtn.disabled = true;
+  state.mention.target = null;
+  state.mention.onPick = null;
+}
+
+function insertAtCaret(textarea, token, { trimAt = false } = {}) {
+  if (!textarea) return;
+  let start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? start;
+  let value = textarea.value;
+  if (trimAt && start > 0 && value.slice(start - 1, start) === "@") {
+    value = value.slice(0, start - 1) + value.slice(start);
+    start -= 1;
+  }
+  textarea.value = value.slice(0, start) + token + value.slice(end);
+  textarea.selectionStart = textarea.selectionEnd = start + token.length;
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  textarea.focus();
+}
+
+function openMentionPop(target, onPick, { trimAt = false } = {}) {
+  if (!target) return;
+  const items = mentionCandidates();
+  if (!items.length) { toast("当前没有可引用的素材（先上传参考图/音色）", "warn", 4200); return; }
+  state.mention = { items, active: 0, target, onPick, trimAt };
+  const pop = $("#mention-pop");
+  renderMentionList();
+  renderMentionPreview();
+  pop.classList.remove("hidden");
+  const insertBtn = $("#btn-mention-insert");
+  if (insertBtn) insertBtn.disabled = false;
+  const rect = target.getBoundingClientRect();
+  const width = 620;
+  pop.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 12))}px`;
+  const top = rect.bottom + 6;
+  pop.style.top = `${top + 300 > window.innerHeight ? Math.max(8, rect.top - 300) : top}px`;
+}
+
+function mentionKeydown(event) {
+  const pop = $("#mention-pop");
+  if (!pop || pop.classList.contains("hidden")) return false;
+  if (event.key === "Escape") { event.preventDefault(); closeMentionPop(); return true; }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    state.mention.active = (state.mention.active + delta + state.mention.items.length)
+      % state.mention.items.length;
+    renderMentionList();
+    renderMentionPreview();
+    return true;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    const item = state.mention.items[state.mention.active];
+    if (item && state.mention.onPick) state.mention.onPick(item.token);
+    closeMentionPop();
+    return true;
+  }
+  return false;
+}
+
+function promptElapsed(index) {
+  const started = state.generatingPrompt[index];
+  return started ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0;
+}
+
 function promptBlockHtml(seg) {
   const prompt = (seg.prompt || "").trim();
-  if (!prompt) return "";
-  const { cls, text } = lintSummary(seg);
+  const generating = Boolean(state.generatingPrompt[seg.index]);
   const overlay = state.designGraphicsMode === "overlay";
   const stale = !!seg.prompt_meta?.stale;
-  return `<details class="av-seg-prompt">
+  const { cls, text } = prompt ? lintSummary(seg) : { cls: "info", text: "未生成" };
+  const status = generating ? `生成中（${promptElapsed(seg.index)}s）` : text;
+  return `<details class="av-seg-prompt" ${prompt ? "" : "open"}>
     <summary>
       <svg><use href="#i-chevron"/></svg>
       <span>提示词</span>
-      <span class="lint-pill ${cls}">${esc(text)}</span>
-      ${stale ? '<span class="pill av-stale-pill" title="节拍或设计已变更，提示词可能已过期">可能已过期</span>' : ""}
+      <span class="lint-pill ${generating ? "info" : cls}">${esc(status)}</span>
+      ${stale ? '<span class="pill av-stale-pill" title="节拍/设计/创作要求已变更，提示词可能已过期">可能已过期</span>' : ""}
       <span class="grow"></span>
       <span class="av-prompt-toggle">展开编辑</span>
     </summary>
     <div class="av-prompt-body">
       <div class="av-prompt-meta" data-meta-index="${seg.index}">${promptMetaInner(seg)}</div>
       <p class="av-overlay-inline" ${overlay ? "" : "hidden"}>叠加模式：提示词只写人物表演 / 构图 / 光，文字与 logo 由后期确定性叠加，不要求生成画面文字。</p>
-      <textarea class="av-prompt-area" spellcheck="false" data-prompt-index="${seg.index}">${esc(seg.prompt)}</textarea>
+      <textarea class="av-prompt-area" spellcheck="false" data-prompt-index="${seg.index}"
+        placeholder="可以直接手写/粘贴提示词；也可以点「AI 生成」，让 AI 按全局 + 本段创作要求写…">${esc(seg.prompt || "")}</textarea>
       <div class="av-prompt-bar">
-        <span class="av-prompt-hint">保存后重新生成会用新提示词</span>
+        <span class="av-prompt-hint">${generating
+          ? "AI 正在写，可继续等待；完成后会自动填入并展开"
+          : (prompt ? "保存后重新生成会用新提示词" : "提示词可以为空：生成视频时会先按内置模板/LLM 自动补上")}</span>
         <div class="av-prompt-bar-actions">
+          <button class="btn ghost sm${generating ? " generating" : ""}" type="button" data-action="seg-prompt" data-index="${seg.index}" ${generating ? "disabled" : ""}>${generating ? "生成中…" : "AI 生成"}</button>
           <button class="btn ghost sm" type="button" data-action="save-prompt" data-index="${seg.index}">保存</button>
           <button class="btn ghost sm" type="button" data-action="lint-prompt" data-index="${seg.index}">Lint 检查</button>
           <button class="btn ghost sm" type="button" data-action="repair-prompt" data-index="${seg.index}">
@@ -2796,12 +3239,14 @@ function takesHtml(project, seg) {
         ? ""
         : `<span class="take-overlay ${overlayFlag ? "" : "none"}">${overlayFlag ? "已叠加" : "未叠加"}</span>`;
       return `<div class="av-take ${active ? "active" : ""}" role="button" tabindex="0"
-        data-action="take-select" data-index="${seg.index}" data-take="${esc(take.take_id)}"
-        title="${active ? "当前选用" : "点击选用这个片段"}${take.created ? ` · ${esc(fmtWhen(take.created))}` : ""}">
+        data-action="take-preview" data-index="${seg.index}" data-take="${esc(take.take_id)}"
+        title="点击预览这个片段${take.created ? ` · ${esc(fmtWhen(take.created))}` : ""}">
         ${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy">` : fallback}
         <span class="take-no">${takeIndex + 1}</span>
         ${overlayBadge}
-        ${active ? '<span class="take-picked">✓</span>' : `<button class="take-del" type="button" data-action="take-del" data-index="${seg.index}" data-take="${esc(take.take_id)}" title="删除这个片段"><svg><use href="#i-close"/></svg></button>`}
+        ${active ? '<span class="take-picked">✓</span>'
+          : `<button class="take-choose" type="button" data-action="take-select" data-index="${seg.index}" data-take="${esc(take.take_id)}" title="把这条设为使用中的片段">选用</button>`}
+        ${active ? "" : `<button class="take-del" type="button" data-action="take-del" data-index="${seg.index}" data-take="${esc(take.take_id)}" title="删除这个片段"><svg><use href="#i-close"/></svg></button>`}
       </div>`;
     })
     .join("");
@@ -2846,6 +3291,9 @@ function segCardHtml(project, seg) {
         placeholder="${isMode1 ? "这一段的台词（来自语音识别或按比例分配，可修改）…" : "这一段的台词…"}">${esc(seg.text || "")}</textarea>
       ${seg.error ? `<div class="av-seg-error">${esc(seg.error)}</div>` : ""}
       ${warningsHtml(seg)}
+      ${segmentRefsHtml(project, seg)}
+      ${segmentVoicesHtml(project, seg)}
+      ${segmentNoteHtml(seg)}
       ${promptBlockHtml(seg)}
       ${beatsBlockHtml(project, seg)}
       <div class="av-takes">
@@ -2854,14 +3302,20 @@ function segCardHtml(project, seg) {
       </div>
     </div>
     <div class="av-seg-actions">
-      <button class="btn ghost sm" type="button" data-action="seg-prompt" data-index="${seg.index}" title="${esc(promptTitle)}">
-        <svg><use href="#i-spark"/></svg>生成提示词
+      <button class="btn ghost sm${state.generatingPrompt[seg.index] ? " generating" : ""}" type="button"
+        data-action="seg-prompt" data-index="${seg.index}" title="${esc(promptTitle)}"
+        ${state.generatingPrompt[seg.index] ? "disabled" : ""}>
+        <svg><use href="#i-spark"/></svg>${state.generatingPrompt[seg.index]
+          ? `生成中（${promptElapsed(seg.index)}s）` : (seg.prompt ? "重写提示词" : "生成提示词")}
       </button>
       <button class="btn ghost sm" type="button" data-action="seg-regen" data-index="${seg.index}">
         <svg><use href="#i-refresh"/></svg>重生成
       </button>
       ${isMode1 && seg.index < (project.segments || []).length - 1 ? `<button class="btn ghost sm" type="button" data-action="seg-merge" data-index="${seg.index}">
         <svg><use href="#i-merge"/></svg>合并下段
+      </button>` : ""}
+      ${isMode1 ? `<button class="btn ghost sm" type="button" data-action="seg-audition" data-index="${seg.index}">
+        <svg><use href="#i-play"/></svg>${state.auditionIndex === seg.index ? "停止试听" : "试听"}
       </button>` : ""}
     </div>
   </article>`;
@@ -3014,6 +3468,23 @@ function renderLogs(logs) {
     })
     .join("");
   if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+function transientRunState(text) {
+  const pill = $("#run-state");
+  if (!pill) return () => {};
+  const previous = { text: pill.textContent, cls: pill.className };
+  const stage = $("#run-stage");
+  const previousStage = stage ? stage.textContent : null;
+  pill.textContent = text;
+  pill.className = "pill status-running";
+  if (stage) stage.textContent = text;
+  return () => {
+    if (state.run) return; // 已有真实生成任务：交给 renderRun 刷新
+    pill.textContent = previous.text;
+    pill.className = previous.cls;
+    if (stage && previousStage !== null) stage.textContent = previousStage;
+  };
 }
 
 function renderRun(run) {
@@ -3210,6 +3681,21 @@ function promptToast(sourceKey, lint) {
 async function generateSegmentPrompt(index) {
   const p = state.project;
   if (!p) return;
+  if (state.generatingPrompt[index]) return;
+  state.generatingPrompt[index] = Date.now();
+  renderSegments();
+  openSegmentDetails(index, ".av-seg-prompt");
+  if (state.promptTicker) clearInterval(state.promptTicker);
+  state.promptTicker = setInterval(() => {
+    if (!Object.keys(state.generatingPrompt).length) {
+      clearInterval(state.promptTicker);
+      state.promptTicker = null;
+      return;
+    }
+    renderSegments();
+  }, 1000);
+  const restore = transientRunState(`生成提示词（第 ${index + 1} 段）…`);
+  try {
   await withBusy(null, async () => {
     const data = await api.segmentPrompt(p.id, index, { repair: true });
     applyPromptResult(index, data);
@@ -3227,7 +3713,19 @@ async function generateSegmentPrompt(index) {
     if (Array.isArray(data.project?.segments?.[index]?.beats) && !data.project.segments[index].beats.length) {
       toast("节拍表为空：生成提示词时 AI 会自动设计节拍（可展开节拍表查看）", "info", 6000);
     }
-  }).catch((err) => toast(`提示词生成失败：${err.message}`, "err", 7000));
+  });
+  } catch (err) {
+    toast(`提示词生成失败：${err.message}`, "err", 7000);
+  } finally {
+    delete state.generatingPrompt[index];
+    if (!Object.keys(state.generatingPrompt).length && state.promptTicker) {
+      clearInterval(state.promptTicker);
+      state.promptTicker = null;
+    }
+    restore();
+    renderSegments();
+    openSegmentDetails(index, ".av-seg-prompt");
+  }
 }
 
 async function saveSegmentPrompt(index, value) {
@@ -3342,6 +3840,8 @@ async function generateAllPrompts() {
   const p = state.project;
   if (!p) return toast("请先新建作品", "err");
   if (!(p.segments || []).length) return toast("请先按台词分段", "err");
+  const restore = transientRunState(`批量生成提示词（${p.segments.length} 段）…`);
+  try {
   await withBusy($("#btn-prompts-all"), async () => {
     const data = await api.promptsAll(p.id);
     state.project = data.project;
@@ -3356,7 +3856,12 @@ async function generateAllPrompts() {
       warnings.length ? "info" : "ok",
       6000
     );
-  }).catch((err) => toast(`提示词生成失败：${err.message}`, "err", 6000));
+  });
+  } catch (err) {
+    toast(`提示词生成失败：${err.message}`, "err", 6000);
+  } finally {
+    restore();
+  }
 }
 
 async function generateRun() {
@@ -3699,6 +4204,9 @@ function bindAudioElement() {
   if (!el) return;
   el.addEventListener("timeupdate", () => {
     if (!state.draggingPlayhead) setPlayhead(el.currentTime, { seek: false });
+    if (state.auditionIndex !== null && el.currentTime >= state.auditionEnd - 0.02) {
+      stopSegmentAudition();
+    }
   });
   el.addEventListener("play", updatePlayLabel);
   el.addEventListener("pause", updatePlayLabel);
@@ -3787,11 +4295,56 @@ function bindEvents() {
     btn.addEventListener("click", () => {
       const next = Number(btn.dataset.modeCard);
       if (state.mode === next) return;
-      setMode(next);
+      switchMode(next);
     });
   });
 
   $("#f-script").addEventListener("input", updateScriptCount);
+  $(".av-stage").addEventListener("input", (event) => {
+    const area = event.target.closest("[data-note-index]");
+    if (!area) return;
+    const card = area.closest(".av-seg");
+    const index = Number(card?.dataset.index);
+    const caret = area.selectionStart;
+    if (area.value.slice(caret - 1, caret) === "@") {
+      openMentionPop(area, (token) => insertAtCaret(area, token, { trimAt: true }), { trimAt: true });
+    }
+    if (Number.isFinite(index)) persistSegmentNote(index, area.value);
+  });
+  document.addEventListener("change", (event) => {
+    const box = event.target.closest("[data-ref-check]");
+    if (!box) return;
+    const card = box.closest(".av-seg");
+    const index = Number(card?.dataset.index);
+    const p = state.project;
+    if (!p || !Number.isFinite(index)) return;
+    const boxes = Array.from(card.querySelectorAll("[data-ref-check]"));
+    const chosen = boxes.filter((item) => item.checked)
+      .map((item) => Number(item.dataset.ref)).sort((a, b) => a - b);
+    const allCount = (p.refs || []).length;
+    persistSegmentRefs(index, chosen.length === allCount ? null : chosen);
+  }, true);
+  document.addEventListener("keydown", (event) => {
+    if (mentionKeydown(event)) event.stopPropagation();
+  }, true);
+  document.addEventListener("click", (event) => {
+    const pop = $("#mention-pop");
+    if (!pop || pop.classList.contains("hidden")) return;
+    const item = event.target.closest("[data-mention-index]");
+    if (item) {
+      state.mention.active = Number(item.dataset.mentionIndex);
+      renderMentionList();
+      renderMentionPreview();
+      return;
+    }
+    if (event.target.closest("#btn-mention-insert")) {
+      const chosen = state.mention.items[state.mention.active];
+      if (chosen && state.mention.onPick) state.mention.onPick(chosen.token);
+      closeMentionPop();
+      return;
+    }
+    if (!event.target.closest("#mention-pop")) closeMentionPop();
+  }, true);
   $("#f-cps").addEventListener("input", () => {
     const value = num($("#f-cps").value, 5);
     if (value < 1 || value > 12) $("#f-cps").value = String(clamp(value || 5, 1, 12));
@@ -3851,6 +4404,30 @@ function bindEvents() {
   $("#btn-audio-del").addEventListener("click", deleteAudio);
 
   bindDragEvents($("#voice-drop"), $("#voice-input"), handleVoiceFile);
+  document.addEventListener("click", (event) => {
+    const row = event.target.closest(".av-voice-item");
+    if (!row) return;
+    const voiceId = row.dataset.voiceId || "";
+    const project = state.project;
+    const voice = (project?.voices || []).find((item) => String(item.id) === voiceId)
+      || (project?.voice && String(project.voice.id) === voiceId ? project.voice : null);
+    if (event.target.closest("[data-voice-audition]")) {
+      if (voice) auditionVoice(voice);
+      return;
+    }
+    if (event.target.closest("[data-voice-delete]")) {
+      removeVoice(voiceId);
+      return;
+    }
+  }, true);
+  document.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-voice-name]");
+    if (!input) return;
+    const row = input.closest(".av-voice-item");
+    const voiceId = row?.dataset.voiceId || "";
+    const name = input.value.trim();
+    if (voiceId && name) renameVoice(voiceId, name);
+  }, true);
   $("#btn-voice-replace").addEventListener("click", () => $("#voice-input").click());
   $("#btn-voice-del").addEventListener("click", deleteVoice);
   $("#btn-voice-audition").addEventListener("click", toggleVoiceAudition);
@@ -3926,6 +4503,26 @@ function bindEvents() {
       return;
     }
     if (action === "seg-prompt") generateSegmentPrompt(index);
+    else if (action === "seg-audition") toggleSegmentAudition(index);
+    else if (action === "ref-preview") openImagePreview(el.dataset.src, el.dataset.title);
+    else if (action === "seg-voice-audition") {
+      const p = state.project;
+      const voices = (p?.voices || []).length ? p.voices : (p?.voice ? [p.voice] : []);
+      const voiceId = el.dataset.voiceId || "";
+      const voice = voices.find((item) => String(item.id) === voiceId)
+        || voices[Number(el.dataset.voiceIndex)] || voices[0];
+      if (voice) auditionVoice(voice);
+    }
+    else if (action === "take-preview") {
+      const seg = currentSegment(index);
+      if (seg) openTakePreview(state.project, seg, el.dataset.take);
+    }
+    else if (action === "note-mention") {
+      const card = el.closest(".av-seg");
+      const area = card?.querySelector(".av-note-area");
+      const target = area || $("#f-material-note");
+      openMentionPop(target, (token) => insertAtCaret(target, token, { trimAt: state.mention.trimAt }));
+    }
     else if (action === "seg-regen") regenerateSegment(index);
     else if (action === "seg-merge") mergeDown(index);
     else if (action === "save-prompt") {

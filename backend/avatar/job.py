@@ -211,7 +211,7 @@ class AvatarRunner:
                 raise ValueError("缺少生成参数：" + "、".join(missing) + "（请在右侧参数里选择模型）")
             self._update(project_id, message="上传参考图", stage="upload", progress=0.02)
             ref_names = self._upload_refs(project_id, project)
-            audio_name = self._upload_voice(project_id, project)
+            audio_names = self._upload_voices(project_id, project)
             project = store.get(project_id)
             segments = project.get("segments") or []
             only = {int(value) for value in (options or {}).get("only") or []}
@@ -231,7 +231,7 @@ class AvatarRunner:
                     raise comfy.ComfyError("任务已取消。")
                 row = store.find_segment(store.get(project_id), index)
                 self._generate_segment(project_id, project, index, row, generation,
-                                       ref_names, audio_name, llm_config,
+                                       ref_names, audio_names, llm_config,
                                        position / total, 1.0 / total, total, position + 1)
             self._finish_run(project_id)
         except comfy.ComfyError as error:
@@ -333,12 +333,15 @@ class AvatarRunner:
                      message=f"{label}：生成提示词（{edit_frames / config.FPS:.1f}s）",
                      progress=round(base + span * 0.03, 4))
         prompt_text, meta = self._ensure_prompt(project_id, project, row, llm_config)
+        ref_indices = plan.segment_ref_indices(project, row)
+        segment_refs = [ref_names[index] for index in ref_indices
+                        if index < len(ref_names)]
         audio_file = audio_pipeline.slice_audio(project_id, project, row)
         audio_name = comfy.upload(f"h3dh_{_safe_id(project_id)}_seg_{index:04d}.wav",
                                   audio_file.read_bytes())
         generation = dict(generation)
         generation["seed"] = int(generation.get("seed") or 0) or random.randint(1, 2 ** 31 - 1)
-        graph = mv_workflow.build(generation, prompt_text, ref_names, audio_name,
+        graph = mv_workflow.build(generation, prompt_text, segment_refs, audio_name,
                                   generation_frames, config.FPS, available=available)
         self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",
                      progress=round(base + span * 0.06, 4))
@@ -461,27 +464,45 @@ class AvatarRunner:
         store.mutate(project_id, apply)
         return names
 
-    def _upload_voice(self, project_id: str, project: dict[str, Any]) -> str | None:
+    def _upload_voices(self, project_id: str, project: dict[str, Any]) -> list[str]:
+        """把项目里的音色素材按顺序上传，返回与 <Audio 1..n> 对应的名字列表。"""
         if int(project.get("mode") or 0) != config.MODE_VOICE_REF:
-            return None
-        voice = project.get("voice") or {}
-        filename = str(voice.get("filename") or "")
-        path = store.project_dir(project_id) / "voice" / filename
-        if not path.is_file():
-            raise ValueError("参考音频丢失，请重新上传。")
-        name = comfy.upload(f"h3dh_{_safe_id(project_id)}_voice{path.suffix}", path.read_bytes())
+            return []
+        voices = [dict(item) for item in (project.get("voices") or []) if isinstance(item, dict)]
+        if not voices:
+            legacy = project.get("voice")
+            if isinstance(legacy, dict) and legacy.get("filename"):
+                voices = [{"id": "v1", "name": "默认音色", **legacy}]
+        names: list[str] = []
+        for index, voice in enumerate(voices[:4]):
+            filename = str(voice.get("filename") or "")
+            path = store.project_dir(project_id) / filename
+            if not path.is_file():
+                legacy_path = store.project_dir(project_id) / "voice" / Path(filename).name
+                if legacy_path.is_file():
+                    path = legacy_path
+            if not path.is_file():
+                raise ValueError(f"参考音频丢失（{filename or '未命名'}），请重新上传。")
+            names.append(comfy.upload(
+                f"h3dh_{_safe_id(project_id)}_voice_{index:02d}{path.suffix}",
+                path.read_bytes()))
+        if not names:
+            raise ValueError("模式 2 需要至少一段参考音频，请先上传音色。")
 
         def apply(latest: dict[str, Any]) -> None:
+            for index, item in enumerate(latest.get("voices") or []):
+                if index < len(names):
+                    item["comfy"] = names[index]
             if isinstance(latest.get("voice"), dict):
-                latest["voice"]["comfy"] = name
+                latest["voice"]["comfy"] = names[0] if names else ""
 
         store.mutate(project_id, apply)
-        return name
+        return names
 
     # ------------------------------ 单段 ------------------------------
     def _generate_segment(self, project_id: str, project: dict[str, Any], index: int,
                           row: dict[str, Any], generation: dict[str, Any],
-                          ref_names: list[str], audio_name: str | None,
+                          ref_names: list[str], audio_names: list[str],
                           llm_config: dict[str, Any], base: float, span: float,
                           total: int, ordinal: int) -> None:
         label = f"第 {ordinal}/{total} 段"
@@ -490,6 +511,9 @@ class AvatarRunner:
                      message=f"{label}：生成提示词（{row.get('chars')} 字 / {row.get('frames')} 帧）",
                      progress=round(base + span * 0.03, 4))
         prompt_text, meta = self._ensure_prompt(project_id, project, row, llm_config)
+        ref_indices = plan.segment_ref_indices(project, row)
+        segment_refs = [ref_names[index] for index in ref_indices
+                        if index < len(ref_names)]
         frames = int(row.get("frames") or 0)
         if frames <= 0:
             frames = plan.frames_for_seconds(plan.seconds_for_text(
@@ -498,11 +522,11 @@ class AvatarRunner:
         else:
             # 切模式残留/旧数据可能是任意帧数；H3 只接受 5+17k（124–362）
             frames = plan.snap_frames(frames)
-        use_audio = audio_name if int(project.get("mode") or 0) == config.MODE_VOICE_REF else None
+        use_audio = audio_names if int(project.get("mode") or 0) == config.MODE_VOICE_REF else None
         generation = dict(generation)
         if not generation.get("seed"):
             generation["seed"] = fallback_seed
-        graph = workflow.build(generation, prompt_text, ref_names, use_audio,
+        graph = workflow.build(generation, prompt_text, segment_refs, use_audio,
                                frames, int(generation.get("fps") or config.FPS),
                                available=self._available)
         self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",

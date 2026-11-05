@@ -177,6 +177,8 @@ def make_segments(script: str, cps: float, target_seconds: float, max_seconds: f
             "status": "idle",
             "error": None,
             "takes": [],
+            "note": "",
+            "ref_ids": None,
             "selected_take": None,
             "output": None,
         })
@@ -363,8 +365,15 @@ def compose_prompt(project: dict[str, Any], row: dict[str, Any]) -> str:
     mode = int(project.get("mode") or config.MODE_TEXT_ONLY)
     language = str(project.get("language") or config.DEFAULT_LANGUAGE)
     design = design_mod.ensure_design(project)
-    refs, performer_index, environment_index = _ref_roles(project)
+    # 只把本段启用的参考图交给模板，并按其顺序重编号（与提示词/H3 入参一致）
+    ref_indices = segment_ref_indices(project, row)
+    refs_all = list(project.get("refs") or [])
+    scoped = dict(project)
+    scoped["refs"] = [refs_all[index] for index in ref_indices]
+    refs, performer_index, environment_index = _ref_roles(scoped)
     picture_of: dict[int, int] = {index: index + 1 for index in range(len(refs))}
+    audio_materials = mode_audio_materials(project, mode)
+    audio_count = len(audio_materials)
     cps = float(project.get("chars_per_second") or config.DEFAULT_CPS)
 
     definitions: list[str] = []
@@ -407,19 +416,48 @@ def compose_prompt(project: dict[str, Any], row: dict[str, Any]) -> str:
 
     spoken = _clean_text(row.get("text"))
     if mode == config.MODE_VOICE_REF:
-        definitions.append(
-            "<Audio 1> is the voice-timbre, speaking-rate, cadence, pause-grouping and "
-            "delivery reference for <Subject 1> (S1).")
-        retention.append(
-            "<Audio 1>: reference - its timbre, pitch region, cadence, accent, vocal age and "
-            "delivery guide newly generated dialogue; do not copy its waveform or source words.")
-        task_type = "[reference generation + audio reference]"
-        rate_clause = (f"Target average speech rate about {cps:g} written characters per second; "
-                       f"this segment has {plan_chars(row)} written characters including "
-                       f"punctuation. Follow <Audio 1> for pace and pause grouping.")
-        soundscape = ("The voice is generated in the timbre and delivery guided by <Audio 1> and "
-                      "owned only by <Subject 1>; close microphone perspective with the room tone "
-                      "of the declared environment; no music, effects or other voices.")
+        if audio_materials:
+            audio_tags = []
+            for item in audio_materials:
+                tag = f"<Audio {item['index']}>"
+                audio_tags.append(tag)
+                definitions.append(
+                    f"{tag} is a voice-timbre reference material (sample name "
+                    f"\"{item['name']}\"): timbre, pitch region, speaking rate, cadence, "
+                    "pause grouping and delivery guide the newly generated dialogue. "
+                    "It is not bound to a fixed character: who uses which timbre follows "
+                    "the creative direction and the segment instruction (one person may "
+                    "change timbre, and one timbre may be reused by another character).")
+                retention.append(
+                    f"{tag}: reference - its timbre, cadence, accent, vocal age and delivery "
+                    "guide newly generated dialogue; do not copy its waveform or source words.")
+            tags_text = " / ".join(audio_tags)
+            task_type = "[reference generation + audio reference]"
+            rate_clause = (f"Target average speech rate about {cps:g} written characters per "
+                           f"second; this segment has {plan_chars(row)} written characters "
+                           f"including punctuation. Follow {tags_text} for pace and pause "
+                           "grouping; the creative direction decides which timbre each "
+                           "spoken line uses.")
+            soundscape = (f"The generated voice follows the timbre and delivery of {tags_text} "
+                          "as declared by the creative direction; close microphone "
+                          "perspective with the room tone of the declared environment; "
+                          "no music, effects or unrelated voices.")
+        else:
+            # 还没有上传音色时也按 B 腔的音频契约写通用 <Audio 1>，
+            # 保证提示词在“先写词、后传音色”的流程里仍然合法（上传后再重写即可）。
+            definitions.append(
+                "<Audio 1> is the provided reference voice-timbre, speaking-rate, cadence, "
+                "pause-grouping and delivery material for S1.")
+            retention.append(
+                "<Audio 1>: reference - its timbre, cadence and delivery guide the newly "
+                "generated dialogue; do not copy its waveform or source words.")
+            task_type = "[reference generation + audio reference]"
+            rate_clause = (f"Target average speech rate about {cps:g} written characters per "
+                           f"second; this segment has {plan_chars(row)} written characters "
+                           "including punctuation. Follow <Audio 1> for pace and pause grouping.")
+            soundscape = ("The voice is generated in the timbre and delivery guided by "
+                          "<Audio 1>; close microphone perspective with the room tone of the "
+                          "declared environment; no music, effects or unrelated voices.")
     elif mode == config.MODE_AUDIO_DRIVE:
         task_type = "[reference generation]"
         rate_clause = (f"Target average pace about {cps:g} written characters per second; the "
@@ -504,6 +542,23 @@ def compose_prompt(project: dict[str, Any], row: dict[str, Any]) -> str:
         ("Every frame stays free of added subtitles, captions, lyrics, watermarks and "
          "graphic overlays."))
     detail.append("Do not transcribe writing visible in the reference backgrounds.")
+    # 用户创作要求：全局 + 本段（本段优先）；@素材已重编号；非法引用在保存时已被拦，
+    # 这里再兜底去掉无法解析的 @token，避免把坏引用写进提示词。
+    global_note, _grefs, gerrs = render_instruction(
+        str(project.get("material_note") or ""), mode, ref_indices,
+        len(refs_all), audio_count)
+    segment_note, _srefs, serrs = render_instruction(
+        str(row.get("note") or ""), mode, ref_indices, len(refs_all), audio_count)
+    # 只剔除“本段未启用/越界”的引用，保留已成功映射成 <Picture k> 的部分
+    if gerrs:
+        global_note = LEFTOVER_TOKEN_RE.sub("", global_note)
+    if serrs:
+        segment_note = LEFTOVER_TOKEN_RE.sub("", segment_note)
+    if global_note.strip():
+        detail.append(f"Creative direction (global): {global_note.strip()}")
+    if segment_note.strip():
+        detail.append(f"Creative direction (this segment, highest priority): "
+                      f"{segment_note.strip()}")
     sections = [
         ("subject_definitions", "\n".join(definitions)),
         ("summary", f"{task_type} Single continuous talking-head shot; S1 delivers the line to "
@@ -537,6 +592,129 @@ def _ref_note(ref: dict[str, Any]) -> str:
     return ", ".join(parts) if parts else _role_label(ref)
 
 
+MATERIAL_TOKEN_RE = re.compile(
+    r"@?\s*<\s*(picture|audio|图|图片|音频)\s*(\d+)\s*>|@\s*(图|图片|音频)\s*(\d+)",
+    re.IGNORECASE)
+
+# 只匹配“用户手写的中文/尖括号中文引用”，用于剔除无效引用；
+# 不能复用 MATERIAL_TOKEN_RE，否则会把已渲染的 <Picture N> 一起删掉。
+LEFTOVER_TOKEN_RE = re.compile(
+    r"@?\s*<\s*(图|图片|音频)\s*(\d+)\s*>|@\s*(图|图片|音频)\s*(\d+)",
+    re.IGNORECASE)
+
+
+def segment_ref_indices(project: dict[str, Any], row: dict[str, Any]) -> list[int]:
+    """本段实际使用的参考图（全局下标，顺序决定 <Picture N> 编号）。"""
+    refs = list(project.get("refs") or [])
+    raw = row.get("ref_ids")
+    if isinstance(raw, list):
+        indices = [int(value) for value in raw
+                   if isinstance(value, int) and 0 <= int(value) < len(refs)]
+        if indices:
+            return indices
+    return list(range(len(refs)))
+
+
+def mode_audio_materials(project: dict[str, Any], mode: int) -> list[dict[str, Any]]:
+    """模式 2 的音色素材列表（<Audio N> 编号顺序）；模式 1/3 恒为空。
+
+    音色只是参考素材，不与人物一对一绑定：同一人可用多个音色（变声），
+    同一音色也可被不同角色复用，最终谁用什么由提示词/用户指令决定。
+    """
+    if int(mode or 0) != config.MODE_VOICE_REF:
+        return []
+    materials: list[dict[str, Any]] = []
+    for index, voice in enumerate(project.get("voices") or []):
+        if isinstance(voice, dict) and voice.get("filename"):
+            materials.append({"index": index + 1,
+                              "name": str(voice.get("name") or f"音色 {index + 1}"),
+                              "filename": str(voice["filename"])})
+    if not materials:
+        voice = project.get("voice")
+        if isinstance(voice, dict) and voice.get("filename"):
+            materials.append({"index": 1, "name": "默认音色",
+                              "filename": str(voice["filename"])})
+    return materials
+
+
+def parse_instruction(text: str, mode: int, picture_count: int,
+                      audio_count: int) -> tuple[list[dict[str, Any]], list[str]]:
+    """解析 @图N/@音频N；返回 (引用列表, 错误列表)。"""
+    refs: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for match in MATERIAL_TOKEN_RE.finditer(str(text or "")):
+        raw = (match.group(1) or match.group(3) or "").lower()
+        number = int(match.group(2) or match.group(4) or 0)
+        kind = "picture" if raw in {"picture", "图", "图片"} else "audio"
+        if kind == "audio" and int(mode or 0) != config.MODE_VOICE_REF:
+            errors.append(f"@音频{number} 不可用：模式 {int(mode or 0)} 没有音色参考"
+                          "（只有模式 2 有参考音色）")
+            continue
+        limit = picture_count if kind == "picture" else audio_count
+        if not 1 <= number <= limit:
+            label = "图" if kind == "picture" else "音频"
+            errors.append(f"@{label}{number} 越界：当前只有 {limit} 个"
+                          f"{'参考图' if kind == 'picture' else '音色样本'}")
+            continue
+        refs.append({"type": kind, "index": number})
+    return refs, errors
+
+
+def render_instruction(text: str, mode: int, ref_indices: list[int],
+                       all_picture_count: int,
+                       audio_count: int) -> tuple[str, list[dict[str, Any]], list[str]]:
+    """把指令里的 @图N（全局编号）映射成本段局部编号 <Picture k>。
+
+    校验用全局图片数：@图2 指的是素材库第 2 张图；只有本段 ref_ids 启用了它
+    才允许引用，否则报错提示“本段未启用”。音频素材只有模式 2 有。
+    """
+    value = str(text or "")
+    refs, errors = parse_instruction(value, mode, all_picture_count, audio_count)
+    for item in refs:
+        if item["type"] != "picture":
+            continue
+        if item["index"] - 1 not in ref_indices:
+            errors.append(f"@图{item['index']} 不在本段启用的参考图里（本段启用："
+                          + "、".join(f"图{index + 1}" for index in ref_indices) + "）")
+
+    def replace(match: re.Match) -> str:
+        raw = (match.group(1) or match.group(3) or "").lower()
+        number = int(match.group(2) or match.group(4) or 0)
+        if raw in {"picture", "图", "图片"}:
+            if number - 1 in ref_indices:
+                return f"<Picture {ref_indices.index(number - 1) + 1}>"
+            return match.group(0)  # 无效引用保持原样，由调用方决定是否剔除
+        return f"<Audio {number}>"
+
+    return MATERIAL_TOKEN_RE.sub(replace, value), refs, errors
+
+
+def material_issues(project: dict[str, Any], row: dict[str, Any], body: str,
+                    ref_indices: list[int] | None = None,
+                    audio_count: int | None = None) -> list[str]:
+    """提示词素材合法性：编号必须落在本模式/本段允许的素材范围内。"""
+    mode = int(project.get("mode") or 0)
+    text = str(body or "")
+    if ref_indices is None:
+        ref_indices = segment_ref_indices(project, row)
+    if audio_count is None:
+        audio_count = len(mode_audio_materials(project, mode))
+    issues: list[str] = []
+    pictures = {int(value) for value in re.findall(r"<Picture\s+(\d+)>", text)}
+    if any(not 1 <= value <= len(ref_indices) for value in pictures):
+        issues.append(f"提示词引用了不存在的图片编号 {sorted(pictures)}：本段只有 "
+                      f"{len(ref_indices)} 张参考图")
+    audios = {int(value) for value in re.findall(r"<Audio\s+(\d+)>", text)}
+    if mode in (config.MODE_AUDIO_DRIVE, config.MODE_TEXT_ONLY):
+        if audios or re.search(r"参考音频\s*\d+|audio reference|audio reuse", text, re.I):
+            issues.append("本模式没有参考音频：提示词不能出现 <Audio N>/参考音频/audio reference")
+    elif audios:
+        if any(not 1 <= value <= max(audio_count, 1) for value in audios):
+            issues.append(f"提示词引用了不存在的音色编号 {sorted(audios)}：当前有 "
+                          f"{audio_count} 个音色样本")
+    return issues
+
+
 def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]] | None:
     """构造 LLM 消息：三腔系统提示词 + 设计层 + 节拍表 + 中文口播任务书。
 
@@ -548,7 +726,10 @@ def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[st
         return None
     language = str(project.get("language") or config.DEFAULT_LANGUAGE)
     design = design_mod.ensure_design(project)
-    refs = list(project.get("refs") or [])
+    refs_all = list(project.get("refs") or [])
+    ref_indices = segment_ref_indices(project, row)
+    audio_materials = mode_audio_materials(project, mode)
+    audio_count = len(audio_materials)
     role_labels = {
         "performer": "人物身份参考（S1）",
         "environment": "场景参考",
@@ -557,13 +738,16 @@ def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[st
         "other": "其他参考",
     }
     pictures = []
-    for index, ref in enumerate(refs):
+    for local, global_index in enumerate(ref_indices, 1):
+        ref = refs_all[global_index]
         label = role_labels.get(str(ref.get("role") or "other"), "参考")
         note = str(ref.get("title") or "").strip()
         description = str(ref.get("description") or "").strip()
         if description:
             note = f"{note}，{description}" if note else description
-        pictures.append(f"<Picture {index + 1}> = {label}" + (f"：{note}" if note else ""))
+        pictures.append(f"<Picture {local}> = {label}" + (f"：{note}" if note else ""))
+    audio_lines = [f"<Audio {item['index']}> = 音色样本「{item['name']}」"
+                   for item in audio_materials]
 
     mode_lines = {
         config.MODE_AUDIO_DRIVE:
@@ -571,8 +755,9 @@ def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[st
             "音频标签/音频任务类型/音频保留行；要写明口型、呼吸、停顿、表演与特效以驱动"
             "音频为最终时间轴；没有转写文本时不要编造台词。",
         config.MODE_VOICE_REF:
-            "B 腔 · 参考音色：已提供一段参考音频，作为 <Audio 1> 绑定音色/语速/节奏/停顿/"
-            "表达参考；台词以下面文案为准，不得复述参考音频里的原话。",
+            "B 腔 · 参考音色：已提供音色素材（见【音色素材】里的 <Audio i>），作为音色/语速/"
+            "节奏/停顿/表达参考；<Audio i> 不与人物绑定，谁用哪个音色由本段创作要求/提示词"
+            "决定；台词以下面文案为准，不得复述参考音频里的原话。",
         config.MODE_TEXT_ONLY:
             "C 腔 · 无音频参考：没有参考音频，声音由 H3 原生生成；必须按 C 腔规则写满 10 维"
             "voice card（填写在 detailed_description），且不得出现任何 <Audio N> 标签。",
@@ -589,16 +774,53 @@ def build_messages(project: dict[str, Any], row: dict[str, Any]) -> list[dict[st
         f"【本段时长】{float(row.get('seconds') or 0):.2f} 秒"
         f"（{int(row.get('frames') or 0)} 帧 @ 24fps）",
         f"【画幅】{generation.get('aspect_ratio') or '9:16 (Portrait Widescreen)'}",
-        f"【参考图】共 {len(refs)} 张" + ("：" + "；".join(pictures) if pictures else "：无"),
+        f"【参考图】本段启用 {len(ref_indices)} 张（编号以此为准）"
+        + ("：" + "；".join(pictures) if pictures else "：无"),
+        (f"【音色素材】本段可用 {audio_count} 个（仅供音色参考，不与人物绑定；"
+         "谁用哪个音色由本段创作要求/提示词决定）：" + "；".join(audio_lines))
+        if audio_lines else
+        "【音色素材】无：本模式没有参考音色，禁止写任何 <Audio N> / 参考音频 / audio reference。",
         "【镜头】单镜头、固定机位、正面/微侧的中近景口播，人物始终是画面主角。",
-        "【参考音频】" + ("已提供，作为 <Audio 1>；不要复述原话。" if mode == config.MODE_VOICE_REF
-                          else "无。"),
+        "【参考音频】" + ("已提供 " + "/".join(f"<Audio {item['index']}>" for item in audio_materials)
+                          + "；不要复述原话。" if mode == config.MODE_VOICE_REF and audio_materials
+                          else ("无。" if mode == config.MODE_VOICE_REF else "无。")),
     ]
     if mode == config.MODE_TEXT_ONLY:
         card = design_mod.voice_card_text(design.get("voice_card"))
         lines.append("【音色卡（写 voice card 用）】"
                      + (card or str(project.get("voice_description") or "").strip()
                         or "未填写，请按 C 腔自行给出合理的 10 维 voice card。"))
+    global_note, global_refs, global_errors = render_instruction(
+        str(project.get("material_note") or ""), mode, ref_indices, len(refs_all), audio_count)
+    segment_note, segment_refs, segment_errors = render_instruction(
+        str(row.get("note") or ""), mode, ref_indices, len(refs_all), audio_count)
+    if global_note.strip():
+        lines.append("【全局创作要求（优先级高于自动推断）】"
+                     + LEFTOVER_TOKEN_RE.sub("", global_note).strip())
+        if global_refs:
+            lines.append("【全局要求里引用的素材】" + "；".join(
+                f"{item['type']} {item['index']}" for item in global_refs))
+    if segment_note.strip():
+        lines.append("【本段创作要求（最高优先级，必须落实）】"
+                     + LEFTOVER_TOKEN_RE.sub("", segment_note).strip())
+        if segment_refs:
+            lines.append("【本段要求里引用的素材】" + "；".join(
+                f"{item['type']} {item['index']}" for item in segment_refs))
+    if mode == config.MODE_AUDIO_DRIVE:
+        lines.append("【本模式硬规则】A 音频驱动：没有任何参考音频素材；"
+                     "禁止出现 <Audio N>、audio reference、参考音频N；"
+                     "不要把 <Picture N> 之外的东西写成人物身份。")
+    elif mode == config.MODE_VOICE_REF:
+        lines.append("【本模式硬规则】B 参考音色：<Audio i> 是音色素材，必须被定义并在 "
+                     "retention_analysis 写 reference 行；不要求与人物一对一绑定，"
+                     "可以是同一人换音色（变声）或同一音色给不同角色；"
+                     "只能引用本段清单里的编号。")
+    else:
+        lines.append("【本模式硬规则】C 无音频参考：没有任何音频素材；"
+                     "禁止任何 <Audio N>/参考音频描述；必须写完整 10 维 voice card。")
+    if global_errors or segment_errors:
+        lines.append("【指令引用错误（不要执行这些引用）】" + "；".join(
+            global_errors + segment_errors))
     design_block = design_mod.design_block(project)
     beats = design_mod.beats_for_llm(project, row)
     lines.append("【设计层 JSON】" + json.dumps(design_block, ensure_ascii=False))
@@ -782,6 +1004,7 @@ def generate_prompt(project: dict[str, Any], row: dict[str, Any],
             lint = _lint_for(project, row, body)
             issues = [item["message"] for item in lint.get("errors") or []]
             issues += _hard_issues(project, row, body)
+            issues += material_issues(project, row, body)
             if not issues:
                 meta = build_meta(project, row, body, beats, summary, lint, "llm")
                 return {**result, "source": "llm", "text": body, "beats": beats,
@@ -833,6 +1056,7 @@ def repair_prompt(project: dict[str, Any], row: dict[str, Any], text: str,
             fixed_lint = _lint_for(project, row, fixed)
             fixed_issues = [item["message"] for item in fixed_lint.get("errors") or []]
             fixed_issues += _hard_issues(project, row, fixed)
+            fixed_issues += material_issues(project, row, fixed)
             if not fixed_issues:
                 meta = build_meta(project, row, fixed, beats, summary, fixed_lint, "repair")
                 return {"source": "repair", "text": fixed, "beats": beats, "meta": meta,

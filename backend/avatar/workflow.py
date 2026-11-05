@@ -113,9 +113,13 @@ def resolve_generation(project_generation: dict[str, Any] | None,
 
 
 def build(generation: dict[str, Any], prompt: str, refs: list[str],
-          audio_file: str | None, frames: int, fps: int = config.FPS,
+          audio_file: str | list[str] | None, frames: int, fps: int = config.FPS,
           available: dict[str, bool] | None = None) -> dict[str, Any]:
-    """构建单段数字人生成图（模式 2 传 audio_file，模式 3 传 None）。"""
+    """构建单段数字人生成图（模式 2 可传多个音色素材，模式 3 传 None）。
+
+    `audio_file` 编号顺序必须与提示词里的 <Audio 1..n> 一致：
+    传列表时按顺序生成 LoadAudio + ref_audios.ref_audio_0..n-1。
+    """
     available = available if available is not None else available_nodes()
     nodes: dict[str, Any] = {
         "unet": {
@@ -207,13 +211,15 @@ def build(generation: dict[str, Any], prompt: str, refs: list[str],
         "audio_vae": ["vae_audio", 0],
         **ref_inputs,
     }
-    if audio_file:
-        nodes["audio"] = {
+    audios = [audio_file] if isinstance(audio_file, str) else list(audio_file or [])
+    for index, filename in enumerate(audios[:4]):
+        node_id = "audio" if index == 0 else f"audio_{index}"
+        nodes[node_id] = {
             "class_type": "LoadAudio",
-            "inputs": {"audio": audio_file},
-            "_meta": {"title": "参考音频（音色）"},
+            "inputs": {"audio": filename},
+            "_meta": {"title": f"参考音频（音色 {index + 1}）"},
         }
-        refvideo_inputs["ref_audios.ref_audio_0"] = ["audio", 0]
+        refvideo_inputs[f"ref_audios.ref_audio_{index}"] = [node_id, 0]
     nodes["refvideo"] = {
         "class_type": "MiniMaxH3ReferenceToVideo",
         "inputs": refvideo_inputs,

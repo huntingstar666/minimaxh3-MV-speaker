@@ -168,24 +168,41 @@ def validate_manifest(manifest: Any, names: set[str]) -> dict[str, Any]:
 
     audio = manifest.get("audio") if isinstance(manifest.get("audio"), dict) else None
     voice = manifest.get("voice") if isinstance(manifest.get("voice"), dict) else None
+    voices_raw = manifest.get("voices") if isinstance(manifest.get("voices"), list) else []
     audio_file: str | None = None
     voice_file: str | None = None
+    voices: list[dict[str, Any]] = []
     if mode == 1:
         if not audio or not str(audio.get("file") or "").strip():
             _fail("mode 1 必须提供 audio.file。")
         audio_file = _safe_name(str(audio["file"]))
         if audio_file not in names:
             _fail(f"包内缺少驱动音频：{audio_file}")
-        if voice:
+        if voice or voices_raw:
             _fail("mode 1 不应包含 voice（参考音色）。")
     elif mode == 2:
-        if not voice or not str(voice.get("file") or "").strip():
-            _fail("mode 2 必须提供 voice.file。")
-        voice_file = _safe_name(str(voice["file"]))
-        if voice_file not in names:
-            _fail(f"包内缺少参考音频：{voice_file}")
+        if voices_raw:
+            if len(voices_raw) > 6:
+                _fail("voices 最多 6 个音色。")
+            for index, item in enumerate(voices_raw):
+                if not isinstance(item, dict) or not str(item.get("file") or "").strip():
+                    _fail(f"voices[{index}].file 不能为空。")
+                member = _safe_name(str(item["file"]))
+                if member not in names:
+                    _fail(f"包内缺少音色文件：{member}")
+                if _suffix(member) not in ALLOWED_AUDIO:
+                    _fail(f"voices[{index}] 不是支持的音频格式。")
+                voices.append({"file": member,
+                                "name": str(item.get("name") or f"音色 {index + 1}")[:40]})
+            voice_file = voices[0]["file"]
+        elif voice and str(voice.get("file") or "").strip():
+            voice_file = _safe_name(str(voice["file"]))
+            if voice_file not in names:
+                _fail(f"包内缺少参考音频：{voice_file}")
+        else:
+            _fail("mode 2 必须提供 voice.file 或 voices[]。")
     else:
-        if audio or voice:
+        if audio or voice or voices_raw:
             _fail("mode 3 不应包含 audio / voice。")
 
     refs = manifest.get("refs") or []
@@ -261,6 +278,7 @@ def validate_manifest(manifest: Any, names: set[str]) -> dict[str, Any]:
         "target_seconds": target, "max_seconds": maximum,
         "audio_file": audio_file,
         "voice_file": voice_file,
+        "voices": voices,
         "refs": refs, "design": design, "segments": normalized,
         "generation": manifest.get("generation") if isinstance(manifest.get("generation"), dict) else {},
         "voice_description": str(manifest.get("voice_description") or ""),
@@ -327,11 +345,27 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
                 data = _member(zf, parsed["audio_file"], prefix)
                 project["audio"] = _install_wav(data, base / "source.wav",
                                                 parsed["audio_file"])
-            if parsed.get("voice_file"):
+            if parsed.get("voices"):
+                installed: list[dict[str, Any]] = []
+                for index, item in enumerate(parsed["voices"]):
+                    data = _member(zf, item["file"], prefix)
+                    vid = uuid.uuid4().hex[:8]
+                    filename = f"voices/{vid}.wav"
+                    target = base / filename
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+                    entry = _install_wav(data, target, item["file"])
+                    entry.update({"id": vid, "name": item.get("name") or f"音色 {index + 1}",
+                                  "filename": filename})
+                    installed.append(entry)
+                project["voices"] = installed
+                project["voice"] = dict(installed[0])
+            elif parsed.get("voice_file"):
                 data = _member(zf, parsed["voice_file"], prefix)
                 project["voice"] = _install_wav(data, base / "voice" / "ref.wav",
                                                 parsed["voice_file"])
-                project["voice"]["filename"] = "ref.wav"
+                project["voice"]["filename"] = "voice/ref.wav"
+                project["voices"] = [{"id": "v1", "name": "默认音色", **project["voice"]}]
             for index, ref in enumerate(parsed.get("refs") or []):
                 member_name = _safe_name(str(ref["file"]))
                 data = _member(zf, member_name, prefix)
@@ -536,6 +570,10 @@ def export_pack(project_id: str) -> Path:
         "min_seconds": float(project.get("min_seconds") or config.DEFAULT_MIN_SECONDS),
         "audio": {"file": "audio/source.wav"} if mode == 1 else None,
         "voice": {"file": "voice/reference.wav"} if mode == 2 else None,
+        "voices": ([{"file": f"voice/voice_{index + 1:02d}.wav",
+                     "name": str(item.get("name") or f"音色 {index + 1}")}
+                    for index, item in enumerate(project.get("voices") or [])]
+                   if mode == 2 and project.get("voices") else []),
         "voice_description": str(project.get("voice_description") or ""),
         "refs": [],
         "design": design,
@@ -568,7 +606,22 @@ def export_pack(project_id: str) -> Path:
             shutil.copy2(base / "source.wav", export_dir / "audio" / "source.wav")
         if mode == 2:
             (export_dir / "voice").mkdir(exist_ok=True)
-            shutil.copy2(base / "voice" / "ref.wav", export_dir / "voice" / "reference.wav")
+            first_voice = None
+            for index, item in enumerate(project.get("voices") or []):
+                filename = str(item.get("filename") or "")
+                source = base / filename
+                if not source.is_file() and filename:
+                    source = base / "voice" / Path(filename).name
+                if source.is_file():
+                    target_name = f"voice/voice_{index + 1:02d}.wav"
+                    shutil.copy2(source, export_dir / target_name)
+                    if first_voice is None:
+                        first_voice = source
+            if first_voice is None and (base / "voice" / "ref.wav").is_file():
+                first_voice = base / "voice" / "ref.wav"
+            if first_voice is None:
+                _fail("mode 2 缺少可导出的音色文件。")
+            shutil.copy2(first_voice, export_dir / "voice" / "reference.wav")
         (export_dir / "refs").mkdir(exist_ok=True)
         for ref in project.get("refs") or []:
             filename = str(ref.get("filename") or "")

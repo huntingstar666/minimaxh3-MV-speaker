@@ -62,6 +62,7 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
 
   "audio": {"file": "audio/source.wav"},
   "voice": null,
+  "voices": [],
   "voice_description": "",
 
   "refs": [
@@ -221,7 +222,9 @@ python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3a
 - `schema=h3-avatar-pack`、`version=1`；
 - `mode` 1/2/3，`workflow` 必须匹配（locked_audio / ref_native），`design.audio_mode` 匹配；
 - 每段 `frames` 必须是 H3 合法帧数 `5+17k`（124–719），`end_frame - start_frame == frames`；
-- mode1 必须有 `audio.file` 且包内存在；mode2 必须有 `voice.file`；mode3 不应有音频；
+- mode1 必须有 `audio.file` 且包内存在；mode2 必须有 `voice.file`，或提供 `voices[]`
+  （多音色：每项 `{file, name}`，最多 6 个，文件必须在包内且为音频；旧包只有 `voice.file` 也兼容）；
+  mode3 不应有音频；mode1/mode3 出现 `voices` 视为非法；
 - `refs[].file` 必须在包内且是图片、role 合法、≤9 张；
 - `segments ≤ 200`；`design.audio_mode` 必填并与 mode 匹配；mode1 不得带 voice、mode3 不得带
   audio/voice（出现即 400）。**草稿包允许 `prompt` 为空**：导入后补写，返回一条 warning；

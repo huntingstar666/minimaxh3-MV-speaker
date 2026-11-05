@@ -155,6 +155,8 @@ def _row_from_range(index: int, start_frame: int, end_frame: int, text: str,
         "output": None,
         "beats": [],
         "prompt_meta": {},
+        "note": "",
+        "ref_ids": None,
     }
     # 与旧段边界完全一致时，保留 take / 提示词 / 节拍（与 MV 同思路：没动过的段不丢结果）
     for old in old_rows:
@@ -162,7 +164,8 @@ def _row_from_range(index: int, start_frame: int, end_frame: int, text: str,
                 and int(old.get("end_frame") or -1) == end_frame
                 and str(old.get("text") or "") == text):
             for key in ("takes", "selected_take", "output", "prompt", "prompt_source",
-                        "prompt_warnings", "prompt_meta", "status", "error", "beats"):
+                        "prompt_warnings", "prompt_meta", "status", "error", "beats",
+                        "note", "ref_ids"):
                 if key in old:
                     row[key] = old[key]
             break

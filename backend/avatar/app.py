@@ -58,11 +58,65 @@ def index() -> FileResponse:
 
 
 # ------------------------------- 工具 -------------------------------
+def _ensure_director_fields(project: dict[str, Any]) -> bool:
+    """兼容旧项目：补齐导演化字段，并把旧的单音色迁移成 voices[0]。"""
+    changed = False
+    for key, default in (("material_note", ""), ("voices", []), ("speakers", [])):
+        if key not in project:
+            project[key] = default
+            changed = True
+    for row in project.get("segments") or []:
+        for key, default in (("note", ""), ("ref_ids", None)):
+            if key not in row:
+                row[key] = default
+                changed = True
+    voice = project.get("voice")
+    if not project.get("voices") and isinstance(voice, dict) and voice.get("filename"):
+        legacy = dict(voice)
+        legacy.setdefault("id", "v1")
+        legacy.setdefault("name", "默认音色")
+        filename = str(legacy.get("filename") or "")
+        if filename and not filename.startswith(("voice/", "voices/")):
+            legacy["filename"] = f"voice/{filename}"
+        project["voices"] = [legacy]
+        project["voice"] = dict(legacy)
+        changed = True
+    return changed
+
+
+def _instruction_ok(project: dict[str, Any], text: str, label: str,
+                    ref_indices: list[int] | None = None) -> None:
+    """校验指令里的 @素材引用：越界/本模式不可用/本段未启用的图直接 400。"""
+    mode_value = int(project.get("mode") or 0)
+    total = len(project.get("refs") or [])
+    _, errors = plan.parse_instruction(text, mode_value, total,
+                                      len(plan.mode_audio_materials(project, mode_value)))
+    allowed = list(range(total)) if ref_indices is None else list(ref_indices)
+    for match in plan.MATERIAL_TOKEN_RE.finditer(str(text or "")):
+        raw = (match.group(1) or match.group(3) or "").lower()
+        number = int(match.group(2) or match.group(4) or 0)
+        if raw in {"picture", "图", "图片"} and 1 <= number <= total \
+                and number - 1 not in allowed:
+            errors.append(f"@图{number} 不在本段启用的参考图里（本段启用："
+                          + "、".join(f"图{index + 1}" for index in allowed) + "）")
+    if errors:
+        raise HTTPException(400, f"{label}里的素材引用无效：" + "；".join(errors))
+
+
+def _mark_notes_stale(project: dict[str, Any]) -> None:
+    """指令变了：保留提示词正文，但标记“可能已过期”。"""
+    for row in project.get("segments") or []:
+        _mark_prompt_meta_stale(row)
+
+
 def _project(project_id: str) -> dict[str, Any]:
     try:
-        return store.get(project_id)
+        project = store.get(project_id)
     except FileNotFoundError as error:
         raise HTTPException(404, "数字人项目不存在。") from error
+    if _ensure_director_fields(project):
+        store.save(project)
+    return project
 
 
 def _row(project: dict[str, Any], index: int) -> dict[str, Any]:
@@ -202,6 +256,43 @@ def _save_voice(project_id: str, upload: UploadFile) -> dict[str, Any]:
         raise HTTPException(400, "原始参考音频最长 10 分钟，请先裁剪后再上传。")
     return _make_voice_sample(project_id, 0.0,
                               min(config.VOICE_SAMPLE_SECONDS, duration))
+
+
+VOICE_NAME_MAX = 40
+MAX_VOICES = 6
+
+
+def _install_voice(project_id: str, saved: dict[str, Any], name: str) -> dict[str, Any]:
+    """把刚上传的音色样本复制到 voices/<id>.wav，返回素材条目。"""
+    vid = uuid.uuid4().hex[:8]
+    directory = store.project_dir(project_id) / "voices"
+    directory.mkdir(parents=True, exist_ok=True)
+    source = store.project_dir(project_id) / "voice" / "ref.wav"
+    target = directory / f"{vid}.wav"
+    shutil.copy2(source, target)
+    entry = dict(saved)
+    entry.update({"id": vid,
+                  "name": (name or "").strip()[:VOICE_NAME_MAX] or f"音色 {vid[:4]}",
+                  "filename": f"voices/{vid}.wav"})
+    return entry
+
+
+def _append_voice(project_id: str, project: dict[str, Any], saved: dict[str, Any],
+                  name: str) -> dict[str, Any]:
+    voices = [item for item in (project.get("voices") or []) if isinstance(item, dict)]
+    legacy = project.get("voice")
+    if not voices and isinstance(legacy, dict) and legacy.get("filename"):
+        entry = dict(legacy)
+        entry.setdefault("id", "v1")
+        entry.setdefault("name", "默认音色")
+        voices.append(entry)
+    if len(voices) >= MAX_VOICES:
+        raise HTTPException(400, f"最多 {MAX_VOICES} 个音色，请先删除不用的音色。")
+    entry = _install_voice(project_id, saved, name)
+    voices.append(entry)
+    project["voices"] = voices
+    project["voice"] = dict(voices[0])  # 兼容旧字段：指向第一个音色
+    return entry
 
 
 def _llm_config() -> dict[str, Any]:
@@ -394,7 +485,7 @@ def create_project(name: str = Form("未命名数字人"),
         raise HTTPException(400, "当前模式不需要驱动音频（只有模式 1 使用 audio）。")
     try:
         if voice is not None and (voice.filename or ""):
-            project["voice"] = _save_voice(project["id"], voice)
+            entry = _append_voice(project["id"], project, _save_voice(project["id"], voice), "")
             store.save(project)
         if audio is not None and (audio.filename or ""):
             project["audio"] = _save_project_audio(project["id"], audio)
@@ -462,9 +553,38 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             design["audio_mode"] = config.AUDIO_MODE_BY_MODE.get(value, "generated")
         if value != previous_mode:
             _reset_for_mode_switch(project, project_id, value)
-    for key in ("name", "script", "voice_description", "language"):
+    for key in ("name", "script", "voice_description", "language", "material_note"):
         if key in payload:
-            project[key] = str(payload[key] or "")
+            value = str(payload[key] or "")
+            if key == "material_note" and value != str(project.get(key) or ""):
+                _instruction_ok(project, value, "全局创作要求")
+                _mark_notes_stale(project)
+            project[key] = value
+    if isinstance(payload.get("voices"), list) and \
+            int(project.get("mode") or 0) == config.MODE_VOICE_REF:
+        voices: list[dict[str, Any]] = []
+        for index, item in enumerate(payload["voices"]):
+            if not isinstance(item, dict):
+                continue
+            voices.append({"id": str(item.get("id") or f"v{index + 1}"),
+                            "name": str(item.get("name") or f"音色 {index + 1}"),
+                            "filename": str(item.get("filename") or ""),
+                            "duration": item.get("duration") or 0,
+                            "samples": item.get("samples") or 0})
+        project["voices"] = voices
+        _mark_notes_stale(project)
+    if isinstance(payload.get("speakers"), list) and \
+            int(project.get("mode") or 0) == config.MODE_VOICE_REF:
+        speakers: list[dict[str, Any]] = []
+        for index, item in enumerate(payload["speakers"]):
+            if not isinstance(item, dict):
+                continue
+            speakers.append({"id": str(item.get("id") or f"s{index + 1}"),
+                             "name": str(item.get("name") or f"人物 {index + 1}"),
+                             "picture_index": item.get("picture_index"),
+                             "voice_id": str(item.get("voice_id") or "")})
+        project["speakers"] = speakers
+        _mark_notes_stale(project)
     if "chars_per_second" in payload:
         project["chars_per_second"] = _float(payload["chars_per_second"], config.DEFAULT_CPS, 1.0, 12.0)
     if "target_seconds" in payload:
@@ -566,6 +686,12 @@ def delete_ref(project_id: str, index: int) -> dict[str, Any]:
     if not 0 <= index < len(refs):
         raise HTTPException(404, "参考图不存在。")
     removed = refs.pop(index)
+    for row in project.get("segments") or []:
+        raw = row.get("ref_ids")
+        if isinstance(raw, list):
+            shifted = sorted({value - 1 if value > index else value
+                              for value in raw if value != index})
+            row["ref_ids"] = shifted or None
     path = store.project_dir(project_id) / "refs" / str(removed.get("filename") or "")
     try:
         path.unlink()
@@ -581,7 +707,63 @@ def upload_voice(project_id: str, voice: UploadFile = File(...)) -> dict[str, An
     project = _project(project_id)
     if int(project.get("mode") or 0) != config.MODE_VOICE_REF:
         raise HTTPException(400, "只有模式 2（参考音色）需要参考音频。")
-    project["voice"] = _save_voice(project_id, voice)
+    entry = _append_voice(project_id, project, _save_voice(project_id, voice), "")
+    _mark_final_stale(project)
+    store.save(project)
+    return {"ok": True, "project": project, "voice": entry}
+
+
+@app.post("/api/projects/{project_id}/voices")
+def add_voice(project_id: str, name: str = Form(""),
+              voice: UploadFile = File(...)) -> dict[str, Any]:
+    project = _project(project_id)
+    if int(project.get("mode") or 0) != config.MODE_VOICE_REF:
+        raise HTTPException(400, "只有模式 2（参考音色）需要参考音频。")
+    entry = _append_voice(project_id, project, _save_voice(project_id, voice), name)
+    _mark_final_stale(project)
+    store.save(project)
+    return {"ok": True, "project": project, "voice": entry}
+
+
+@app.patch("/api/projects/{project_id}/voices/{voice_id}")
+def rename_voice(project_id: str, voice_id: str,
+                 payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    project = _project(project_id)
+    if int(project.get("mode") or 0) != config.MODE_VOICE_REF:
+        raise HTTPException(400, "只有模式 2（参考音色）有音色素材。")
+    name = str((payload or {}).get("name") or "").strip()[:VOICE_NAME_MAX]
+    if not name:
+        raise HTTPException(400, "音色名不能为空。")
+    voices = project.get("voices") or []
+    target = next((item for item in voices if str(item.get("id")) == str(voice_id)), None)
+    if target is None:
+        raise HTTPException(404, "音色不存在。")
+    target["name"] = name
+    if isinstance(project.get("voice"), dict) and str(project["voice"].get("id")) == str(voice_id):
+        project["voice"]["name"] = name
+    _mark_final_stale(project)
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.delete("/api/projects/{project_id}/voices/{voice_id}")
+def delete_voice_item(project_id: str, voice_id: str) -> dict[str, Any]:
+    project = _project(project_id)
+    if int(project.get("mode") or 0) != config.MODE_VOICE_REF:
+        raise HTTPException(400, "只有模式 2（参考音色）有音色素材。")
+    voices = project.get("voices") or []
+    target = next((item for item in voices if str(item.get("id")) == str(voice_id)), None)
+    if target is None:
+        raise HTTPException(404, "音色不存在。")
+    voices.remove(target)
+    filename = str(target.get("filename") or "")
+    if filename.startswith("voices/"):
+        try:
+            (store.project_dir(project_id) / filename).unlink()
+        except OSError:
+            pass
+    project["voices"] = voices
+    project["voice"] = dict(voices[0]) if voices else None
     _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project}
@@ -618,7 +800,13 @@ def delete_voice(project_id: str) -> dict[str, Any]:
             (directory / name).unlink()
         except OSError:
             pass
+    for extra in (store.project_dir(project_id) / "voices").glob("*.wav"):
+        try:
+            extra.unlink()
+        except OSError:
+            pass
     project["voice"] = None
+    project["voices"] = []
     _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project}
@@ -793,6 +981,33 @@ def plan_project(project_id: str, payload: dict[str, Any] | None = None) -> dict
 def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[str, Any]:
     project = _project(project_id)
     row = _row(project, index)
+    if "note" in payload:
+        note = str(payload.get("note") or "")
+        if note != str(row.get("note") or ""):
+            _instruction_ok(project, note, "本段创作要求",
+                            plan.segment_ref_indices(project, row))
+            row["note"] = note
+            _mark_prompt_meta_stale(row)
+    if "ref_ids" in payload:
+        raw = payload.get("ref_ids")
+        if raw is None:
+            row["ref_ids"] = None
+        elif isinstance(raw, list):
+            count = len(project.get("refs") or [])
+            try:
+                cleaned = sorted({int(value) for value in raw})
+            except (TypeError, ValueError):
+                raise HTTPException(400, "ref_ids 必须是整数数组或 null。") from None
+            if any(not 0 <= value < count for value in cleaned):
+                raise HTTPException(400, f"ref_ids 越界：当前只有 {count} 张参考图。")
+            row["ref_ids"] = cleaned or None
+        else:
+            raise HTTPException(400, "ref_ids 必须是整数数组或 null。")
+        # 改了本段用图后，已有创作要求里的 @图N 可能已经不可用：立刻重新校验
+        if str(row.get("note") or "").strip():
+            _instruction_ok(project, str(row["note"]), "本段创作要求",
+                            plan.segment_ref_indices(project, row))
+        _mark_prompt_meta_stale(row)
     is_audio = int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE
     if is_audio:
         # 模式 1：时间轴由音频切点决定，台词只影响提示词，不改帧数

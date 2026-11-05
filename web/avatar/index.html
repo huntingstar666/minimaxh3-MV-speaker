@@ -103,6 +103,12 @@
         <textarea id="f-script" class="input av-script" rows="6" spellcheck="false"
           placeholder="粘贴完整台词。按中文标点自动分段，每段按语速估算秒数与帧数。&#10;模式 1 可作为语音识别的对照文本（可选）。"></textarea>
       </div>
+      <div class="field">
+        <label>全局创作要求 <span class="hint">可选 · 支持 @图1（模式 2 另支持 @音频1）</span></label>
+        <textarea id="f-material-note" class="input" rows="3" spellcheck="false"
+          placeholder="例：整体轻松科普感；人物始终在画面左侧，右侧留给信息卡；不要出现手势特写。"></textarea>
+        <p class="panel-note tiny">会随「保存设定」一起发给 AI，优先级高于自动推断。</p>
+      </div>
       <div class="field-row">
         <div class="field">
           <label>语速 <b>字/秒</b></label>
@@ -177,10 +183,12 @@
             <button class="btn ghost sm" type="button" id="btn-voice-audition">
               <svg><use href="#i-play"/></svg><span id="voice-audition-label">试听</span>
             </button>
-            <button class="btn ghost sm" type="button" id="btn-voice-replace">替换</button>
-            <button class="btn ghost sm" type="button" id="btn-voice-del">删除</button>
+            <button class="btn ghost sm" type="button" id="btn-voice-replace">添加音色</button>
+            <button class="btn ghost sm" type="button" id="btn-voice-del">删除全部</button>
           </div>
         </div>
+        <div class="av-voice-list" id="voice-list"></div>
+        <p class="panel-note tiny" id="voice-list-hint">音色是参考素材，不与人物绑定：谁用哪个音色写在段落的创作要求里（例如 <code>@图1 用 @音频2 的音色</code>）。</p>
         <div class="av-voice-sample hidden" id="voice-sample-box">
           <div class="av-voice-sample-head">
             <span>音色样本 <b id="voice-sample-range">0.0–12.0s</b></span>
@@ -518,6 +526,29 @@
       <button class="btn ghost" data-close type="button">取消</button>
       <button class="btn danger" id="btn-confirm-yes" type="button">确认</button>
     </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-take-preview" hidden>
+  <div class="modal-card">
+    <div class="modal-head"><h2 id="take-preview-title">片段预览</h2><button class="icon-btn" data-close type="button"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body"><video id="take-preview-video" controls playsinline preload="metadata"></video></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-image-preview" hidden>
+  <div class="modal-card">
+    <div class="modal-head"><h2 id="image-preview-title">参考图预览</h2><button class="icon-btn" data-close type="button"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body"><img id="image-preview-img" alt=""></div>
+  </div>
+</div>
+
+<div class="mention-pop hidden" id="mention-pop" role="listbox">
+  <div class="mention-list" id="mention-list"></div>
+  <div class="mention-preview" id="mention-preview"><span class="hint">选择素材可预览</span></div>
+  <div class="mention-foot">
+    <span class="hint">↑↓ 选择 · Enter 插入 · Esc 关闭</span>
+    <button class="btn ghost sm" type="button" id="btn-mention-insert" disabled>插入引用</button>
   </div>
 </div>
 
