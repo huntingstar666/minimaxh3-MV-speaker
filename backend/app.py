@@ -1,12 +1,15 @@
 """FastAPI 入口：工作台静态页 + REST API。"""
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,19 +17,71 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
-from . import (asr, audio, comfy, director, frames, jobs, llm, pack, presets,
+from . import (asr, audio, comfy, director, frames, jobs, llm, media, pack, presets,
                prompts, seam_nodes, settings, store)
+from .errors import ParamError
 from .avatar import app as avatar_app
 
 APP_VERSION = "1.0.0"
 ALLOWED_AUDIO = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4", ".mov", ".mkv", ".webm"}
 ALLOWED_IMAGE = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+_IMAGE_MAGIC = {
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".bmp": (b"BM",),
+}
+
+
+def _looks_like_image(suffix: str, header: bytes) -> bool:
+    """按文件头判断内容是否真是图片（只校验扩展名会被任意字节骗过）。"""
+    if suffix == ".webp":
+        return header[:4] == b"RIFF" and header[8:12] == b"WEBP"
+    magics = _IMAGE_MAGIC.get(suffix)
+    if not magics:
+        return True
+    return any(header.startswith(magic) for magic in magics)
+
+
+def _valid_url(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text or any(ch.isspace() for ch in text):
+        return False
+    parts = urlsplit(text if "://" in text else "http://" + text)
+    return bool(parts.netloc) and parts.scheme in {"http", "https"}
 
 app = FastAPI(title="H3 数字人 · MV 工作台", version=APP_VERSION)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# 前端与后端同源，不需要通配 CORS。以前 allow_origins=["*"] 让任意网页都能跨域
+# 读 /api/settings（曾经把明文 key 一起返回）。这里只放行本机来源。
+_LOCAL_ORIGIN_REGEX = r"^https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$"
+# 允许局域网/反代站点：用环境变量 H3WB_CORS_ORIGINS 加白名单（逗号分隔）
+# 例：set H3WB_CORS_ORIGINS=http://192.168.1.5:8787,http://my-nas.local:8787
+_EXTRA_ORIGINS = [item.strip() for item
+                  in os.environ.get("H3WB_CORS_ORIGINS", "").split(",") if item.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_EXTRA_ORIGINS,
+    allow_origin_regex=_LOCAL_ORIGIN_REGEX,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 # 重新分析 / 切点调整会重建分段；串行化这类结构性操作，避免两次请求交错写坏 project.json
 _structural_lock = threading.Lock()
+
+
+@app.exception_handler(FileNotFoundError)
+async def _handle_missing(request: Request, exc: FileNotFoundError) -> JSONResponse:
+    """store.get 找不到项目时统一 404；以前会冒成 500。"""
+    return JSONResponse(status_code=404, content={"ok": False, "detail": "项目或文件不存在。"})
+
+
+@app.exception_handler(ParamError)
+async def _handle_invalid(request: Request, exc: ParamError) -> JSONResponse:
+    """只有参数类错误转 400；其它 ValueError 仍由框架记日志后返回 500。"""
+    detail = str(exc) or "请求参数无效。"
+    return JSONResponse(status_code=400, content={"ok": False, "detail": detail})
 
 
 @app.middleware("http")
@@ -69,7 +124,10 @@ def seam_nodes_status() -> dict[str, Any]:
 @app.post("/api/seam-nodes/deploy")
 def seam_nodes_deploy(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     data = payload or {}
-    result = seam_nodes.deploy(force=bool(data.get("force")), root=data.get("root"))
+    try:
+        result = seam_nodes.deploy(force=bool(data.get("force")), root=data.get("root"))
+    except OSError as error:
+        raise HTTPException(400, f"部署 seam 节点失败（文件被占用或权限不足）：{error}") from error
     if not result.get("ok"):
         raise HTTPException(400, str(result.get("error") or "部署失败"))
     return result
@@ -116,12 +174,18 @@ def get_settings() -> dict[str, Any]:
 @app.post("/api/settings")
 def post_settings(payload: dict[str, Any]) -> dict[str, Any]:
     patch = dict(payload or {})
+    if isinstance(patch.get("comfy_url"), str) and patch["comfy_url"].strip() \
+            and not _valid_url(patch["comfy_url"]):
+        raise HTTPException(400, "ComfyUI 地址不合法，请填写 http://127.0.0.1:8188 这样的地址。")
     config = patch.get("llm")
+    if isinstance(config, dict) and isinstance(config.get("base_url"), str) \
+            and config["base_url"].strip() and not _valid_url(config["base_url"]):
+        raise HTTPException(400, "LLM Base URL 不合法，请填写 http://host:port/v1 这样的地址。")
     if isinstance(config, dict) and isinstance(config.get("api_key"), str) \
             and config["api_key"].startswith("••••"):
         config.pop("api_key", None)
-    saved = settings.save(patch)
-    return {"ok": True, "settings": settings.public(), "raw": saved}
+    settings.save(patch)
+    return {"ok": True, "settings": settings.public()}
 
 
 @app.post("/api/llm/test")
@@ -158,10 +222,16 @@ def create_project(name: str = Form("未命名作品"),
             info = audio.decode_to_wav(temp_path, directory / "source.wav")
     except Exception as error:  # noqa: BLE001
         store.delete(project["id"])
-        raise HTTPException(400, f"音频解码失败：{error}") from error
+        detail = str(error).splitlines()[0][:200] if str(error) else ""
+        raise HTTPException(400, f"音频解码失败，请确认文件是有效的音频。{detail}") from error
+    decoded_seconds = (round(float(info["samples"]) / 44100.0, 3)
+                       if info.get("samples") else round(float(info["info"]["duration"]), 3))
+    # 波形时间轴用 source.duration，必须取「解码后音频」的真实长度；
+    # 之前用容器时长，带画面的 mp4/mov 会让波形与切点整体错位。
     project["source"] = {
         "filename": audio_file.filename or "audio",
-        "duration": round(info["info"]["duration"], 3),
+        "duration": decoded_seconds,
+        "duration_frames": frames.to_frames(decoded_seconds),
         "sample_rate": 44100,
         "samples": info["samples"],
     }
@@ -221,10 +291,16 @@ def get_project(project_id: str) -> dict[str, Any]:
     if jobs.missing_take_thumbs(project, project_id):
         jobs.schedule_take_thumbs(project_id)
     final = project.get("final")
-    if isinstance(final, dict) and final.get("take_signature"):
-        if final["take_signature"] != jobs.take_signature(project):
-            final["stale"] = True
-            final["stale_reason"] = "分段选材已变更，请重新合成成片"
+    if isinstance(final, dict):
+        if final.get("stitch") == "seam" and final.get("segment_signature"):
+            # seam 成片没有单段 take，过期只能看切点有没有变
+            if final["segment_signature"] != jobs.cuts_signature(project):
+                final["stale"] = True
+                final["stale_reason"] = "切点已变更，请用「重新生成全部」重出 seam 成片"
+        elif final.get("take_signature"):
+            if final["take_signature"] != jobs.take_signature(project):
+                final["stale"] = True
+                final["stale_reason"] = "分段选材已变更，请重新合成成片"
     project["run"] = jobs.runner.snapshot(project_id)
     return {"ok": True, "project": project}
 
@@ -232,6 +308,8 @@ def get_project(project_id: str) -> dict[str, Any]:
 @app.patch("/api/projects/{project_id}")
 def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     project = store.get(project_id)
+    if "mode" in payload and payload["mode"] not in {"singing", "speaking"}:
+        raise HTTPException(400, "模式必须是 singing 或 speaking。")
     allowed = {"name", "mode", "script", "generation", "material_note", "prompt_rule", "style", "filter"}
     labels = {"material_note": "创作要求", "prompt_rule": "提示词规则",
               "style": "全局风格", "filter": "全局滤镜"}
@@ -243,6 +321,10 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 project["generation"] = {**(project.get("generation") or {}), **(payload[key] or {})}
             else:
                 value = payload[key]
+                if key == "name":
+                    # 与 create/import 保持一致：名称最长 80 字。导出包时
+                    # 会用名称做临时文件名，过长在 Windows 上直接 EINVAL。
+                    value = str(value or "").strip()[:80] or "未命名作品"
                 if key in labels:
                     value = str(value or "")
                     if value != str(project.get(key) or ""):
@@ -408,13 +490,30 @@ def add_ref(project_id: str, role: str = Form("performer"), title: str = Form(""
     suffix = Path(image.filename or "").suffix.lower()
     if suffix not in ALLOWED_IMAGE:
         raise HTTPException(400, f"不支持的图片格式：{suffix or '未知'}")
+    header = image.file.read(12)
+    image.file.seek(0)
+    if not _looks_like_image(suffix, header):
+        raise HTTPException(400, "图片内容与扩展名不符，请重新导出后再上传。")
     if role not in VALID_ROLES:
         raise HTTPException(400, f"未知的参考图类型：{role}")
     project = store.get(project_id)
-    if len(project.get("refs") or []) >= 9:
+    refs = project.get("refs") or []
+    if len(refs) >= 9:
         raise HTTPException(400, "最多支持 9 张参考图。")
-    filename = f"ref_{len(project['refs']) + 1:02d}{suffix}"
-    target = store.project_dir(project_id) / "refs" / filename
+    refs_dir = store.project_dir(project_id) / "refs"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    # 不能再用 len(refs)+1：删掉前面的图后 len 会回退，算出的 ref_0X 与现存
+    # 文件同名，会直接用 "wb" 覆盖原图（不可恢复）。这里按已用文件名递增。
+    used = {str(ref.get("filename") or "") for ref in refs}
+    used |= {path.name for path in refs_dir.iterdir() if path.is_file()}
+    index = len(refs) + 1
+    while f"ref_{index:02d}{suffix}" in used:
+        index += 1
+    filename = f"ref_{index:02d}{suffix}"
+    target = refs_dir / filename
+    if target.exists():  # 兜底：极端情况换唯一名，绝不覆盖
+        filename = f"ref_{uuid.uuid4().hex[:8]}{suffix}"
+        target = refs_dir / filename
     with target.open("wb") as handle:
         shutil.copyfileobj(image.file, handle)
     project.setdefault("refs", []).append({
@@ -816,12 +915,9 @@ def project_media(project_id: str, path: str, request: Request) -> Response:
         ".mp4": "video/mp4", ".webm": "video/webm", ".mp3": "audio/mpeg", ".wav": "audio/wav",
         ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     }.get(target.suffix.lower(), "application/octet-stream")
-    if range_header and range_header.startswith("bytes="):
-        raw = range_header.split("=", 1)[1].split(",")[0]
-        start_text, _, end_text = raw.partition("-")
-        start = int(start_text or 0)
-        end = int(end_text) if end_text else file_size - 1
-        end = min(end, file_size - 1)
+    parsed_range = media.parse_range(range_header, file_size)
+    if parsed_range is not None:
+        start, end = parsed_range
         if start >= file_size:
             return Response(status_code=416, headers={"Content-Range": f"bytes */{file_size}"})
         length = end - start + 1
@@ -845,8 +941,10 @@ def download(project_id: str) -> FileResponse:
     target = store.project_dir(project_id) / final
     if not target.is_file():
         raise HTTPException(404, "成片文件不存在。")
+    safe_name = "".join(ch for ch in str(project.get("name") or "h3-video")
+                        if ch not in '\\/:*?"<>|\r\n').strip() or "h3-video"
     return FileResponse(target, media_type="video/mp4",
-                        filename=f"{project.get('name') or 'h3-video'}.mp4")
+                        filename=f"{safe_name}.mp4")
 
 
 @app.get("/api/projects/{project_id}/export")

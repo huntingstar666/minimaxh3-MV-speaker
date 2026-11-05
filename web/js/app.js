@@ -15,6 +15,7 @@ import {
 const PROJECT_STATES = ["completed", "failed", "cancelled", "partial"];
 let waveform = null;
 let lastRunStatus = "";
+let idlePolls = 0;
 let refSegmentIndex = null;
 const cutHistory = [];
 
@@ -29,6 +30,11 @@ async function init() {
   waveform.editable = true;
   waveform.onBoundary = (cuts) => {
     if (!state.project) return;
+    if (["queued", "running"].includes(state.run?.status)) {
+      toast("任务运行中切点已锁定；要调整请先停止任务。", "warn", 5000);
+      renderSegments();
+      return;
+    }
     const duration = Number(state.project.segments?.at(-1)?.end || 0);
     let previous = 0;
     for (const cut of cuts) {
@@ -46,6 +52,10 @@ async function init() {
   };
   waveform.onSplit = (time) => {
     if (!state.project) return;
+    if (["queued", "running"].includes(state.run?.status)) {
+      toast("任务运行中不能切分；要调整请先停止任务。", "warn", 5000);
+      return;
+    }
     const blocker = splitBlocker(time);
     if (blocker) {
       toast(blocker, "warn", 5000);
@@ -175,6 +185,9 @@ function exportPack() {
 }
 
 async function loadProject(id, announce = true) {
+  // 切换项目必须停掉上一个项目的轮询/刷新定时器，否则会一直请求新项目并
+  // 每 4.5s 用服务端数据重建段列表（播放高亮/滚动丢失）。
+  stopPolling();
   const data = await api.project(id);
   stopAudition();
   cutHistory.length = 0;
@@ -218,6 +231,8 @@ async function createProject(file) {
       max_seconds: Number($("#max-range").value),
       script: $("#script-input").value,
       use_asr: $("#asr-toggle").checked,
+      asr_model: $("#asr-model").value,
+      asr_language: $("#asr-lang").value,
     });
     setProject(analyzed.project);
     renderProject();
@@ -240,15 +255,28 @@ async function analyzeProject() {
     toast("目标段长不能大于最长段长。", "err");
     return;
   }
+  if (["queued", "running"].includes(state.run?.status)) {
+    toast("任务运行中，重新分析会中断当前生成，请先停止任务。", "warn", 5000);
+    return;
+  }
   const useAsr = $("#asr-toggle").checked;
-  const hasPrompts = (state.project.segments || []).some((row) => String(row.final_prompt || "").trim());
-  if (hasPrompts) {
+  const segments = state.project.segments || [];
+  const hasPrompts = segments.some((row) => String(row.final_prompt || "").trim());
+  const hasTakes = segments.some((row) => (row.takes || []).length || row.output);
+  const modeChanged = ($("#mode-select").value || "") !== (state.project.mode || "");
+  if (hasPrompts || hasTakes || modeChanged) {
     const confirmed = await confirmDialog(
       "重新分析",
-      "重新分析会重建全部分段，现有分镜提示词会失效（后端会自动备份 project.json，可在项目目录找回）。继续？",
+      "重新分析会重建全部分段" + (hasPrompts ? "，现有分镜提示词会失效" : "")
+        + (hasTakes ? "，当前选片记录会被新片段替代" : "")
+        + (modeChanged ? "，模式切换后按新腔位重新分段" : "")
+        + "（后端会自动备份 project.json，可在项目目录找回）。继续？",
       "继续分析",
     );
-    if (!confirmed) return;
+    if (!confirmed) {
+      renderProject();  // 取消时把模式下拉等控件恢复成当前项目的值
+      return;
+    }
   }
   busy(useAsr ? "正在识别语音并分析音频（首次会下载模型，请稍候）…" : "正在重新分析音频…");
   try {
@@ -961,6 +989,11 @@ async function cancelRun() {
 
 function startPolling() {
   stopPolling();
+  // 关键：任务状态会从上一次的终态（completed）重新回到 queued；
+  // 不重置 lastRunStatus 的话，重新合成/单段重生成完成后 pollRun 认为
+  // 「状态没变」，不收尾也不刷新成片，按钮会一直 disabled。
+  lastRunStatus = "queued";
+  idlePolls = 0;
   state.pollTimer = setInterval(pollRun, 1000);
   state.refreshTimer = setInterval(refreshProjectQuiet, 4500);
 }
@@ -974,6 +1007,9 @@ function stopPolling() {
 
 async function pollRun() {
   if (!state.project) return stopPolling();
+  // 慢响应时不要并发：后发先至的旧快照会把 state.run 覆盖回去
+  if (state.pollInFlight) return;
+  state.pollInFlight = true;
   try {
     const data = await api.run(state.project.id);
     const run = data.run;
@@ -982,6 +1018,13 @@ async function pollRun() {
     if (run.status === "running" && Number.isFinite(run.segment) && run.segment >= 0) {
       setActiveSegment(run.segment);
     }
+    if (run.status === "idle") {
+      // 切到没有任务的项目/任务已经不存在：连续几次 idle 就收尾，避免定时器泄漏
+      idlePolls += 1;
+      if (idlePolls >= 2) stopPolling();
+      return;
+    }
+    idlePolls = 0;
     if (PROJECT_STATES.includes(run.status) && lastRunStatus !== run.status) {
       lastRunStatus = run.status;
       stopPolling();
@@ -992,6 +1035,8 @@ async function pollRun() {
     }
   } catch {
     /* 网络抖动时保持轮询 */
+  } finally {
+    state.pollInFlight = false;
   }
 }
 
@@ -1627,13 +1672,22 @@ function bindEvents() {
     saveCreativeValue($("#creative-custom-text").value.trim());
   }
 
+  let catalogLoading = null;
   async function loadCatalog() {
-    if (catalog.length) return;
-    try {
-      const res = await fetch("/api/creative-catalog");
-      const data = await res.json();
-      catalog = data.items || [];
-    } catch { catalog = []; }
+    if (catalog.length) return catalog;
+    if (!catalogLoading) {
+      catalogLoading = (async () => {
+        try {
+          const res = await fetch("/api/creative-catalog");
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          catalog = data.items || [];
+        } catch { catalog = []; }  // 失败置空，下次打开会重试
+        finally { catalogLoading = null; }
+      })();
+    }
+    await catalogLoading;
+    return catalog;
   }
 
   function creativeMeta(kind) {
@@ -1665,7 +1719,7 @@ function bindEvents() {
     }
   }
 
-  function openCreativePicker(kind, scope) {
+  async function openCreativePicker(kind, scope) {
     creativeCtx = {
       kind,
       scope,
@@ -1674,6 +1728,10 @@ function bindEvents() {
     };
     syncCreativeView();
     openModal("modal-creative");
+    if (!catalog.length) {
+      await loadCatalog();
+      renderCreativeGrid();
+    }
   }
 
   function currentCreativeValue() {

@@ -18,9 +18,17 @@ from __future__ import annotations
 # H3 固定 24fps 时间基准；成片也按 24fps 输出，避免二次换算
 FPS = 24
 
-# H3 合法帧数 = 5 + 17k；单段实测上限 362 帧（15.08s），下限 124 帧（5.17s）
+# H3 合法帧数 = 5 + 17k；单段上限 719 帧（29.96s，30s 档），下限 124 帧（5.17s）。
+# 15s 只是推荐值，用户明确要求 30s 以内可用；719 = 5 + 17*42 是 ≤720 的最大合法帧。
 MIN_FRAMES = 124
-MAX_FRAMES = 362
+MAX_FRAMES = 719
+
+# 模式 2 参考音频：原始录音可长（最长 10 分钟），但送给 H3 的“音色样本”只截 12 秒。
+# 样本长度可调 2–15 秒；界面允许改起点并试听，原始音频保留在 voice/source.wav。
+VOICE_SOURCE_MAX_SECONDS = 600.0
+VOICE_SAMPLE_SECONDS = 12.0
+VOICE_SAMPLE_MIN = 2.0
+VOICE_SAMPLE_MAX = 15.0
 
 # 台词规划默认：约 5 字/秒
 DEFAULT_CPS = 5.0

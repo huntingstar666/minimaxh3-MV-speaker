@@ -1,4 +1,12 @@
 // 全局状态与轻量订阅
+function readStorage(key) {
+  try { return window.localStorage.getItem(key) || ""; } catch { return ""; }
+}
+
+function writeStorage(key, value) {
+  try { window.localStorage.setItem(key, value); } catch { /* 隐私模式忽略 */ }
+}
+
 export const state = {
   health: null,
   options: null,
@@ -13,7 +21,9 @@ export const state = {
   audioPlaying: false,
   auditionSegment: null,
   presets: [],
-  lastProject: localStorage.getItem("h3wb:lastProject") || "",
+  pollInFlight: false,
+  generatingSegment: -1,
+  lastProject: readStorage("h3wb:lastProject"),
 };
 
 const listeners = new Set();
@@ -29,6 +39,6 @@ export function emit(type, detail) {
 
 export function setProject(project) {
   state.project = project;
-  if (project?.id) localStorage.setItem("h3wb:lastProject", project.id);
+  if (project?.id) writeStorage("h3wb:lastProject", project.id);
   emit("project", project);
 }

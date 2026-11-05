@@ -25,6 +25,11 @@ def plan_windows(rows: list[dict[str, Any]], fps: int, total_target: int,
                  overlap: int = DEFAULT_OVERLAP) -> list[dict[str, Any]]:
     """按每段的目标秒数规划 H3 窗口。
 
+    H3 窗口长度必须是 5+17k；第 2 段起段首裁掉 overlap 帧，所以「可见段长度」
+    只能是 17 的倍数。这里把「累计可见边界」吸附到 5+17k 格点，用相邻边界差
+    作为每段可见长度：取整余量只在相邻两段间浮动（<=17 帧），不会像旧实现那样
+    按段累积漂移（旧方案每段多推进 0~16 帧，13 段曲可漂 6 秒以上，末段被裁没）。
+
     rows 里的 edit_frames 是 24fps 时间刻度；visible 是这段在成片里占的帧数
     （目标帧率下）。窗口多出的部分由节点在段首裁掉，最后一段多出的帧由成片裁掉。
     """
@@ -32,29 +37,38 @@ def plan_windows(rows: list[dict[str, Any]], fps: int, total_target: int,
     total_target = max(int(total_target), 1)
     overlap = max(int(overlap), 1)
     windows: list[dict[str, Any]] = []
-    previous_end = 0
-    remaining = total_target
+    previous_end = 0       # 上一窗口 endFrame（等于上一个可见边界）
+    visible_end = 0        # 已经规划的可见累计边界
+    cumulative = 0         # 各段 base 的累计（计划长度）
     for index, row in enumerate(rows):
-        base = int(round(int(row.get("edit_frames") or 0) * fps / FPS))
-        if index == len(rows) - 1:
-            visible = max(1, remaining)
-        else:
-            visible = max(1, min(base, max(1, remaining)))
+        base = max(1, int(round(int(row.get("edit_frames") or 0) * fps / FPS)))
+        cumulative += base
+        # 可见累计边界吸附到 5+17k 格点（向上取整，保证覆盖到计划位置）
+        snapped = max(22, 5 + 17 * math.ceil((cumulative - 5) / 17))
+        if index and snapped - visible_end < 17:
+            snapped = visible_end + 17
+        visible = snapped - visible_end
         start = 0 if index == 0 else previous_end - overlap
-        length = legal_frames(visible + (overlap if index else 0))
+        length = visible + (overlap if index else 0)
         end = start + length
-        actual_visible = end - previous_end
-        remaining -= actual_visible
         windows.append({
             "index": index,
             "start": int(start),
             "end": int(end),
             "length": int(length),
             "overlap": 0 if index == 0 else overlap,
-            "visible": int(actual_visible),
+            "visible": int(visible),
             "target_visible": int(base),
         })
         previous_end = end
+        visible_end = snapped
+    if windows and windows[-1]["end"] < total_target:
+        # 计划累计与 total_target 有小数差时，把最后一窗补到能覆盖 total_target
+        last = windows[-1]
+        extra = legal_frames(last["length"] + (total_target - last["end"])) - last["length"]
+        last["length"] += extra
+        last["end"] += extra
+        last["visible"] += extra
     return windows
 
 

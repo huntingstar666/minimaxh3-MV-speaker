@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from . import frames, settings
+from .errors import ParamError
 
 _locks: dict[str, threading.RLock] = {}
 _global_lock = threading.RLock()
@@ -23,7 +24,7 @@ def _lock_for(project_id: str) -> threading.RLock:
 
 def project_dir(project_id: str) -> Path:
     if not project_id or any(ch in project_id for ch in "/\\."):
-        raise ValueError("项目编号无效。")
+        raise ParamError("项目编号无效。")
     return settings.PROJECTS_DIR / project_id
 
 
@@ -178,5 +179,5 @@ def write_json(project_id: str, name: str, value: Any) -> None:
 def find_segment(project: dict[str, Any], index: int) -> dict[str, Any]:
     segments = project.get("segments") or []
     if not 0 <= int(index) < len(segments):
-        raise ValueError("分段编号超出范围。")
+        raise ParamError("分段编号超出范围。")
     return segments[int(index)]

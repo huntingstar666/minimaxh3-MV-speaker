@@ -91,6 +91,46 @@ def _deep_merge(base: dict, patch: dict) -> dict:
     return result
 
 
+def _clamp_float(value: Any, low: float, high: float, fallback: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(low, min(high, number))
+
+
+def _coerce(config: dict[str, Any]) -> dict[str, Any]:
+    """规范化关键配置，避免把 "abc" / "not a url" 落库后等到调用时才炸。"""
+    comfy_url = str(config.get("comfy_url") or "").strip()
+    if comfy_url:
+        if "://" not in comfy_url:
+            comfy_url = "http://" + comfy_url
+        config["comfy_url"] = comfy_url.rstrip("/")
+    for key in ("ffmpeg", "ffprobe"):
+        config[key] = str(config.get(key) or key)
+    llm = config.get("llm")
+    if isinstance(llm, dict):
+        base = str(llm.get("base_url") or "").strip()
+        if base:
+            if "://" not in base:
+                base = "http://" + base
+            llm["base_url"] = base.rstrip("/")
+        else:
+            llm["base_url"] = "http://127.0.0.1:11434/v1"
+        llm["timeout"] = int(_clamp_float(llm.get("timeout"), 5, 3600, 180))
+        llm["temperature"] = round(_clamp_float(llm.get("temperature"), 0.0, 2.0, 0.4), 3)
+        llm["max_tokens"] = int(_clamp_float(llm.get("max_tokens"), 256, 65536, 8192))
+        llm["api_key"] = str(llm.get("api_key") or "")
+        llm["model"] = str(llm.get("model") or "")
+    generation = config.get("generation")
+    if isinstance(generation, dict):
+        generation["crf"] = int(_clamp_float(generation.get("crf"), 0, 51, 19))
+        generation["steps"] = int(_clamp_float(generation.get("steps"), 1, 200, 6))
+        generation["cfg"] = _clamp_float(generation.get("cfg"), 0.0, 30.0, 1.0)
+        generation["megapixels"] = _clamp_float(generation.get("megapixels"), 0.1, 8.0, 1.0)
+    return config
+
+
 def _env_overrides() -> dict:
     patch: dict[str, Any] = {}
     for env_name, keys in ENV_MAP.items():
@@ -115,7 +155,7 @@ def load() -> dict[str, Any]:
                 except (json.JSONDecodeError, OSError):
                     stored = {}
             _cache = _deep_merge(DEFAULTS, stored)
-        return _deep_merge(_cache, _env_overrides())
+        return _coerce(_deep_merge(_cache, _env_overrides()))
 
 
 def save(patch: dict[str, Any]) -> dict[str, Any]:
@@ -123,7 +163,7 @@ def save(patch: dict[str, Any]) -> dict[str, Any]:
     with _lock:
         current = _deep_merge(DEFAULTS, json.loads(SETTINGS_PATH.read_text(encoding="utf-8-sig"))
                               if SETTINGS_PATH.is_file() else {})
-        current = _deep_merge(current, patch or {})
+        current = _coerce(_deep_merge(current, patch or {}))
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         temp = SETTINGS_PATH.with_suffix(".tmp")
         temp.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")

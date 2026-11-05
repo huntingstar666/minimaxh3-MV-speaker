@@ -122,8 +122,19 @@ def deploy(force: bool = False, root: str | None = None) -> dict[str, Any]:
             f"{TARGET_NAME}.bak-{time.strftime('%Y%m%d-%H%M%S')}.disabled")
         target.rename(backup_path)
         backup = str(backup_path)
-    shutil.copytree(VENDOR_DIR, target,
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"))
-    (target / MARKER).write_text(current, encoding="utf-8")
+    try:
+        shutil.copytree(VENDOR_DIR, target,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"))
+        (target / MARKER).write_text(current, encoding="utf-8")
+    except Exception:
+        # 拷贝失败不能把 ComfyUI 的 custom_nodes 停在「只有 .disabled 备份」的状态，
+        # 否则重启后 seam 节点直接消失。
+        shutil.rmtree(target, ignore_errors=True)
+        if backup:
+            try:
+                Path(backup).rename(target)
+            except OSError:
+                pass
+        raise
     return {"ok": True, "changed": True, "backup": backup,
             "restart_required": True, **status(root)}

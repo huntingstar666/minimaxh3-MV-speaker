@@ -109,7 +109,7 @@ def wait_server(base: str, timeout: float = 60.0) -> None:
 
 
 def legal_frames(value: int) -> bool:
-    return value >= 124 and value <= 362 and (value - 5) % 17 == 0
+    return 124 <= value <= 719 and (value - 5) % 17 == 0
 
 
 def main() -> int:

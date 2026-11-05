@@ -43,7 +43,10 @@ def probe(path: Path) -> dict[str, Any]:
     stream = next((item for item in data.get("streams", []) if item.get("codec_type") == "audio"), None)
     if not stream:
         raise ValueError("文件没有可用的音频轨道。")
-    duration = float(data.get("format", {}).get("duration") or stream.get("duration") or 0)
+    # 优先音频轨自己的时长：mp4/mov 的容器时长可能比音轨长，会让波形轴被拉长。
+    duration = float(stream.get("duration") or 0)
+    if duration <= 0:
+        duration = float(data.get("format", {}).get("duration") or 0)
     if duration <= 0:
         raise ValueError("无法读取音频时长。")
     return {

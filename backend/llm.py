@@ -15,6 +15,12 @@ def normalize_base(url: str) -> str:
     value = str(url or "").strip().rstrip("/")
     if not value:
         raise ValueError("LLM 地址为空。")
+    if "://" not in value:
+        value = "http://" + value
+    # 允许用户直接粘贴完整 endpoint（…/v1/chat/completions）：
+    # 以前会原样保留再拼一次 /chat/completions，变成双路径必然 404。
+    if value.endswith("/chat/completions"):
+        value = value[: -len("/chat/completions")].rstrip("/")
     if not value.endswith("/v1") and "/v1/" not in value:
         if "11434" in value and value.endswith("/api"):
             value = value[:-4]
@@ -68,8 +74,8 @@ def chat(config: dict[str, Any], messages: list[dict], images: list[Path] | None
         try:
             with httpx.Client(timeout=timeout) as client:
                 response = client.post(url, json=payload, headers=headers)
-            if response.status_code == 404 and not url.endswith("/chat/completions"):
-                raise RuntimeError("LLM 接口路径不存在，请检查 Base URL。")
+            if response.status_code == 404:
+                raise RuntimeError(f"LLM 接口路径不存在（{url}），请检查 Base URL。")
             response.raise_for_status()
             data = response.json()
             message = (data.get("choices") or [{}])[0].get("message") or {}

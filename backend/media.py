@@ -1,10 +1,61 @@
 """视频归一化、拼接与封面截取（ffmpeg）。时长一律按帧处理。"""
 from __future__ import annotations
 
+import json
+import re
 import subprocess
 from pathlib import Path
+from typing import Optional, Tuple
 
 from . import audio, frames
+
+
+_RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+def parse_range(header: Optional[str], file_size: int) -> Optional[Tuple[int, int]]:
+    """解析单个 Range 头，返回 (start, end)；非法/多区间/越界返回 None。
+
+    以前直接 int() 解析，bytes=abc- 之类会抛 ValueError 变成 500；
+    bytes=100-50 之类会让 read() 拿到负长度。
+    """
+    if not header or file_size <= 0:
+        return None
+    raw = str(header).strip()
+    if "," in raw:  # 多区间不支持：退回整文件响应
+        return None
+    match = _RANGE_RE.match(raw)
+    if not match:
+        return None
+    start_text, end_text = match.groups()
+    if not start_text and not end_text:
+        return None
+    try:
+        if not start_text:
+            length = int(end_text)
+            if length <= 0:
+                return None
+            return max(0, file_size - length), file_size - 1
+        start = int(start_text)
+        end = int(end_text) if end_text else file_size - 1
+    except ValueError:
+        return None
+    if end < start:
+        return None
+    return start, min(end, file_size - 1)
+
+
+def _video_size(path: Path) -> Optional[Tuple[int, int]]:
+    try:
+        data = json.loads(audio.command([
+            audio.ffprobe(), "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "json", str(path),
+        ]))
+        stream = (data.get("streams") or [{}])[0]
+        width, height = int(stream.get("width") or 0), int(stream.get("height") or 0)
+        return (width, height) if width and height else None
+    except Exception:  # noqa: BLE001  探测失败不阻塞拼接
+        return None
 
 
 def normalize(src: Path, dst: Path, output_frames: int, crf: int = 18,
@@ -30,6 +81,12 @@ def concat(clips: list[Path], audio_source: Path | None, out: Path, total_frames
     if not clips:
         raise ValueError("没有可拼接的片段。")
     workdir.mkdir(parents=True, exist_ok=True)
+    # concat -c:v copy 要求所有片段同编码同分辨率；中途改画幅后混拼会花屏/黑帧。
+    sizes = [size for size in (_video_size(clip) for clip in clips) if size]
+    if len(set(sizes)) > 1:
+        raise ValueError("分段分辨率不一致（" + "、".join(
+            f"{width}x{height}" for width, height in sorted(set(sizes)))
+            + "），请在同一画幅下重新生成全部片段后再合成。")
     listing = workdir / "concat.txt"
     listing.write_text("\n".join(
         "file '" + str(path.resolve()).replace("\\", "/").replace("'", "'\\''") + "'"

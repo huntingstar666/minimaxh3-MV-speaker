@@ -9,9 +9,10 @@ export function escapeHtml(value) {
 }
 
 export function formatTime(seconds) {
-  const value = Math.max(0, Number(seconds) || 0);
-  const minutes = Math.floor(value / 60);
-  const rest = value - minutes * 60;
+  // 先量化到 0.1 秒再拆分钟：否则 59.96s 会显示成 00:60.0
+  const total = Math.round(Math.max(0, Number(seconds) || 0) * 10) / 10;
+  const minutes = Math.floor(total / 60);
+  const rest = total - minutes * 60;
   return `${String(minutes).padStart(2, "0")}:${rest.toFixed(1).padStart(4, "0")}`;
 }
 
@@ -70,6 +71,12 @@ export function anyModalOpen() {
 let confirmResolve = null;
 
 export function confirmDialog(title, text, confirmLabel = "确认") {
+  // 连点两次时，先把上一个未决的 confirm 置为 false，否则它的 await 永远挂起
+  if (confirmResolve) {
+    const previous = confirmResolve;
+    confirmResolve = null;
+    previous(false);
+  }
   $("#confirm-title").textContent = title;
   $("#confirm-text").textContent = text;
   $("#btn-confirm-yes").textContent = confirmLabel;

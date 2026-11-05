@@ -109,13 +109,13 @@
           <input id="f-cps" class="input mono" type="number" min="1" max="10" step="0.1" value="5.0">
         </div>
         <div class="field">
-          <label>目标段长 <b id="target-label">8.0s</b></label>
-          <input id="f-target" type="range" min="5" max="15" step="0.5" value="8">
+          <label>目标段长 <b id="target-label">8.0s</b> <span class="hint">推荐 8–12s</span></label>
+          <input id="f-target" class="av-range" type="range" min="5" max="30" step="0.5" value="8">
         </div>
       </div>
       <div class="field">
-        <label>最长段长 <b id="max-label">12.0s</b> <span class="hint">5–15s</span></label>
-        <input id="f-max" type="range" min="5" max="15" step="0.5" value="12">
+        <label>最长段长 <b id="max-label">12.0s</b> <span class="hint">推荐 ≤15s · 30s 兜底</span> <span class="av-pressure" id="max-pressure" data-level="轻">压力：轻</span></label>
+        <input id="f-max" class="av-range" type="range" min="5" max="30" step="0.5" value="12">
       </div>
 
       <div class="av-mode-form hidden" id="mode-form-1">
@@ -164,7 +164,7 @@
           <input type="file" id="voice-input" accept="audio/*,video/*" hidden>
           <svg><use href="#i-wave"/></svg>
           <strong>拖入参考音频，或点击选择</strong>
-          <span>音色 / 语速 / 表达参考 · 建议 2–15 秒</span>
+          <span>完整录音也可以：自动截取音色样本（可试听 / 改起点）</span>
           <em id="voice-label"></em>
         </label>
         <div class="av-voice-row hidden" id="voice-row">
@@ -174,9 +174,21 @@
             <span id="voice-duration">—</span>
           </div>
           <div class="av-voice-actions">
+            <button class="btn ghost sm" type="button" id="btn-voice-audition">
+              <svg><use href="#i-play"/></svg><span id="voice-audition-label">试听</span>
+            </button>
             <button class="btn ghost sm" type="button" id="btn-voice-replace">替换</button>
             <button class="btn ghost sm" type="button" id="btn-voice-del">删除</button>
           </div>
+        </div>
+        <div class="av-voice-sample hidden" id="voice-sample-box">
+          <div class="av-voice-sample-head">
+            <span>音色样本 <b id="voice-sample-range">0.0–12.0s</b></span>
+            <span class="hint" id="voice-sample-source">原始录音已保留</span>
+          </div>
+          <input id="f-voice-start" class="av-range" type="range" min="0" max="0" step="0.1" value="0">
+          <p class="hint" id="voice-sample-hint">拖动起点选择送给 H3 的那一段；原始录音会保留，随时可换。</p>
+          <audio id="voice-audition" preload="none"></audio>
         </div>
       </div>
 
@@ -252,13 +264,23 @@
           <span class="av-design-mini">密度中</span>
         </summary>
         <div class="av-design-body">
+          <div class="av-design-hero" id="design-preview">
+            <div class="av-design-phone">
+              <div class="av-preview-scene" id="design-preview-frame"></div>
+            </div>
+            <div class="av-design-preview-meta">
+              <b id="design-preview-title">风格预览</b>
+              <span id="design-preview-sub">人物 · 画面 · 信息层级</span>
+              <div class="av-design-preview-tags" id="design-preview-tags"></div>
+            </div>
+          </div>
           <div class="field">
             <label>效果密度</label>
-            <div class="av-seg-btns" id="design-density">
-              <button type="button" data-density="low">低</button>
-              <button type="button" data-density="medium" class="active">中</button>
-              <button type="button" data-density="high">高</button>
-            </div>
+            <div class="av-density-grid" id="design-density"></div>
+          </div>
+          <div class="field">
+            <label>风格系统 <span class="hint">点一套，自动带出字体 / 材质 / 动效 / 配色</span></label>
+            <div class="av-style-grid" id="design-style-systems"></div>
           </div>
           <div class="field-row">
             <div class="field">
@@ -387,6 +409,11 @@
 
     <section class="panel" id="panel-projects">
       <div class="panel-head"><h2>最近作品</h2><span class="hint" id="project-count">0 个</span></div>
+      <div class="av-form-actions-row">
+        <button class="btn ghost sm" id="btn-import-pack"><svg><use href="#i-plus"/></svg>导入 .h3avatar 包</button>
+        <button class="btn ghost sm" id="btn-export-pack"><svg><use href="#i-film"/></svg>导出当前包</button>
+        <input id="pack-input" type="file" accept=".zip,.h3avatar" hidden>
+      </div>
       <div class="av-project-list" id="project-list">
         <div class="av-list-empty">暂无作品</div>
       </div>

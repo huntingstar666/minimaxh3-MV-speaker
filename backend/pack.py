@@ -14,7 +14,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from . import audio, frames, jobs, prompts, settings, store
+from . import audio, director as director_module, frames, jobs, prompts, settings, store
 
 SCHEMA = "h3-mv-pack"
 VERSION = 1
@@ -144,11 +144,27 @@ def validate_manifest(manifest: Any) -> dict[str, Any]:
     cuts = timeline.get("cuts_seconds") or []
     if not isinstance(cuts, list):
         raise PackError("timeline.cuts_seconds 必须是数字数组。")
+    maximum_seconds = 15.0
+    project_value = manifest.get("project") or {}
+    if isinstance(project_value, dict):
+        try:
+            maximum_seconds = float(project_value.get("max_seconds") or 15)
+        except (TypeError, ValueError):
+            maximum_seconds = 15.0
     last = 0.0
     for position, cut in enumerate(cuts):
         value = _number(cut, f"timeline.cuts_seconds[{position}]", 0.001, 36000)
         if value <= last:
             raise PackError("timeline.cuts_seconds 必须严格递增。")
+        if value < 3:
+            raise PackError("timeline.cuts_seconds 首段不足 3 秒。")
+        if value - last < 3:
+            raise PackError(
+                f"timeline.cuts_seconds 相邻切点 {last:.2f}s→{value:.2f}s 不足 3 秒。")
+        if value - last > maximum_seconds + 0.25:
+            raise PackError(
+                f"timeline.cuts_seconds {last:.2f}s→{value:.2f}s 超过最长段长 "
+                f"{maximum_seconds:.1f}s。")
         last = value
     project = manifest.get("project") or {}
     if not isinstance(project, dict):
@@ -168,6 +184,10 @@ def validate_manifest(manifest: Any) -> dict[str, Any]:
         if "ref_ids" in item and item["ref_ids"] is not None:
             if not isinstance(item["ref_ids"], list):
                 raise PackError(f"segments[{index}].ref_ids 必须是数组或 null。")
+            bad = [value for value in item["ref_ids"]
+                   if not isinstance(value, int) or isinstance(value, bool)]
+            if bad:
+                raise PackError(f"segments[{index}].ref_ids 必须是整数数组。")
     return manifest
 
 
@@ -207,6 +227,25 @@ def _apply_project_fields(project: dict[str, Any], manifest: dict[str, Any]) -> 
         cleaned = {key: value for key, value in generation.items() if key in GENERATION_KEYS}
         if cleaned:
             project["generation"] = {**(project.get("generation") or {}), **cleaned}
+    director_patch = source.get("director")
+    if isinstance(director_patch, dict):
+        director_state = project.setdefault("director", {})
+        for key in ("performance_intensity", "note", "soundscape"):
+            if key in director_patch:
+                director_state[key] = str(director_patch.get(key) or "")
+        rule_config = director_patch.get("rule_config")
+        if isinstance(rule_config, dict):
+            try:
+                director_state["rule_config"] = director_module.validate_config(rule_config)
+                director_state["signature"] = store.new_id()
+            except Exception:  # noqa: BLE001  坏规则直接忽略，不让整包导入失败
+                pass
+    asr_patch = source.get("asr")
+    if isinstance(asr_patch, dict):
+        project["asr"] = {"enabled": bool(asr_patch.get("enabled")),
+                          "model": str(asr_patch.get("model") or ""),
+                          "language": str(asr_patch.get("language") or ""),
+                          "text": "", "note": ""}
 
 
 def _match_segment(rows: list[dict], item: dict[str, Any]) -> dict | None:
@@ -221,9 +260,13 @@ def _match_segment(rows: list[dict], item: dict[str, Any]) -> dict | None:
         start_value, end_value = float(start), float(end)
     except (TypeError, ValueError):
         return None
-    best = max(rows, key=lambda row: max(
-        0.0, min(float(row.get("end") or 0), end_value)
-        - max(float(row.get("start") or 0), start_value)), default=None)
+    def overlap(row: dict) -> float:
+        return max(0.0, min(float(row.get("end") or 0), end_value)
+                   - max(float(row.get("start") or 0), start_value))
+
+    best = max(rows, key=overlap, default=None)
+    if best is None or overlap(best) <= 0.05:
+        return None  # 完全不相交就当作没匹配到，不再把简报写到无关段上
     return best
 
 
@@ -279,9 +322,16 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
         store.save(project)
         timeline = manifest.get("timeline") or {}
         cuts = [float(value) for value in timeline.get("cuts_seconds") or []]
+        warnings: list[str] = []
         if cuts:
             store.save(project)
-            cut_frames = [frames.to_frames(value) for value in cuts]
+            total_frames = frames.to_frames(float(project["source"]["duration"]))
+            cut_frames, dropped = jobs.drop_short_tail_cuts(
+                [frames.to_frames(value) for value in cuts], total_frames,
+                int(project.get("max_frames") or frames.to_frames(15)))
+            if dropped:
+                warnings.append(
+                    f"包内末段不足 3 秒，已把最后 {len(dropped)} 个切点并入上一段。")
             project = jobs.apply_boundaries(project_id, cut_frames)
         else:
             project = jobs.analyze(project_id, {
@@ -293,7 +343,6 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
             })
         rows = project.get("segments") or []
         applied = 0
-        warnings: list[str] = []
         for item in manifest.get("segments") or []:
             row = _match_segment(rows, item)
             if row is None:
@@ -310,7 +359,11 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
                     row["ref_ids"] = None
                 else:
                     count = len(project.get("refs") or [])
-                    cleaned = sorted({int(value) for value in raw if 0 <= int(value) < count})
+                    try:
+                        positions = {int(value) for value in raw}
+                    except (TypeError, ValueError):
+                        raise PackError("segments[].ref_ids 必须是整数数组。") from None
+                    cleaned = sorted(value for value in positions if 0 <= value < count)
                     row["ref_ids"] = cleaned or None
             if "final_prompt" in item:
                 text = str(item.get("final_prompt") or "").strip()
@@ -343,11 +396,46 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def _ref_file_exists(project: dict[str, Any], filename: str) -> bool:
+    try:
+        base = store.project_dir(str(project.get("id") or ""))
+    except ValueError:
+        return False
+    return (base / "refs" / filename).is_file()
+
+
+def _check_export_cuts(project: dict[str, Any], segments: list[dict],
+                       cuts: list[float]) -> None:
+    """导出前用与导入端一致的规则自检，避免「导出成功、导不回来」。"""
+    maximum = float(project.get("max_seconds") or 15)
+    total = float(segments[-1].get("end") or 0) if segments else 0.0
+    if total <= 0:
+        total = float((project.get("source") or {}).get("duration") or 0)
+    boundaries = list(cuts) + ([round(total, 3)] if total > 0 else [])
+    previous = 0.0
+    for index, value in enumerate(boundaries):
+        span = float(value) - previous
+        if span < 3:
+            raise PackError(
+                f"第 {index + 1} 段只有 {span:.2f}s（不足 3 秒），请先调整切点再导出。")
+        if span > maximum + 0.25:
+            raise PackError(
+                f"第 {index + 1} 段 {span:.2f}s 超过最长段长 {maximum:.1f}s，请先切分再导出。")
+        previous = float(value)
+
+
 def _manifest_from_project(project: dict[str, Any]) -> dict[str, Any]:
     segments = project.get("segments") or []
     cuts = [round(float(row.get("end") or 0), 3) for row in segments[:-1]]
+    _check_export_cuts(project, segments, cuts)
     generation = {key: value for key, value in (project.get("generation") or {}).items()
                   if key in GENERATION_KEYS}
+    director_config = {key: value for key, value in (project.get("director") or {}).items()
+                       if key in ("performance_intensity", "note", "soundscape",
+                                  "rule_config")}
+    asr_config = {"enabled": bool((project.get("asr") or {}).get("enabled")),
+                  "model": str((project.get("asr") or {}).get("model") or ""),
+                  "language": str((project.get("asr") or {}).get("language") or "")}
     return {
         "schema": SCHEMA,
         "version": VERSION,
@@ -360,7 +448,9 @@ def _manifest_from_project(project: dict[str, Any]) -> dict[str, Any]:
             "role": ref.get("role") or "other",
             "title": ref.get("title") or "",
             "description": ref.get("description") or "",
-        } for ref in project.get("refs") or [] if ref.get("filename")],
+        } for ref in project.get("refs") or []
+            # 文件已被手删的残留记录不要写进 manifest，否则导入整包失败
+            if ref.get("filename") and _ref_file_exists(project, str(ref.get("filename")))],
         "project": {
             "target_seconds": float(project.get("target_seconds") or 11),
             "max_seconds": float(project.get("max_seconds") or 15),
@@ -370,6 +460,8 @@ def _manifest_from_project(project: dict[str, Any]) -> dict[str, Any]:
             "style": str(project.get("style") or ""),
             "filter": str(project.get("filter") or ""),
             "generation": generation,
+            "director": director_config,
+            "asr": asr_config,
         },
         "timeline": {"cuts_seconds": cuts},
         "segments": [{

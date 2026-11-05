@@ -43,6 +43,15 @@ def available() -> bool:
         return False
 
 
+def _evict_models(keep: str) -> None:
+    """只保留最近用过的模型：切换 tiny→large-v3 时旧的会一直占显存。"""
+    for name in [key for key in _model_cache if key != keep]:
+        _model_cache.pop(name, None)
+    if len(_model_cache) <= 1:
+        import gc  # noqa: PLC0415
+        gc.collect()
+
+
 def _load(model_name: str):
     with _model_lock:
         cached = _model_cache.get(model_name)
@@ -54,6 +63,7 @@ def _load(model_name: str):
         for device, compute in (("cuda", "float16"), ("cuda", "int8_float16"), ("cpu", "int8")):
             try:
                 model = WhisperModel(model_name, device=device, compute_type=compute)
+                _evict_models(model_name)
                 _model_cache[model_name] = (model, device, compute)
                 return _model_cache[model_name]
             except Exception as error:  # noqa: BLE001
@@ -146,9 +156,11 @@ def transcribe(samples: np.ndarray, sr: int, model_name: str = "", language: str
 
 
 def _load_cpu(model_name: str):
+    """CPU 降级只对当次调用生效，不写回缓存。
+
+    以前会把 CPU 模型覆盖进缓存，一次 CUDA 失败后该模型在该进程里永久走 CPU。
+    """
     with _model_lock:
         from faster_whisper import WhisperModel  # type: ignore
 
-        model = WhisperModel(model_name, device="cpu", compute_type="int8")
-        _model_cache[model_name] = (model, "cpu", "int8")
-        return _model_cache[model_name]
+        return WhisperModel(model_name, device="cpu", compute_type="int8"), "cpu", "int8"

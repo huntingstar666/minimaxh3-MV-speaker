@@ -42,8 +42,31 @@ HUMAN_RECOVERY_TERMS = r"回到休息|回看镜头|姿态释放|部分释放|回
 
 
 def ordered(text: str, fields: list[str]) -> bool:
-    positions = [text.find(field) for field in fields]
+    # 兼容全角冒号与 markdown 装饰
+    positions = []
+    for field in fields:
+        label = field.rstrip(":")
+        match = re.search(
+            r"(?im)^\s*(?:#{1,6}\s*)?(?:\*\*|__)?" + re.escape(label)
+            + r"\s*(?:[:：]|\*\*|__)", text)
+        positions.append(match.start() if match else -1)
     return all(position >= 0 for position in positions) and positions == sorted(positions)
+
+
+def section_text(text: str, field: str) -> str:
+    """按六段标题切段（B 腔规则必须按段判断）。"""
+    label = field.rstrip(":")
+    match = re.search(
+        r"(?im)^\s*(?:#{1,6}\s*)?(?:\*\*|__)?" + re.escape(label)
+        + r"\s*(?:[:：]|\*\*|__)", text)
+    if not match:
+        return ""
+    rest = text[match.end():]
+    stop = re.search(
+        r"(?im)^\s*(?:#{1,6}\s*)?(?:\*\*|__)?"
+        r"(?:subject_definitions|summary|retention_analysis|detailed_description|"
+        r"overall_soundscape|non_diegetic_music)\s*(?:[:：]|\*\*|__)", rest)
+    return rest[: stop.start()] if stop else rest
 
 
 def main() -> int:
@@ -84,6 +107,16 @@ def main() -> int:
         errors.append(("first-frame", "I2VA must state exact first-frame alignment."))
 
     audio_mode = args.audio_mode or ("runtime" if args.runtime_audio else None)
+    if audio_mode is None:
+        # 没显式传腔位时按内容推断；以前直接 None → 三腔规则全部跳过，坏提示词也 valid
+        if re.search(r"<Audio\s+\d+>|\baudio reference\b", text, re.I):
+            audio_mode = "reference"
+        elif re.search(r"平台运行时驱动音频|输入驱动语音|驱动语音|runtime driving", text, re.I):
+            audio_mode = "runtime"
+        elif re.search(r"成年女声|成年男声|中性声线|原生生成|generated voice", text, re.I):
+            audio_mode = "generated"
+        else:
+            warnings.append(("audio-mode", "未能判断 A/B/C 音频腔，建议显式传 --audio-mode。"))
     if args.runtime_audio and args.audio_mode and args.audio_mode != "runtime":
         errors.append(("audio-mode-conflict", "--runtime-audio conflicts with the selected --audio-mode."))
 
@@ -93,6 +126,18 @@ def main() -> int:
                 errors.append((code, message))
         if not re.search(r"平台运行时驱动音频|输入驱动语音|驱动语音|runtime driving", text, re.I):
             warnings.append(("runtime-binding", "State how the runtime driver controls mouth, breath, performance, and effects."))
+
+    if audio_mode == "reference":
+        summary_section = section_text(text, "summary") or text
+        retention_section = section_text(text, "retention_analysis") or text
+        if not re.search(r"<Audio\s+1>", text, re.I):
+            errors.append(("reference-audio-label", "B 参考音色腔必须定义 <Audio 1>。"))
+        if not re.search(r"\baudio reference\b", summary_section, re.I):
+            errors.append(("reference-task", "B 参考音色腔 summary 段必须包含 'audio reference'。"))
+        if not re.search(r"<Audio\s+1>\s*:\s*reference", retention_section, re.I):
+            errors.append(("reference-retention", "B 腔 retention_analysis 段必须写 <Audio 1>: reference。"))
+        if re.search(r"平台运行时驱动音频|runtime driving", text, re.I):
+            errors.append(("reference-runtime", "B 参考音色腔不能混入平台运行时驱动音频声明。"))
 
     if audio_mode == "generated":
         if re.search(r"<Audio\s+\d+>|参考音频\s*\d+|平台运行时驱动音频|runtime driving", text, re.I):

@@ -189,7 +189,10 @@ def compose_prompt(project: dict, row: dict, manifest: dict[str, Any],
     definitions: list[str] = []
     subject_index = 0
     performer_subject = environment_subject = None
-    if performer:
+    # 空镜段不能出现人物：SYSTEM_GUARD 明确 environment「do not add a performer」。
+    # 以前这里无条件先定义 performer，导致同一段既写「保持人物身份」又写「no people」。
+    show_performer = visual != "environment" and performer is not None
+    if show_performer:
         subject_index += 1
         performer_subject = subject_index
         definitions.append(
@@ -220,13 +223,17 @@ def compose_prompt(project: dict, row: dict, manifest: dict[str, Any],
     seconds = (float(row.get("generation_seconds") or 0)
                or (int(row.get("generation_frames") or 0) / fps)
                or float(row.get("duration", 0) or 0))
-    if visual == "environment" or not performer:
+    if visual == "environment":
         performer_phrase = "Only the declared environment is visible"
+    elif not show_performer:
+        performer_phrase = "Only the declared scene is visible"
     elif environment_subject is not None:
         performer_phrase = (f"<Subject {performer_subject}> stands physically inside the environment "
                             f"of <Subject {environment_subject}>")
     else:
-        performer_phrase = f"<Subject {performer_subject}> is framed at {start_framing} from {start_angle}"
+        # 景别短语由下面的 detail 统一写一次；以前这里再带一次，会输出
+        # 「…at medium close-up from front at medium close-up from front」。
+        performer_phrase = f"<Subject {performer_subject}> is the declared on-camera performer"
 
     if mode == "speaking":
         camera_line = (f"one continuous locked-off shot at {start_framing} from {start_angle}, "
@@ -251,7 +258,7 @@ def compose_prompt(project: dict, row: dict, manifest: dict[str, Any],
     summary = (f"[reference generation] {mode} mode, one continuous shot, {performer_phrase}, "
                f"camera {camera_line} for {seconds:.2f} seconds.")
     retention = []
-    if performer:
+    if show_performer:
         retention.append(
             f"fully_preserved: <Subject 1> keeps facial identity, hairstyle, body proportions and "
             f"each garment's original base color from <Picture {performer['picture']}>.")
@@ -266,12 +273,14 @@ def compose_prompt(project: dict, row: dict, manifest: dict[str, Any],
     if not retention:
         retention.append("fully_preserved: the uploaded reference content is maintained.")
 
-    detail = (f"[Shot 1] {performer_phrase} at {start_framing} from {start_angle}. {action.capitalize()}. "
+    tail = ("the performer, clothing, environment and lighting stay continuous"
+            if show_performer else
+            "the environment, lighting and exposure stay continuous")
+    detail = (f"[Shot 1] {performer_phrase}. {action.capitalize()}. "
               f"The camera executes {camera_line}, and the environment identity never changes with "
-              f"the perspective shift. Ending at {end_framing} from {end_angle}, the performer, "
-              f"clothing, environment and lighting stay continuous. Every frame stays free of added "
-              f"subtitles, captions, lyrics, watermarks and graphic overlays. Do not transcribe "
-              f"writing visible in the reference backgrounds.")
+              f"the perspective shift. Ending at {end_framing} from {end_angle}, {tail}. "
+              f"Every frame stays free of added subtitles, captions, lyrics, watermarks and graphic "
+              f"overlays. Do not transcribe writing visible in the reference backgrounds.")
 
     sections = [
         ("subject_definitions", "\n".join(definitions)),

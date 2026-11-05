@@ -14,7 +14,9 @@ import numpy as np
 from .frames import FPS, frame_of_sample, to_frames, to_seconds
 from .segmenter import frames_for
 
-MAX_GENERATION_FRAMES = 960  # 30s @ 30fps 约需 923 帧（5+17k）；默认单段仍建议 ≤15s
+# 30s @ 30fps → segmenter.frames_for 给 906 帧（5+17k 合法值）；默认单段仍建议 ≤15s。
+# 旧值 960 既不可达也不是 5+17k，这个上限检查等于永远不会触发。
+MAX_GENERATION_FRAMES = 906
 
 MOVEMENTS = {"steady", "dolly_in", "dolly_out", "truck_left", "truck_right",
              "micro_reframe", "arc_left", "arc_right"}

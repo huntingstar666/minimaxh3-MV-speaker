@@ -44,8 +44,11 @@ def _limits(project: dict[str, Any], payload: dict[str, Any]) -> tuple[float, fl
         except (TypeError, ValueError):
             return default
 
-    target = max(5.0, min(30.0, value("target", config.DEFAULT_TARGET_SECONDS)))
-    maximum = max(5.0, min(30.0, value("max", config.DEFAULT_MAX_SECONDS)))
+    # H3 单段上限是 MAX_FRAMES（719 帧 ≈ 29.96s，30s 档）；15s 只是推荐值，
+    # 用户明确要求 30s 以内可用，这里按 30s 夹取，生成帧数再吸附到 5+17k。
+    cap = min(30.0, config.MAX_FRAMES / config.FPS)
+    target = max(5.0, min(cap, value("target", config.DEFAULT_TARGET_SECONDS)))
+    maximum = max(5.0, min(cap, value("max", config.DEFAULT_MAX_SECONDS)))
     if target > maximum:
         target = maximum
     return target, maximum
@@ -129,7 +132,9 @@ def _distribute_script(script: str, durations: list[float]) -> list[str]:
 def _row_from_range(index: int, start_frame: int, end_frame: int, text: str,
                     old_rows: list[dict[str, Any]]) -> dict[str, Any]:
     edit_frames = max(1, end_frame - start_frame)
-    generation_frames = mv_segmenter.frames_for(edit_frames, FPS)
+    # plan.frames_for_seconds 会把帧数夹到 124–362 并吸附成 5+17k；
+    # mv_segmenter.frames_for 只保下限、没有上限。
+    generation_frames = plan.frames_for_seconds(edit_frames / FPS)
     row: dict[str, Any] = {
         "index": index,
         "text": text,

@@ -184,7 +184,9 @@ Check:
 - the prompt is not overloaded for its duration and resolution;
 - when complexity must be reduced, preserve face, mouth, eyes, breath, posture, hands, and the primary message before secondary UI, particles, or decorative light.
 
-If the prompt is saved as a file, run `python scripts/validate_h3_talking_head_vfx.py PROMPT --mode MODE` and resolve errors before answering. Treat the script as structural lint; human review remains authoritative.
+If the prompt is saved as a file, run `python scripts/validate_h3_talking_head_vfx.py PROMPT --mode MODE --audio-mode runtime|reference|generated`
+(数字人口播优先用 `scripts/validate_digital_human_prompt.py PROMPT --audio-mode runtime|reference|generated`：它按 summary / retention 段检查 B 腔三条规则，与工作台 lint 一致)
+and resolve errors before answering. Treat the script as structural lint; human review remains authoritative.
 
 ## Output pattern
 

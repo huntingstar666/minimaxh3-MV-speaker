@@ -205,7 +205,9 @@ export function renderProject() {
   const hasProject = Boolean(project);
   document.body.classList.toggle("has-project", hasProject);
   $("#project-id-label").textContent = hasProject ? `#${project.id.slice(0, 6)}` : "未创建";
-  $("#project-name").value = project?.name || "";
+  const nameInput = $("#project-name");
+  // 正在输入时不要用服务端旧值覆盖（否则打字会被清掉）
+  if (nameInput && document.activeElement !== nameInput) nameInput.value = project?.name || "";
   const noteInput = $("#note-input");
   if (noteInput && document.activeElement !== noteInput) {
     noteInput.value = project?.material_note || "";
@@ -228,7 +230,8 @@ export function renderProject() {
     $("#max-range").value = project.max_seconds || 15;
     $("#target-label").textContent = `${Number($("#target-range").value).toFixed(1)}s`;
     $("#max-label").textContent = `${Number($("#max-range").value).toFixed(1)}s`;
-    $("#script-input") && ($("#script-input").value = project.script || "");
+    const scriptInput = $("#script-input");
+    if (scriptInput && document.activeElement !== scriptInput) scriptInput.value = project.script || "";
     const asrToggle = $("#asr-toggle");
     if (document.activeElement !== asrToggle) asrToggle.checked = Boolean(project.asr?.enabled);
     $("#asr-options").classList.toggle("hidden", !asrToggle.checked);
@@ -415,7 +418,9 @@ function takeRail(project, row, index, isSeam, status) {
   const takes = visibleTakes(project, row);
   const selected = takes.find((take) => take.take_id === row.selected_take)
     || takes[takes.length - 1];
-  const running = status === "running" || state.currentSegment === index;
+  // 播放高亮用 state.currentSegment，这里判断「正在生成」要用独立状态，
+  // 否则试听时会把播放头所在段误显示成生成中
+  const running = status === "running" || state.generatingSegment === index;
   const poster = selected?.thumb
     ? `<img src="${takeMedia(project, selected.thumb)}" alt="" loading="lazy" decoding="async">`
     : `<span class="take-poster-empty"><svg><use href="#i-film"/></svg></span>`;
@@ -486,6 +491,10 @@ export function renderRun() {
   strip.classList.toggle("hidden", !active);
   if (!active) {
     $("#btn-cancel").classList.add("hidden");
+    // 结束态要把按钮状态复位；以前这里直接 return，按钮会一直保持 disabled
+    $("#btn-generate").disabled = !state.project;
+    $("#btn-regenerate-all").disabled = !state.project;
+    state.generatingSegment = -1;
     return;
   }
   const percent = Math.round((run.progress || 0) * 100);
@@ -502,6 +511,7 @@ export function renderRun() {
   $("#btn-generate").disabled = running;
   $("#btn-regenerate-all").disabled = running || !state.project;
   state.currentSegment = (run.status === "running" && Number.isFinite(run.segment)) ? run.segment : -1;
+  state.generatingSegment = state.currentSegment;
 }
 
 export function renderHistory() {

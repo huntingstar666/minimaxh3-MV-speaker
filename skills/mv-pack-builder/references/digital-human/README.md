@@ -12,7 +12,7 @@
 兼容，详见 [../avatar-package-format.md](../avatar-package-format.md)。
 
 数字人工作台已支持 `POST /avatar/api/projects/import` 与
-`GET /projects/{id}/export`；用 `scripts/import_avatar_pack.py` 导入/导出；
+`GET /avatar/api/projects/{id}/export`；用 `scripts/import_avatar_pack.py` 导入/导出；
 页面暂无导入按钮（前端契约未排），所以走脚本/HTTP，不要说能拖入。
 
 数字人提示词**全部使用 MiniMax H3 Ref2VA 六段式**：

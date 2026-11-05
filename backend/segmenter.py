@@ -188,14 +188,16 @@ def segment(audio: np.ndarray, sr: int, transcript: dict[str, Any] | None,
         if index is not None and db[index] <= quiet_threshold + 2:
             add(int(starts[index]), "时长目标附近的低能量落点", 2,
                 ["按目标时长就近选择，建议试听"], "target_valley", 0.55)
-            continue
+        # 无论有没有低能量落点，都补一个“目标格点”候选：低能量落点可能偏离目标时间，
+        # 当 target≈max（30s 档）时相邻两个落点间隔会超过 maximum，DP 直接无解。
+        # 格点候选 penalty 更高，只在需要连通性时才会被选中。
         point = round(float(time_value) * sr)
         if point not in candidates:
-            warnings = ["无可靠切点，按时长回退，必须检查"]
+            warnings = ["目标时长格点，未找到更优低能量点"]
             index = min(len(db) - 1, int(np.searchsorted(starts, point)))
             if active[index]:
                 warnings.append("强制切点可能落在持续唱音区")
-            add(point, "时长强制回退", 8, warnings, "forced", 0.08)
+            add(point, "目标时长格点", 8, warnings, "forced", 0.08)
 
     candidates[0] = {"sample": 0, "db": -120, "penalty": 0, "warnings": [], "reason": "音频开始",
                      "kind": "endpoint", "confidence_score": 1, "overlap": False, "protected_words": []}
@@ -212,7 +214,9 @@ def segment(audio: np.ndarray, sr: int, transcript: dict[str, Any] | None,
         costs[end] = float("inf")
         for start in reversed(points[:j]):
             span_seconds = (end - start) / sr
-            if span_seconds > maximum:
+            # 30s 档的强制切点会落在 29.9583s 附近（720 帧），浮点/取整误差可能比
+            # maximum 大一点点（1 个采样 ≈ 2.3e-5s）；留 1e-3 容差，避免“差一帧就无解”。
+            if span_seconds > maximum + 1e-3:
                 break
             if span_seconds < 3 and end != len(audio):
                 continue
@@ -281,6 +285,7 @@ def segment(audio: np.ndarray, sr: int, transcript: dict[str, Any] | None,
             "vocal_state": "含识别人声" if related else "人声状态不确定",
         })
 
+    rows = _repair_short_tail(rows, sr, maximum)
     ranked = sorted(candidates.values(),
                     key=lambda c: (c["sample"] not in selected, c["penalty"], c["sample"]))[:600]
     diagnostics = [{
@@ -295,8 +300,9 @@ def segment(audio: np.ndarray, sr: int, transcript: dict[str, Any] | None,
         "duration": round(duration, 3),
         "duration_frames": frame_of_sample(len(audio), sr),
         "waveform": {
+            # 前端只用 original；以前再塞一份等值的 vocals，白白多传一倍数据，
+            # 还会让读接口的人误以为做过人声分离。
             "original": audio_utils.waveform_peaks(audio),
-            "vocals": audio_utils.waveform_peaks(audio),
         },
         "phrases": [{"start": round(float(s["start"]), 3), "end": round(float(s["end"]), 3),
                      "text": s["text"]} for s in lines],
@@ -314,6 +320,52 @@ def segment(audio: np.ndarray, sr: int, transcript: dict[str, Any] | None,
         ],
     }
     return rows, analysis
+
+
+def _repair_short_tail(rows: list[dict], sr: int, maximum: float,
+                       minimum: float = 3.0) -> list[dict]:
+    """末段不足 minimum 秒时从上一段借时长或并入上一段。
+
+    DP 只对「非末段」强制 >=3 秒，末段允许任意短；但下游（手动切点校验、导出/导入、
+    H3 最少 124 帧）都按 >=3 秒假设，短末段会白跑算力甚至让导出的包导不回去。
+    """
+    min_frames = max(1, int(round(minimum * FPS)))
+    max_frames = max(min_frames, int(round(float(maximum) * FPS)))
+    while len(rows) >= 2:
+        last = rows[-1]
+        span = int(last["end_frame"]) - int(last["start_frame"])
+        if span >= min_frames:
+            break
+        previous = rows[-2]
+        prev_span = int(previous["end_frame"]) - int(previous["start_frame"])
+        total = prev_span + span
+        if total <= max_frames:
+            previous["end_frame"] = int(last["end_frame"])
+            previous["end_sample"] = int(last["end_sample"])
+            previous["boundary_kind"] = "tail_merge"
+            previous["reason"] = "末段过短，已并入上一段"
+            previous["warnings"] = list(previous.get("warnings") or []) + [
+                f"末尾不足 {minimum:.0f} 秒，已与上一段合并"]
+            rows.pop()
+            continue
+        cut_frame = int(last["end_frame"]) - min_frames
+        if cut_frame - int(previous["start_frame"]) < min_frames:
+            # 两侧约束冲突（极短音频/极短最长段长）：只能合并，略超最长段长。
+            previous["end_frame"] = int(last["end_frame"])
+            previous["end_sample"] = int(last["end_sample"])
+            previous["boundary_kind"] = "tail_merge"
+            previous["warnings"] = list(previous.get("warnings") or []) + [
+                "末尾分段无法同时满足 3 秒下限与最长段长，已合并"]
+            rows.pop()
+            continue
+        previous["end_frame"] = cut_frame
+        previous["end_sample"] = sample_of_frame(cut_frame, sr)
+        last["start_frame"] = cut_frame
+        last["start_sample"] = int(previous["end_sample"])
+        last["warnings"] = list(last.get("warnings") or []) + [
+            "从上一段借时长以满足最短分段"]
+        break
+    return rows
 
 
 def frames_for(edit_frames: int, fps: int = FPS) -> int:

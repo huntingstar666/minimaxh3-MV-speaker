@@ -40,6 +40,8 @@ python skills/mv-pack-builder/scripts/validate_avatar_pack.py ./my-avatar \
 ```
 
 包外可套一层目录；拒绝绝对路径/`..`/符号链接；只接受音频、图片、json/md/txt。
+manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工作台与校验器一致，
+三种名字 + 套一层目录都能导入（最小可用名仍是 `manifest.json`）。
 
 ## 2. manifest.json
 
@@ -172,9 +174,10 @@ python skills/mv-pack-builder/scripts/validate_avatar_pack.py ./my-avatar \
 设计包默认要求：
 
 - 每个 segment 都有 `beats`、`prompt`、`prompt_meta`；
-- 每个 segment 的 `frames` 是 H3 合法帧数（`5+17k`，124–362）；
+- 每个 segment 的 `frames` 是 H3 合法帧数（`5+17k`，124–719；15s 只是推荐上限，30s 档可用 719 帧）；
 - `seconds ≈ frames/24`，`chars ≈ seconds × chars_per_second`；
-- `start_frame/end_frame` 连续覆盖全片；
+- `start_frame/end_frame` 连续覆盖全片（每段 `start_frame` 必须等于上一段 `end_frame`；
+  校验器与后端都会拒绝重叠/留缝，导入后音画才不会错位）；
 - `design`、参考图角色、音频腔/文件一致；
 - `design.md` 记录检查点、创意缺口、审阅记录。
 
@@ -216,10 +219,13 @@ python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3a
 
 - `schema=h3-avatar-pack`、`version=1`；
 - `mode` 1/2/3，`workflow` 必须匹配（locked_audio / ref_native），`design.audio_mode` 匹配；
-- 每段 `frames` 必须是 H3 合法帧数 `5+17k`（124–362），`end_frame - start_frame == frames`；
+- 每段 `frames` 必须是 H3 合法帧数 `5+17k`（124–719），`end_frame - start_frame == frames`；
 - mode1 必须有 `audio.file` 且包内存在；mode2 必须有 `voice.file`；mode3 不应有音频；
 - `refs[].file` 必须在包内且是图片、role 合法、≤9 张；
-- `segments ≤ 200`，每段 `prompt` 非空（导入不阻断 lint error，但会在 warnings / prompt_meta 里显示）。
+- `segments ≤ 200`；`design.audio_mode` 必填并与 mode 匹配；mode1 不得带 voice、mode3 不得带
+  audio/voice（出现即 400）。**草稿包允许 `prompt` 为空**：导入后补写，返回一条 warning；
+  设计包仍建议每段都有 prompt（`--require-prompts` 会检查）。lint error 不阻断导入，但会在
+  warnings / prompt_meta 里显示。
 
 ### 导入语义
 

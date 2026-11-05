@@ -49,7 +49,7 @@ def _chars(text: str) -> int:
 
 
 def frames_for_seconds(seconds: float) -> int:
-    """把秒数换算成 H3 合法帧数（5 + 17k，124–362）。"""
+    """把秒数换算成 H3 合法帧数（5 + 17k，124–719；719 帧 ≈ 29.96s）。"""
     target = int(math.ceil(max(float(seconds), 0.0) * config.FPS - 1e-9))
     target = max(config.MIN_FRAMES, min(config.MAX_FRAMES, target))
     return 5 + 17 * int(math.ceil((target - 5) / 17))
@@ -146,8 +146,16 @@ def split_script(script: str, cps: float, target_seconds: float, max_seconds: fl
                 merged.pop(position)
                 changed = True
                 break
-            break
+            # 这一句两侧都合并不了：跳过它继续看后面的短句（原来的 break 会直接
+            # 结束整个 for，后面的短句再也不处理）
+            continue
     return merged
+
+
+def snap_frames(frames: int) -> int:
+    """把任意帧数吸附到 H3 合法帧数（5+17k，124–362）。"""
+    value = max(config.MIN_FRAMES, min(config.MAX_FRAMES, int(frames)))
+    return 5 + 17 * int(math.ceil((value - 5) / 17))
 
 
 def make_segments(script: str, cps: float, target_seconds: float, max_seconds: float) -> list[dict[str, Any]]:
@@ -422,12 +430,22 @@ def compose_prompt(project: dict[str, Any], row: dict[str, Any]) -> str:
                       "follow it. No duplicate voice or conflicting sound layer is generated.")
     else:
         voice_card = design_mod.voice_card_text(design.get("voice_card"))
-        description = voice_card or _clean_text(project.get("voice_description")) or (
-            "声音呈现（casting choice）：成年女声或成年男声未指定时按中性声线；听感约 30 岁；"
-            "中音区，音高幅度克制；口腔共鸣，中等声量；质感干净偏暖、轻微气声；辅音清晰、"
-            "连读自然、齿音克制；语速约 5 字/秒，2–4 句一组、组间短停；陈述句句尾轻落、"
-            "句间语调有变化；情绪友好而可信；桌面电容麦近场约 30 厘米，房间反射轻、底噪低；"
-            "不要播音腔、销售腔、客服甜嗓、预告片嗓、单调 TTS 或金属混响。")
+        description = voice_card or _clean_text(project.get("voice_description"))
+        if not description:
+            description = (
+                "声音呈现（casting choice）：成年女声或成年男声未指定时按中性声线；听感约 30 岁；"
+                "中音区，音高幅度克制；口腔共鸣，中等声量；质感干净偏暖、轻微气声；辅音清晰、"
+                "连读自然、齿音克制；语速约 5 字/秒，2–4 句一组、组间短停；陈述句句尾轻落、"
+                "句间语调有变化；情绪友好而可信；桌面电容麦近场约 30 厘米，房间反射轻、底噪低；"
+                "不要播音腔、销售腔、客服甜嗓、预告片嗓、单调 TTS 或金属混响。")
+        elif not voice_card:
+            # 用户/旧项目只写了部分维度时补全剩余项，保证 fallback 也能过 C 腔 10 维 lint
+            description = description.rstrip("。;； ") + (
+                "；音高区中音、幅度克制；口腔共鸣、中等声量；质感干净偏暖、轻微气声；"
+                "辅音清晰、连读自然、齿音克制；语速约 5 字/秒，2–4 句一组、组间短停；"
+                "陈述句句尾轻落、句间语调有变化；情绪友好而可信，不过甜不过冲；"
+                "桌面电容麦近场约 30 厘米，房间反射轻、底噪低；"
+                "不要播音腔、销售腔、客服甜嗓、预告片嗓、单调 TTS 或金属混响。")
         task_type = "[reference generation]"
         rate_clause = (f"Target average speech rate about {cps:g} written characters per second; "
                        f"this segment has {plan_chars(row)} written characters including "
@@ -461,18 +479,31 @@ def compose_prompt(project: dict[str, Any], row: dict[str, Any]) -> str:
         "vowels form, brief lip seals and jaw amplitude match the stress; lips relax during "
         "silence, with a light inhale before long phrases and a subtle exhale, swallow or lip "
         "reset after demanding clauses.")
+    effect_clause = ""
     if design.get("graphics_mode") != "overlay":
         effect_clause = _beats_clause(project, row)
         if effect_clause:
             detail.append(effect_clause)
-        detail.append(
-            "All graphics stay inside the safe area and never cover the face, mouth, eyes, "
-            "hands, products, microphone or platform subtitle area; one information group at a "
-            "time, each fully exiting before the next appears, and the final graphic completes "
-            "its exit inside the clip with a clean frame left behind.")
+            if re.search(r"[\"“”「」]", effect_clause):
+                # 引号文案必须配稳定性条款，否则自己的 lint 也会报 text-stability
+                detail.append(
+                    "Visible copy keeps identical glyphs, punctuation, line breaks and "
+                    "alignment from landing to exit, with no reflow, scramble or glyph "
+                    "corruption.")
+            detail.append(
+                "All graphics stay inside the safe area and never cover the face, mouth, "
+                "eyes, hands, products, microphone or platform subtitle area; one information "
+                "group at a time, each holds until its semantic end, fully exits before the "
+                "next appears, and the final graphic completes its exit inside the clip with "
+                "a clean frame left behind.")
+    # 没有节拍（不画图形）时不要再声明「所有图形…」，否则提示词自相矛盾、lint 误报
     detail.append(
-        "Every frame stays free of added subtitles, captions, lyrics, watermarks and graphic "
-        "overlays. Do not transcribe writing visible in the reference backgrounds.")
+        ("Beyond the declared graphics, every frame stays free of added subtitles, "
+         "captions, lyrics and watermarks.")
+        if effect_clause else
+        ("Every frame stays free of added subtitles, captions, lyrics, watermarks and "
+         "graphic overlays."))
+    detail.append("Do not transcribe writing visible in the reference backgrounds.")
     sections = [
         ("subject_definitions", "\n".join(definitions)),
         ("summary", f"{task_type} Single continuous talking-head shot; S1 delivers the line to "

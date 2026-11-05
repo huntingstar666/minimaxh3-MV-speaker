@@ -38,6 +38,10 @@ ALLOWED_IMAGE = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 ALLOWED_EXTRA = {".json", ".md", ".txt"}
 VALID_ROLES = {"performer", "environment", "appearance", "subject", "other"}
 MAX_MEMBER_BYTES = 512 * 1024 * 1024
+MAX_ENTRIES = 400
+MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+# 与技能校验器 validate_avatar_pack.py 保持一致：允许三个 manifest 文件名
+MANIFEST_NAMES = ("manifest.json", "h3avatar.json", "avatar.json")
 
 MODE_WORKFLOW = {1: "locked_audio", 2: "ref_native", 3: "ref_native"}
 MODE_AUDIO = {1: "runtime", 2: "reference", 3: "generated"}
@@ -64,14 +68,34 @@ def _number(value: Any, label: str, low: float, high: float) -> float:
     return number
 
 
-def _member(zf: zipfile.ZipFile, name: str) -> bytes:
+def _member(zf: zipfile.ZipFile, name: str, prefix: str = "") -> bytes:
+    full = prefix + name
     try:
-        info = zf.getinfo(name)
+        info = zf.getinfo(full)
     except KeyError:
         _fail(f"包内缺少文件：{name}")
     if info.file_size > MAX_MEMBER_BYTES:
         _fail(f"包内文件过大：{name}")
-    return zf.read(name)
+    return zf.read(full)
+
+
+def _resolve_root(names: list[str]) -> tuple[str, str]:
+    """找 manifest 位置；允许整包套一层目录（Windows 右键压缩的默认结构）。
+
+    返回 (前缀, manifest 的包内路径)。以前只认 zip 根目录的 manifest.json，
+    按技能文档产出、经官方校验器 PASS 的 .h3avatar.zip 会 100% 导入失败。
+    """
+    candidates = [name for name in names
+                  if Path(name.replace("\\", "/")).name in MANIFEST_NAMES]
+    if not candidates:
+        _fail("包内缺少 manifest.json。")
+    manifest_name = sorted(candidates, key=lambda item: item.count("/"))[0]
+    root = str(Path(manifest_name).parent).replace("\\", "/")
+    prefix = "" if root == "." else root + "/"
+    for name in names:
+        if not name.replace("\\", "/").startswith(prefix):
+            _fail("包内文件必须都在 manifest 所在目录内。")
+    return prefix, manifest_name
 
 
 def _safe_name(value: str) -> str:
@@ -86,7 +110,7 @@ def _suffix(name: str) -> str:
 
 
 def _legal_frames(value: int) -> bool:
-    return 124 <= value <= 362 and (value - 5) % 17 == 0
+    return 124 <= value <= 719 and (value - 5) % 17 == 0
 
 
 def _install_wav(data: bytes, target: Path, label: str) -> dict[str, Any]:
@@ -137,8 +161,8 @@ def validate_manifest(manifest: Any, names: set[str]) -> dict[str, Any]:
         _fail(f"mode{mode} 的 workflow 必须是 {MODE_WORKFLOW[mode]}。")
     script = str(manifest.get("script") or "")
     cps = _number(manifest.get("chars_per_second", 5.0), "chars_per_second", 1, 12)
-    target = _number(manifest.get("target_seconds", 8.0), "target_seconds", 5, 15)
-    maximum = _number(manifest.get("max_seconds", 12.0), "max_seconds", 5, 15)
+    target = _number(manifest.get("target_seconds", 8.0), "target_seconds", 5, 30)
+    maximum = _number(manifest.get("max_seconds", 12.0), "max_seconds", 5, 30)
     if maximum < target:
         _fail("max_seconds 不能小于 target_seconds。")
 
@@ -197,18 +221,20 @@ def validate_manifest(manifest: Any, names: set[str]) -> dict[str, Any]:
         except (TypeError, ValueError):
             _fail(f"segments[{index}].frames 必须是整数。")
         if not _legal_frames(frames_value):
-            _fail(f"segments[{index}].frames 必须是 H3 合法帧数 5+17k（124–362）。")
+            _fail(f"segments[{index}].frames 必须是 H3 合法帧数 5+17k（124–719）。")
         text = str(item.get("text") or "").strip()
         if mode in (2, 3) and not text:
             _fail(f"segments[{index}] mode{mode} 必须有台词 text。")
+        # 允许草稿包：没有提示词也能导入（导入端会补一条 warning），
+        # 否则「导出 → 重新导入」在还没写提示词时不成立。
         prompt = str(item.get("prompt") or "").strip()
-        if not prompt:
-            _fail(f"segments[{index}].prompt 不能为空（设计包要求每段提示词）。")
         raw_start = item.get("start_frame")
         raw_end = item.get("end_frame")
         if isinstance(raw_start, int) and isinstance(raw_end, int):
             if raw_end - raw_start != frames_value:
                 _fail(f"segments[{index}] end_frame - start_frame 必须等于 frames。")
+            if int(raw_start) != start:
+                _fail(f"segments[{index}] 起点 {raw_start} 与上一段结尾 {start} 不连续。")
         else:
             raw_start, raw_end = start, start + frames_value
         start = int(raw_end)
@@ -237,6 +263,7 @@ def validate_manifest(manifest: Any, names: set[str]) -> dict[str, Any]:
         "voice_file": voice_file,
         "refs": refs, "design": design, "segments": normalized,
         "generation": manifest.get("generation") if isinstance(manifest.get("generation"), dict) else {},
+        "voice_description": str(manifest.get("voice_description") or ""),
         "notes": str(manifest.get("notes") or ""),
     }
 
@@ -245,16 +272,25 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
     if not zipfile.is_zipfile(zip_path):
         _fail("上传的不是有效的 zip 包。")
     with zipfile.ZipFile(zip_path) as zf:
-        names = {info.filename for info in zf.infolist() if not info.is_dir()}
+        names = [info.filename.replace("\\", "/") for info in zf.infolist()
+                 if not info.is_dir()]
+        # 套目录开放后，超大/超多成员的包更容易打进来：与 MV 侧同一套上限
+        if len(names) > MAX_ENTRIES:
+            _fail(f"包内文件过多：{len(names)}（上限 {MAX_ENTRIES}）")
+        total_bytes = sum(info.file_size for info in zf.infolist() if not info.is_dir())
+        if total_bytes > MAX_TOTAL_BYTES:
+            _fail("包解压后超过 2GB，已拒绝。")
         for member_name in names:
             _safe_name(member_name)
-        if "manifest.json" not in names:
-            _fail("包内缺少 manifest.json。")
+        prefix, manifest_name = _resolve_root(names)
+        relative = {name[len(prefix):] for name in names if name.startswith(prefix)}
+        if not relative:
+            _fail("包内没有可用文件。")
         try:
-            manifest = json.loads(zf.read("manifest.json").decode("utf-8-sig"))
+            manifest = json.loads(zf.read(manifest_name).decode("utf-8-sig"))
         except (json.JSONDecodeError, UnicodeDecodeError) as error:
-            _fail(f"manifest.json 解析失败：{error}")
-        parsed = validate_manifest(manifest, names)
+            _fail(f"manifest 解析失败：{error}")
+        parsed = validate_manifest(manifest, relative)
         mode = parsed["mode"]
         project = store.create(
             name=name or parsed["name"], mode=mode, script=parsed["script"],
@@ -264,8 +300,15 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
         project_id = project["id"]
         base = store.project_dir(project_id)
         warnings: list[str] = []
+        if any(not str(item.get("prompt") or "").strip()
+               for item in parsed.get("segments") or []):
+            warnings.append("包内部分分段没有提示词，已按草稿导入，可在页面里补写。")
+        if not str(parsed.get("voice_description") or "").strip() and mode == 3 \
+                and not str((parsed.get("design") or {}).get("voice_card") or "").strip():
+            warnings.append("C 腔包没有 voice_description / voice_card，声音会退回通用默认声线。")
         try:
             project["language"] = parsed["language"]
+            project["voice_description"] = parsed.get("voice_description") or ""
             project["design"] = parsed["design"]
             project["design"]["audio_mode"] = MODE_AUDIO[mode]
             project["workflow"] = MODE_WORKFLOW[mode]
@@ -281,17 +324,17 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
                         except (TypeError, ValueError):
                             pass
             if parsed.get("audio_file"):
-                data = _member(zf, parsed["audio_file"])
+                data = _member(zf, parsed["audio_file"], prefix)
                 project["audio"] = _install_wav(data, base / "source.wav",
                                                 parsed["audio_file"])
             if parsed.get("voice_file"):
-                data = _member(zf, parsed["voice_file"])
+                data = _member(zf, parsed["voice_file"], prefix)
                 project["voice"] = _install_wav(data, base / "voice" / "ref.wav",
                                                 parsed["voice_file"])
                 project["voice"]["filename"] = "ref.wav"
             for index, ref in enumerate(parsed.get("refs") or []):
                 member_name = _safe_name(str(ref["file"]))
-                data = _member(zf, member_name)
+                data = _member(zf, member_name, prefix)
                 suffix = _suffix(member_name)
                 filename = f"ref_{index + 1:02d}{suffix}"
                 target = base / "refs" / filename
@@ -461,7 +504,7 @@ def export_pack(project_id: str) -> Path:
         frames = max(124, frames)
         if not _legal_frames(frames):
             frames = 5 + 17 * int(round((frames - 5) / 17))
-            frames = max(124, min(362, frames))
+            frames = max(124, min(719, frames))
         seconds = round(frames / config.FPS, 3)
         manifest_segments.append({
             "index": index,

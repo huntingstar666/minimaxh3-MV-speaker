@@ -157,7 +157,7 @@ def main() -> int:
         planned = client.post(f"/avatar/api/projects/{project_id}/plan", json={}).json()["project"]
         segments = planned.get("segments") or []
         check("按台词分段", len(segments) >= 2, f"{len(segments)} 段")
-        check("每段帧数合法（5+17k / 124–362）",
+        check("每段帧数合法（5+17k / 124–719）",
               all(legal_frames(int(row["frames"])) for row in segments))
         check("分段首尾相接",
               all(int(a["end_frame"]) == int(b["start_frame"])

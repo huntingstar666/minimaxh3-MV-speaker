@@ -368,7 +368,8 @@ class AvatarRunner:
         data = comfy.view(video_file["filename"], video_file["subfolder"], video_file["kind"])
         data, overlaid = self._maybe_overlay(project_id, project, row, data)
         take = self._store_take(project_id, project, index, row, data, prompt_text,
-                                generation.get("seed"), edit_frames, overlay=overlaid)
+                                generation.get("seed"), edit_frames, overlay=overlaid,
+                                expected_text=str(row.get("text") or ""))
         self._commit_segment(project_id, index, {
             "status": "completed", "error": None, "output": take["file"],
             "finished": time.time(), "prompt_id": prompt_id, "prompt_text": prompt_text,
@@ -394,6 +395,14 @@ class AvatarRunner:
                                  "prompt_meta": result.get("meta") or {}}
         if result.get("beats"):
             patch["beats"] = result["beats"]
+        # 同步内存行：否则下面写完成状态时用的还是旧 row（prompt_source 为空
+        # → 一律写成 fallback，LLM 结果被标成内置模板）
+        row["prompt"] = prompt_text
+        row["prompt_source"] = result["source"]
+        row["prompt_warnings"] = result["warnings"]
+        row["prompt_meta"] = result.get("meta") or {}
+        if result.get("beats"):
+            row["beats"] = result["beats"]
         self._commit_segment(project_id, int(row["index"]), patch,
                              expected_text=str(row.get("text") or ""))
         self._log(project_id, f"第 {int(row['index']) + 1} 段：提示词（{result['source']}）" +
@@ -486,6 +495,9 @@ class AvatarRunner:
             frames = plan.frames_for_seconds(plan.seconds_for_text(
                 row.get("text") or "", project.get("chars_per_second") or 5,
                 project.get("max_seconds")))
+        else:
+            # 切模式残留/旧数据可能是任意帧数；H3 只接受 5+17k（124–362）
+            frames = plan.snap_frames(frames)
         use_audio = audio_name if int(project.get("mode") or 0) == config.MODE_VOICE_REF else None
         generation = dict(generation)
         if not generation.get("seed"):
@@ -521,7 +533,8 @@ class AvatarRunner:
         data = comfy.view(video_file["filename"], video_file["subfolder"], video_file["kind"])
         data, overlaid = self._maybe_overlay(project_id, project, row, data)
         take = self._store_take(project_id, project, index, row, data, prompt_text,
-                                generation.get("seed"), frames, overlay=overlaid)
+                                generation.get("seed"), frames, overlay=overlaid,
+                                expected_text=str(row.get("text") or ""))
         patch = {"status": "completed", "error": None, "output": take["file"],
                  "finished": time.time(), "prompt_id": prompt_id, "prompt_text": prompt_text,
                  "prompt": prompt_text, "prompt_source": row.get("prompt_source") or "fallback",
@@ -557,7 +570,8 @@ class AvatarRunner:
 
     def _store_take(self, project_id: str, project: dict[str, Any], index: int,
                     row: dict[str, Any], data: bytes, prompt_text: str,
-                    seed: int | None, frames: int, overlay: bool = False) -> dict[str, Any]:
+                    seed: int | None, frames: int, overlay: bool = False,
+                    expected_text: str = "") -> dict[str, Any]:
         base = store.project_dir(project_id)
         folder = base / "takes" / f"seg_{index:04d}"
         folder.mkdir(parents=True, exist_ok=True)
@@ -602,6 +616,9 @@ class AvatarRunner:
             target = segments[index]
             if segment_signature(target) != record["segment_signature"]:
                 return
+            # 用户在生成期间改了台词：这条 take 是用旧台词生成的，不能选中它
+            if expected_text and str(target.get("text") or "") != expected_text:
+                return
             takes = target.setdefault("takes", [])
             takes.append(record)
             target["selected_take"] = take_id
@@ -621,6 +638,19 @@ class AvatarRunner:
                         pass
 
         store.mutate(project_id, apply)
+        # 台词已变/切点已变时不会入库，顺手删掉刚写的文件，避免留孤儿
+        latest = store.get(project_id)
+        target = next((item for item in latest.get("segments") or []
+                       if str(item.get("index")) == str(index)), None)
+        stored = target is not None and any(
+            str(item.get("take_id")) == take_id for item in target.get("takes") or [])
+        if not stored:
+            for path in (file, thumb):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            raise ValueError("本段台词已修改，这次生成结果已丢弃，请重新生成。")
         return record
 
     # ------------------------------ 拼接 ------------------------------

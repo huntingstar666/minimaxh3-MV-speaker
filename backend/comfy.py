@@ -7,6 +7,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -17,18 +18,22 @@ class ComfyError(RuntimeError):
     pass
 
 
+def _base() -> str:
+    """规范化 ComfyUI 地址：容忍只填 127.0.0.1:8188（缺 http://）。"""
+    base = str(settings.load().get("comfy_url") or "http://127.0.0.1:8188").strip().rstrip("/")
+    if "://" not in base:
+        base = "http://" + base
+    return base
+
+
 def _url(path: str) -> str:
-    base = str(settings.load().get("comfy_url") or "http://127.0.0.1:8188").rstrip("/")
-    return base + path
+    return _base() + path
 
 
 def _ws_url(path: str) -> str:
-    base = str(settings.load().get("comfy_url") or "http://127.0.0.1:8188").rstrip("/")
-    if base.startswith("https://"):
-        base = "wss://" + base[len("https://"):]
-    else:
-        base = "ws://" + base[len("http://"):]
-    return base + path
+    parts = urlsplit(_base())
+    scheme = "wss" if parts.scheme == "https" else "ws"
+    return f"{scheme}://{parts.netloc}{parts.path.rstrip('/')}{path}"
 
 
 _client_id = uuid.uuid4().hex
@@ -226,6 +231,41 @@ def interrupt() -> None:
         pass
 
 
+def cancel_prompt(prompt_id: str) -> str:
+    """只取消「我们自己的」prompt：排队中的删队列，正在跑的才 interrupt。
+
+    ComfyUI 的 /interrupt 打断的是当前正在执行的那一条 prompt，不知道它是谁的；
+    以前只要本项目任务 active 就无条件 interrupt，会把别人正在跑的生成打断。
+    """
+    prompt_id = str(prompt_id or "").strip()
+    if not prompt_id:
+        return "none"
+    try:
+        state = queue_state()
+    except Exception:  # noqa: BLE001  队列查不到时退回旧行为
+        interrupt()
+        return "interrupt"
+    def _ids(items: list[Any]) -> set[str]:
+        ids = set()
+        for item in items or []:
+            try:
+                ids.add(str(item[1]))
+            except (IndexError, TypeError):
+                continue
+        return ids
+    if prompt_id in _ids(state["running"]):
+        interrupt()
+        return "interrupt"
+    if prompt_id in _ids(state["pending"]):
+        try:
+            with http(10) as client:
+                client.post(_url("/queue"), json={"delete": [prompt_id]})
+        except Exception:  # noqa: BLE001
+            pass
+        return "dequeue"
+    return "none"
+
+
 def view(filename: str, subfolder: str = "", kind: str = "output") -> bytes:
     with http(180) as client:
         response = client.get(_url("/view"),
@@ -316,7 +356,7 @@ def wait(prompt_id: str, progress: Callable[[dict[str, Any]], None] | None = Non
     try:
         while True:
             if cancel is not None and cancel.is_set():
-                interrupt()
+                cancel_prompt(prompt_id)
                 raise ComfyError("任务已取消。")
             entry = history(prompt_id)
             status = (entry.get("status") or {})

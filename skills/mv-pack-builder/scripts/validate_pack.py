@@ -26,6 +26,8 @@ ROLES = {"performer", "environment", "appearance", "subject", "other"}
 HEADINGS = ["subject_definitions", "summary", "retention_analysis",
             "detailed_description", "overall_soundscape", "non_diegetic_music"]
 MANIFEST_NAMES = ("manifest.json", "h3mv.json", "pack.json")
+MAX_ENTRIES = 400
+MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
 
 errors: list[str] = []
 warnings: list[str] = []
@@ -42,6 +44,13 @@ def warn(message: str) -> None:
 def load_package(path: Path):
     if path.is_dir():
         names = [p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_file()]
+        # 目录模式也要查扩展名：Thumbs.db / .DS_Store 会被 --zip 打进包，后端会拒
+        for name in names:
+            suffix = Path(name).suffix.lower()
+            if Path(name).name not in MANIFEST_NAMES and suffix not in AUDIO_EXT | IMAGE_EXT | DOC_EXT:
+                raise SystemExit(f"包内包含不支持的文件类型：{name}")
+        if len(names) > MAX_ENTRIES:
+            raise SystemExit(f"包内文件过多：{len(names)}（上限 {MAX_ENTRIES}）")
         manifest_name = next((n for n in names if Path(n).name in MANIFEST_NAMES
                               and "/" not in n), None)
         if manifest_name is None:
@@ -57,6 +66,11 @@ def load_package(path: Path):
         if bad:
             raise SystemExit(f"zip 损坏：{bad}")
         names = [info.filename for info in archive.infolist() if not info.is_dir()]
+        if len(names) > MAX_ENTRIES:
+            raise SystemExit(f"包内文件过多：{len(names)}（上限 {MAX_ENTRIES}）")
+        total_bytes = sum(info.file_size for info in archive.infolist() if not info.is_dir())
+        if total_bytes > MAX_TOTAL_BYTES:
+            raise SystemExit("包解压后超过 2GB，已拒绝。")
         for name in names:
             normalized = name.replace("\\", "/")
             if normalized.startswith("/") or ".." in Path(normalized).parts:
@@ -69,7 +83,13 @@ def load_package(path: Path):
             raise SystemExit("包里缺少 manifest.json")
         manifest_name = sorted(candidates, key=lambda item: item.count("/"))[0]
         manifest = json.loads(archive.read(manifest_name).decode("utf-8-sig"))
-        return manifest, names
+        # Windows 右键压缩默认会套一层目录，后端 _resolve_root 会剥掉前缀；
+        # 校验器以前拿原始全路径比对，合法包会被误报「文件不存在」。
+        prefix = str(Path(manifest_name).parent).replace("\\", "/")
+        prefix = "" if prefix == "." else prefix + "/"
+        relative = [name.replace("\\", "/")[len(prefix):] for name in names
+                    if name.replace("\\", "/").startswith(prefix)]
+        return manifest, relative
 
 
 def numbered(value, label):
@@ -83,13 +103,22 @@ def numbered(value, label):
 def check_prompt(text: str, label: str, visual_type: str = "performance",
                  ref_count: int = 0, mode: str = "singing") -> None:
     value = str(text or "")
-    positions = [value.find(name + ":") for name in HEADINGS]
+    # 兼容全角冒号（后端 lint 也接受；数字人提示词常用全角）
+    positions = []
+    for name in HEADINGS:
+        position = value.find(name + ":")
+        if position < 0:
+            position = value.find(name + "：")
+        positions.append(position)
     if any(position < 0 for position in positions):
         fail(f"{label} 缺少六段标题")
         return
     if positions != sorted(positions):
         fail(f"{label} 六段标题顺序不正确")
     shots = re.findall(r"\[\s*shot\s*1\s*\]", value, re.IGNORECASE)
+    other_shots = re.findall(r"\[\s*shot\s*(?!1\b)\d+\s*\]", value, re.IGNORECASE)
+    if other_shots:
+        fail(f"{label} 每段只允许一个 [Shot 1]，不能出现 {sorted(set(other_shots))}")
     if len(shots) != 1:
         fail(f"{label} 必须且只能有一个 [Shot 1]")
     elif not positions[3] < value.lower().find("[shot 1]") < positions[4]:
@@ -122,23 +151,22 @@ def check_prompt(text: str, label: str, visual_type: str = "performance",
         warn(f"{label} 提示词偏短（{len(value)} 字符）")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="校验 H3 MV 包")
-    parser.add_argument("path", help="包目录或 .h3pack.zip")
-    parser.add_argument("--zip", dest="zip_out", help="校验通过后打包到该路径")
-    parser.add_argument("--require-prompts", action="store_true",
-                        help="设计稿模式：每段必须有 final_prompt，否则失败")
-    parser.add_argument("--require-cuts", action="store_true",
-                        help="设计稿模式：必须提供 timeline.cuts_seconds")
-    parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
-
+def _run(args) -> int:
     path = Path(args.path).resolve()
     if not path.exists():
         raise SystemExit(f"路径不存在：{path}")
     if path.is_file() and path.suffix.lower() not in {".zip", ".h3pack"}:
         raise SystemExit("路径必须是 MV 包目录，或 .zip / .h3pack.zip 文件。")
-    manifest, root_or_names = load_package(path)
+    try:
+        manifest, root_or_names = load_package(path)
+    except (OSError, ValueError, json.JSONDecodeError, zipfile.BadZipFile) as error:
+        message = f"读取包失败：{error}"
+        if args.json:
+            print(json.dumps({"ok": False, "errors": [message], "warnings": []},
+                             ensure_ascii=False))
+        else:
+            print(f"FAIL\n  ✗ {message}")
+        return 1
     is_dir = isinstance(root_or_names, Path)
     root = root_or_names if is_dir else path.parent
 
@@ -158,7 +186,11 @@ def main() -> int:
         fail("mode 必须是 singing / speaking")
     if manifest.get("schema") != SCHEMA:
         fail(f"schema 必须是 {SCHEMA}")
-    if int(manifest.get("version") or 0) != VERSION:
+    try:
+        version_value = int(manifest.get("version") or 0)
+    except (TypeError, ValueError):
+        version_value = -1
+    if version_value != VERSION:
         fail(f"version 必须是 {VERSION}")
     if manifest.get("mode") not in (None, "singing", "speaking"):
         fail("mode 必须是 singing / speaking")
@@ -192,7 +224,9 @@ def main() -> int:
         fail("project 必须是对象")
     else:
         target = numbered(project.get("target_seconds", 11), "project.target_seconds")
-        maximum = numbered(project.get("max_seconds", 15), "project.max_seconds")
+        # 后端缺省是 max(target, 15)；校验器写死 15 会把 target=20 的合法包拒掉
+        maximum = numbered(project.get("max_seconds", max(target or 11, 15)),
+                           "project.max_seconds")
         if target is not None and maximum is not None:
             if not 5 <= target <= 30 or not 5 <= maximum <= 30:
                 fail("target_seconds / max_seconds 必须在 5–30")
@@ -202,6 +236,12 @@ def main() -> int:
                 warn("最长段长超过 15s：H3 推荐单段 ≤15s，仅高配置机器在用户确认后使用")
     timeline = manifest.get("timeline") or {}
     cuts = timeline.get("cuts_seconds") or []
+    maximum_seconds = 15.0
+    if isinstance(project, dict):
+        try:
+            maximum_seconds = float(project.get("max_seconds") or 15)
+        except (TypeError, ValueError):
+            maximum_seconds = 15.0
     if not isinstance(cuts, list):
         fail("timeline.cuts_seconds 必须是数组")
     else:
@@ -214,6 +254,11 @@ def main() -> int:
                 fail("cuts_seconds 必须严格递增")
             if value < 3:
                 fail(f"cut {value}s 太早（首段至少 3 秒）")
+            if position and value - last < 3:
+                fail(f"cuts_seconds 相邻切点 {last:g}s→{value:g}s 不足 3 秒")
+            if position and value - last > maximum_seconds + 0.25:
+                fail(f"cuts_seconds {last:g}s→{value:g}s 超过最长段长 "
+                     f"{maximum_seconds:g}s")
             last = value
     if getattr(args, "require_cuts", False) and not cuts:
         fail("设计稿模式要求 timeline.cuts_seconds 不为空")
@@ -228,9 +273,13 @@ def main() -> int:
         if item.get("visual_type", "performance") not in {"performance", "atmosphere", "environment"}:
             fail(f"segments[{index}].visual_type 无效")
         text = str(item.get("final_prompt") or "").strip()
+        segment_ref_count = len(refs)
+        if isinstance(item.get("ref_ids"), list):
+            segment_ref_count = len(item["ref_ids"])
         if text:
             check_prompt(text, f"segments[{index}].final_prompt",
-                         str(item.get("visual_type") or "performance"), len(refs), mode)
+                         str(item.get("visual_type") or "performance"),
+                         segment_ref_count, mode)
         if "index" not in item and ("start" not in item or "end" not in item):
             warn(f"segments[{index}] 没有 index/start/end，可能匹配不到分段")
         if "ref_ids" in item and item["ref_ids"] is not None:
@@ -250,6 +299,10 @@ def main() -> int:
             fail(f"设计稿模式缺少 final_prompt 的分段：{[index + 1 for index in missing]}")
 
     if errors:
+        if args.json:
+            print(json.dumps({"ok": False, "errors": errors, "warnings": warnings},
+                             ensure_ascii=False))
+            return 1
         print("FAIL")
         for message in errors:
             print("  ✗", message)
@@ -271,8 +324,41 @@ def main() -> int:
             output.write_bytes(path.read_bytes())
         print(f"ZIPPED {output}")
     if args.json:
-        print(json.dumps({"errors": errors, "warnings": warnings}, ensure_ascii=False))
+        print(json.dumps({"ok": True, "errors": errors, "warnings": warnings},
+                         ensure_ascii=False))
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="校验 H3 MV 包")
+    parser.add_argument("path", help="包目录或 .h3pack.zip")
+    parser.add_argument("--zip", dest="zip_out", help="校验通过后打包到该路径")
+    parser.add_argument("--require-prompts", action="store_true",
+                        help="设计稿模式：每段必须有 final_prompt，否则失败")
+    parser.add_argument("--require-cuts", action="store_true",
+                        help="设计稿模式：必须提供 timeline.cuts_seconds")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    try:
+        return _run(args)
+    except SystemExit as error:
+        # load_package 里的结构错误（包缺失/超大/越界）以前直接 SystemExit，
+        # --json 模式下也要给结构化结果，别名脚本/Agent 才解析得到。
+        message = str(error.code) if error.code not in (None, 0) else "校验失败"
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "errors": [message], "warnings": []},
+                             ensure_ascii=False))
+        else:
+            print(f"FAIL\n  ✗ {message}")
+        return 1
+    except Exception as error:  # noqa: BLE001
+        message = f"校验脚本异常：{type(error).__name__}: {error}"
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "errors": [message], "warnings": []},
+                             ensure_ascii=False))
+        else:
+            print(f"FAIL\n  ✗ {message}")
+        return 1
 
 
 if __name__ == "__main__":

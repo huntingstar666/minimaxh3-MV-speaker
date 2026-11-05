@@ -39,6 +39,26 @@ def take_signature(project: dict[str, Any]) -> str:
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+def cuts_signature(project: dict[str, Any]) -> str:
+    """切点指纹：seam 成片没有单段 take，只能靠切点判断是否过期。"""
+    parts = [f"{int(row.get('start_frame') or 0)}-{int(row.get('end_frame') or 0)}"
+             for row in project.get("segments") or []]
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def drop_short_tail_cuts(cuts: list[int], total_frames: int,
+                         max_frames: int) -> tuple[list[int], list[int]]:
+    """导入旧包时容忍「末段 <3 秒」：去掉末尾切点把它并入上一段。
+
+    返回 (清洗后的切点, 被丢弃的切点)；其余校验仍交给 _clean_cut_frames。
+    """
+    values = sorted({int(value) for value in cuts if 0 < int(value) < total_frames})
+    dropped: list[int] = []
+    while values and total_frames - values[-1] < MIN_SEGMENT_FRAMES:
+        dropped.append(values.pop())
+    return values, dropped
+
+
 def _take_paths(project_id: str, take: dict[str, Any]) -> list[Path]:
     base = store.project_dir(project_id)
     paths = []
@@ -190,6 +210,10 @@ class JobRunner:
         self.active_project: str | None = None
         # 任务开始时的 generation 快照：生成期间用户若改了生成参数，以用户的新值为准
         self._generation_baseline: dict[str, dict[str, Any]] = {}
+        # 任务开始时的 takes 快照：只用来识别「用户运行中删掉了哪条」，不覆盖磁盘
+        self._takes_baseline: dict[str, dict[int, set[str]]] = {}
+        # 当前真正提交给 ComfyUI 的 prompt_id，取消时只取消它，避免误伤别人的任务
+        self._active_prompts: dict[str, str] = {}
         # ComfyUI 节点可用性（sigma_shift / sigma_refiner 等可选节点缺失时跳过）
         self._available: dict[str, bool] | None = None
 
@@ -217,10 +241,11 @@ class JobRunner:
     # 任务线程负责写回的项目级 / 分段级字段；其余字段以磁盘上的最新数据为准，
     # 这样生成过程中用户改简报、提示词、参考图不会被任务线程的旧快照覆盖。
     RUNNER_PROJECT_FIELDS = ("generation", "refs", "final")
-    RUNNER_SEGMENT_FIELDS = ("status", "error", "output", "started", "finished",
+    # output / takes / selected_take 由 _store_take 在项目锁内单独写；
+    # 放进整表回写会把用户运行中删掉/换选的 take 又写回去（10 条上限也会失效）。
+    RUNNER_SEGMENT_FIELDS = ("status", "error", "started", "finished",
                              "prompt_id", "prompt_text", "generation_frames",
-                             "generation_seconds", "fps", "edit_frames",
-                             "takes", "selected_take")
+                             "generation_seconds", "fps", "edit_frames")
     RUNNER_PROMPT_FIELDS = ("final_prompt", "prompt_source", "prompt_key",
                             "prompt_warnings", "prompt_overlays", "prompt_stale",
                             "prompt_stale_reason")
@@ -241,6 +266,8 @@ class JobRunner:
                 int(a.get("start_frame", -1)) == int(b.get("start_frame", -1))
                 and int(a.get("end_frame", -1)) == int(b.get("end_frame", -1))
                 for a, b in zip(latest_rows, rows))
+            if not same_shape:
+                return
             for key in self.RUNNER_PROJECT_FIELDS:
                 if key not in project:
                     continue
@@ -258,8 +285,6 @@ class JobRunner:
                             ref["comfy"] = source["comfy"]
                     continue
                 latest[key] = project[key]
-            if not same_shape:
-                return
             for index, (current, source) in enumerate(zip(latest_rows, rows)):
                 for key in self.RUNNER_SEGMENT_FIELDS:
                     if key in source:
@@ -269,8 +294,48 @@ class JobRunner:
                     for key in self.RUNNER_PROMPT_FIELDS:
                         if key in source:
                             current[key] = source[key]
+                self._merge_takes(project_id, index, current, source)
 
         return store.mutate(project_id, apply)
+
+    def _merge_takes(self, project_id: str, index: int, current: dict[str, Any],
+                     source: dict[str, Any]) -> None:
+        """把任务线程新产生的 take 追加到磁盘最新列表，而不是整表覆盖。
+
+        旧实现：_store_take 在锁内删掉超限 take + unlink 文件，_commit 又用任务快照
+        整表写回，于是被删的记录复活、指向已删文件、10 条上限失效；用户运行中
+        删片/换选也会被打回。这里以磁盘为准，只合并「任务期间新产生且文件存在」的。
+        """
+        disk = [take for take in (current.get("takes") or []) if isinstance(take, dict)]
+        snapshot = [take for take in (source.get("takes") or []) if isinstance(take, dict)]
+        baseline = set(self._takes_baseline.get(project_id, {}).get(index) or ())
+        snapshot_ids = {str(take.get("take_id")) for take in snapshot}
+        # 用户在运行期间删掉的 take：baseline 有、快照里没有 → 从磁盘合并结果里剔除
+        deleted = baseline - snapshot_ids
+        merged = [take for take in disk if str(take.get("take_id")) not in deleted]
+        known = {str(take.get("take_id")) for take in merged}
+        for take in snapshot:
+            take_id = str(take.get("take_id"))
+            if not take_id or take_id in known:
+                continue
+            if not any(path.is_file() for path in _take_paths(project_id, take)):
+                continue  # 文件已被删除/清理，不再复活记录
+            merged.append(take)
+            known.add(take_id)
+        if merged != disk:
+            current["takes"] = merged
+            _trim_takes(project_id, current, str(current.get("selected_take") or ""))
+        merged_ids = {str(take.get("take_id")) for take in current.get("takes") or []}
+        current_selected = str(current.get("selected_take") or "")
+        if current_selected not in merged_ids:
+            candidate = str(source.get("selected_take") or "")
+            if candidate in merged_ids:
+                current["selected_take"] = candidate
+                current["output"] = source.get("output")
+            elif current.get("takes"):
+                newest = current["takes"][-1]
+                current["selected_take"] = str(newest.get("take_id") or "")
+                current["output"] = newest.get("file")
 
     def _update(self, project_id: str, **patch: Any) -> None:
         now = time.time()
@@ -354,8 +419,18 @@ class JobRunner:
             job = self.jobs.get(project_id)
             active = bool(job and job.get("status") in {"queued", "running"})
         if active:
-            # 只有本项目的任务真的在跑才去打断 ComfyUI，避免拖别的项目的切点时误杀 GPU 任务
-            comfy.interrupt()
+            # 只取消「我们自己的」prompt：排队中的从队列删除，正在跑的才 interrupt。
+            # 以前只要本项目 active 就无条件 /interrupt，会把 ComfyUI 里别人的任务打断。
+            prompt_id = self._active_prompts.get(project_id) or ""
+            if not prompt_id:
+                try:
+                    latest = store.get(project_id)
+                    prompt_id = next((str(row.get("prompt_id") or "")
+                                      for row in latest.get("segments") or []
+                                      if row.get("status") == "running" and row.get("prompt_id")), "")
+                except Exception:  # noqa: BLE001
+                    prompt_id = ""
+            comfy.cancel_prompt(prompt_id)
             self._log(project_id, "已请求中断，正在收尾…", "warning")
         return self.snapshot(project_id)
 
@@ -375,6 +450,10 @@ class JobRunner:
                 store.save(project)
             self._generation_baseline[project_id] = json.loads(
                 json.dumps(project.get("generation") or {}))
+            self._takes_baseline[project_id] = {
+                int(row_index): {str(take.get("take_id")) for take in (row.get("takes") or [])
+                                 if isinstance(take, dict)}
+                for row_index, row in enumerate(project.get("segments") or [])}
             generation = self._resolve_generation(project, options)
             nodes_info = (comfy.options() or {}).get("nodes") or {}
             self._available = {key: bool(nodes_info.get(key))
@@ -400,8 +479,12 @@ class JobRunner:
                     results[int(index)] = self._selected_clip(project_id, project, int(index))
                     continue
                 if row.get("status") == "completed" and int(index) not in force:
-                    results[int(index)] = self._selected_clip(project_id, project, int(index))
-                    continue
+                    clip = self._selected_clip(project_id, project, int(index))
+                    if clip:
+                        results[int(index)] = clip
+                        continue
+                    # seam 模式完成后段标 completed 但没有 output：切回 hard 时必须重新生成，
+                    # 以前这里直接 continue，导致「一段都没跑」却报 partial。
                 if self.cancel_events[project_id].is_set():
                     raise comfy.ComfyError("任务已取消。")
                 self._generate_segment(project_id, project, int(index), generation, refs, total)
@@ -417,6 +500,8 @@ class JobRunner:
             self._update(project_id, status="cancelled" if cancelled else "failed",
                          stage="error", error=str(error), finished=time.time(),
                          message=str(error)[:300])
+            self._reset_running_segments(
+                project_id, "cancelled" if cancelled else "failed", str(error))
             if not cancelled:
                 with self.lock:
                     job = self.jobs.get(project_id)
@@ -425,6 +510,8 @@ class JobRunner:
                             "time": time.strftime("%H:%M:%S"), "level": "error",
                             "message": traceback.format_exc()[-1200:]})
         finally:
+            self._active_prompts.pop(project_id, None)
+            self._takes_baseline.pop(project_id, None)
             self.active_project = None
             if acquired:
                 GPU_LOCK.release()
@@ -596,6 +683,7 @@ class JobRunner:
                                generation_frames, fps, available=self._available)
         self._update(project_id, stage="queue", message=f"第 {index + 1}/{total} 段：提交 ComfyUI")
         prompt_id = comfy.queue(graph)
+        self._active_prompts[project_id] = prompt_id
         row["prompt_id"] = prompt_id
         self._commit(project_id, project, {index: prompt_before})
         self._update(project_id, stage="sampling", message=f"第 {index + 1}/{total} 段：采样中",
@@ -683,6 +771,25 @@ class JobRunner:
         row["output"] = record["file"]
         return record
 
+    def _reset_running_segments(self, project_id: str, status: str, error: str) -> None:
+        """任务异常退出后，把还停在 running 的段改回 failed/cancelled。
+
+        以前只改 run 状态，段永远停在 running：前端一直显示生成中，
+        而且「重新合成成片」按钮因「有段不是 completed」永久禁用。
+        """
+        def apply(latest: dict[str, Any]) -> None:
+            for row in latest.get("segments") or []:
+                if row.get("status") != "running":
+                    continue
+                row["status"] = status
+                row["error"] = error[:300]
+                row["finished"] = time.time()
+                row["prompt_id"] = ""
+        try:
+            store.mutate(project_id, apply)
+        except Exception:  # noqa: BLE001  失败不影响任务状态回报
+            pass
+
     def _selected_clip(self, project_id: str, project: dict, index: int) -> Path | None:
         """当前选中 take 的文件；旧项目回退到 clip.mp4。"""
         base = store.project_dir(project_id)
@@ -750,6 +857,10 @@ class JobRunner:
             f"h3wb_{project_id}_seam_source.wav",
             (directory / "source.wav").read_bytes())
         total_seconds = windows[-1]["end"] / fps
+        source_seconds = float((project.get("source") or {}).get("duration") or 0)
+        if source_seconds > 0:
+            total_seconds = min(total_seconds,
+                                max(source_seconds, frames.to_seconds(total_edit)))
         timeline = seam.build_timeline(
             windows, pictures, segment_images, audio_name, fps, total_seconds,
             prompts_text, second_pass=bool(generation.get("seam_second_pass", True)),
@@ -774,6 +885,7 @@ class JobRunner:
                                     params=seam_params, available=self._available)
         self._update(project_id, stage="queue", message="seam：提交整条生成", progress=0.06)
         prompt_id = comfy.queue(graph)
+        self._active_prompts[project_id] = prompt_id
         self._update(project_id, stage="sampling", message="seam：整条生成中（latent 接缝）",
                      progress=0.08)
 
@@ -819,6 +931,7 @@ class JobRunner:
             "created": time.time(),
             "segments": len(segments),
             "stitch": "seam",
+            "segment_signature": cuts_signature({"segments": segments}),
         }
         self._commit(project_id, project)
         self._log(project_id, f"seam 成片完成（{len(segments)} 段，重叠 "
@@ -838,6 +951,11 @@ class JobRunner:
             segments = project.get("segments") or []
             if not segments:
                 raise ValueError("没有可合成的分段。")
+            final = project.get("final") or {}
+            if final.get("stitch") == "seam" and not any(
+                    row.get("output") for row in segments):
+                raise ValueError("seam 模式是整条一次生成的，没有可单独重拼的分段片段；"
+                                 "请用「重新生成全部」出片。")
             job = {
                 "job_id": hashlib.sha1(f"{project_id}assemble{time.time()}".encode()).hexdigest()[:12],
                 "project_id": project_id, "status": "running", "stage": "assemble",

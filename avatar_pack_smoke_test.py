@@ -68,7 +68,7 @@ def make_wav(seconds: float, sr: int = 44100) -> bytes:
 
 
 def legal_frames(value: int) -> bool:
-    return 124 <= value <= 362 and (value - 5) % 17 == 0
+    return 124 <= value <= 719 and (value - 5) % 17 == 0
 
 
 def base_design(mode: int, graphics_mode: str = "generated") -> dict:

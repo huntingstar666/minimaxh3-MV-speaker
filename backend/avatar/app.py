@@ -13,6 +13,7 @@ import json
 import shutil
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ from fastapi.responses import FileResponse, Response
 from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
-from .. import audio, comfy, settings
+from .. import audio, comfy, media, settings
 from . import (audio_pipeline, config, design as design_mod, effect_catalog, job,
                lint as lint_mod, pack, plan, store, workflow)
 
@@ -100,6 +101,24 @@ def _mark_prompt_meta_stale(row: dict[str, Any]) -> None:
         row["prompt_meta"] = {**meta, "stale": True}
 
 
+_IMAGE_MAGIC = {
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".bmp": (b"BM",),
+}
+
+
+def _looks_like_image(suffix: str, header: bytes) -> bool:
+    """按文件头判断内容是否真是图片。"""
+    if suffix == ".webp":
+        return header[:4] == b"RIFF" and header[8:12] == b"WEBP"
+    magics = _IMAGE_MAGIC.get(suffix)
+    if not magics:
+        return True
+    return any(header.startswith(magic) for magic in magics)
+
+
 def _role(value: str) -> str:
     role = str(value or "performer")
     if role not in VALID_ROLES:
@@ -107,19 +126,68 @@ def _role(value: str) -> str:
     return role
 
 
+def _voice_dir(project_id: str) -> tuple[Path, Path, Path]:
+    directory = store.project_dir(project_id) / "voice"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory, directory / "source.wav", directory / "ref.wav"
+
+
+def _make_voice_sample(project_id: str, start_seconds: float = 0.0,
+                       length_seconds: float | None = None) -> dict[str, Any]:
+    """从 voice/source.wav 截一段作音色样本（方案 A）。
+
+    原始录音保留不动；送给 H3 的 ref.wav 只截 2–15 秒（默认 12 秒）。
+    这样可以上传 3 分钟录音，只取其中一段做音色参考，并允许改起点/试听。
+    """
+    directory, source, ref = _voice_dir(project_id)
+    if not source.is_file():
+        raise HTTPException(400, "这条参考音频没有保留原始录音，请重新上传。")
+    samples, sample_rate = audio.read_wav(source)
+    total = len(samples) / sample_rate
+    length = float(length_seconds if length_seconds is not None
+                   else config.VOICE_SAMPLE_SECONDS)
+    length = max(config.VOICE_SAMPLE_MIN, min(config.VOICE_SAMPLE_MAX, length, total))
+    start = float(start_seconds or 0.0)
+    start = max(0.0, min(start, max(0.0, total - length)))
+    if start <= 0.001 and length >= total - 0.05:
+        if ref != source:
+            shutil.copy2(source, ref)
+    else:
+        audio.command([
+            audio.ffmpeg(), "-y", "-v", "error", "-ss", f"{start:.3f}",
+            "-t", f"{length:.3f}", "-i", str(source),
+            "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le", str(ref),
+        ], timeout=600)
+    ref_samples, ref_rate = audio.read_wav(ref)
+    return {
+        "filename": "ref.wav",
+        "source_filename": "source.wav",
+        "duration": round(len(ref_samples) / ref_rate, 3),
+        "source_duration": round(total, 3),
+        "sample_start": round(start, 3),
+        "sample_length": round(length, 3),
+        "sample_rate": int(ref_rate),
+        "samples": int(len(ref_samples)),
+        "uploaded": time.time(),
+        "trimmed": bool(total > length + 0.05 or start > 0.001),
+    }
+
+
 def _save_voice(project_id: str, upload: UploadFile) -> dict[str, Any]:
-    """把上传的参考音频统一解码成 44.1kHz 双声道 wav，并记录时长。"""
+    """上传参考音频：原始录音存 voice/source.wav，再截一段音色样本 voice/ref.wav。
+
+    以前直接把整段当 ref.wav，并硬限制 60 秒；用户上传 180 秒完整录音会被拒。
+    现在允许长录音（≤10 分钟），自动截取 12 秒样本，起点/试听由前端控制。
+    """
     suffix = Path(upload.filename or "").suffix.lower()
     if suffix not in ALLOWED_AUDIO:
         raise HTTPException(400, f"不支持的音频格式：{suffix or '未知'}")
-    directory = store.project_dir(project_id) / "voice"
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / "ref.wav"
+    directory, source, _ref = _voice_dir(project_id)
     temp = directory / f"upload{suffix}"
     with temp.open("wb") as handle:
         shutil.copyfileobj(upload.file, handle)
     try:
-        info = audio.decode_to_wav(temp, target)
+        info = audio.decode_to_wav(temp, source)
     except Exception as error:  # noqa: BLE001
         raise HTTPException(400, f"参考音频解码失败：{error}") from error
     finally:
@@ -127,15 +195,13 @@ def _save_voice(project_id: str, upload: UploadFile) -> dict[str, Any]:
             temp.unlink()
         except OSError:
             pass
-    if info["info"]["duration"] > 60:
-        raise HTTPException(400, "参考音频过长（建议 2–15 秒）。")
-    return {
-        "filename": "ref.wav",
-        "duration": round(float(info["info"]["duration"]), 3),
-        "sample_rate": 44100,
-        "samples": int(info["samples"]),
-        "uploaded": time.time(),
-    }
+    duration = float(info["info"]["duration"])
+    if duration < config.VOICE_SAMPLE_MIN:
+        raise HTTPException(400, "参考音频太短（至少 2 秒）。")
+    if duration > config.VOICE_SOURCE_MAX_SECONDS:
+        raise HTTPException(400, "原始参考音频最长 10 分钟，请先裁剪后再上传。")
+    return _make_voice_sample(project_id, 0.0,
+                              min(config.VOICE_SAMPLE_SECONDS, duration))
 
 
 def _llm_config() -> dict[str, Any]:
@@ -315,16 +381,28 @@ def create_project(name: str = Form("未命名数字人"),
         script=script,
         voice_description=voice_description,
         chars_per_second=_float(chars_per_second, config.DEFAULT_CPS, 1.0, 12.0),
-        target_seconds=_float(target_seconds, config.DEFAULT_TARGET_SECONDS, 5.0, 15.0),
-        max_seconds=_float(max_seconds, config.DEFAULT_MAX_SECONDS, 5.0, 15.0),
+        target_seconds=_float(target_seconds, config.DEFAULT_TARGET_SECONDS, 5.0, 30.0),
+        max_seconds=_float(max_seconds, config.DEFAULT_MAX_SECONDS, 5.0, 30.0),
         generation=generation_patch,
     )
-    if voice is not None and (voice.filename or "") and mode_value == config.MODE_VOICE_REF:
-        project["voice"] = _save_voice(project["id"], voice)
-        store.save(project)
-    if audio is not None and (audio.filename or "") and mode_value == config.MODE_AUDIO_DRIVE:
-        project["audio"] = _save_project_audio(project["id"], audio)
-        store.save(project)
+    if voice is not None and (voice.filename or "") and mode_value != config.MODE_VOICE_REF:
+        # 以前静默忽略，用户以为上传成功；导入路径却明确拒绝，这里保持同一语义
+        store.delete(project["id"])
+        raise HTTPException(400, "当前模式不需要参考音频（只有模式 2 使用 voice）。")
+    if audio is not None and (audio.filename or "") and mode_value != config.MODE_AUDIO_DRIVE:
+        store.delete(project["id"])
+        raise HTTPException(400, "当前模式不需要驱动音频（只有模式 1 使用 audio）。")
+    try:
+        if voice is not None and (voice.filename or ""):
+            project["voice"] = _save_voice(project["id"], voice)
+            store.save(project)
+        if audio is not None and (audio.filename or ""):
+            project["audio"] = _save_project_audio(project["id"], audio)
+            store.save(project)
+    except Exception:
+        # 素材解码失败不要把空项目留在列表里
+        store.delete(project["id"])
+        raise
     return {"ok": True, "project": project}
 
 
@@ -333,9 +411,40 @@ def get_project(project_id: str) -> dict[str, Any]:
     return {"ok": True, "project": _project(project_id)}
 
 
+def _reset_for_mode_switch(project: dict[str, Any], project_id: str, mode: int) -> None:
+    """切模式时清掉旧模式专属状态。
+
+    以前只改 mode/label/workflow，mode1 分析出来的 segments 会留着；那些段的
+    `frames` 是音频切点差（任意整数），切到 mode2/3 后会被当成 H3 的 length
+    提交（H3 只接受 5+17k），既可能出片失败也可能出错误长度。
+    """
+    project["segments"] = []
+    project["analysis"] = {}
+    project["beats"] = {}
+    project["run"] = {"status": "idle", "progress": 0.0, "message": "",
+                      "stage": "idle", "segment": -1, "error": None, "logs": []}
+    base = store.project_dir(project_id)
+    if mode != config.MODE_AUDIO_DRIVE:
+        for name in ("source.wav",):
+            try:
+                (base / name).unlink()
+            except OSError:
+                pass
+        project["audio"] = None
+    if mode != config.MODE_VOICE_REF:
+        for name in ("ref.wav", "source.wav"):
+            try:
+                (base / "voice" / name).unlink()
+            except OSError:
+                pass
+        project["voice"] = None
+    _mark_final_stale(project)
+
+
 @app.patch("/api/projects/{project_id}")
 def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     project = _project(project_id)
+    previous_mode = int(project.get("mode") or 0)
     if "mode" in payload:
         try:
             value = int(payload["mode"])
@@ -351,6 +460,8 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             pass
         else:
             design["audio_mode"] = config.AUDIO_MODE_BY_MODE.get(value, "generated")
+        if value != previous_mode:
+            _reset_for_mode_switch(project, project_id, value)
     for key in ("name", "script", "voice_description", "language"):
         if key in payload:
             project[key] = str(payload[key] or "")
@@ -358,9 +469,9 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         project["chars_per_second"] = _float(payload["chars_per_second"], config.DEFAULT_CPS, 1.0, 12.0)
     if "target_seconds" in payload:
         project["target_seconds"] = _float(payload["target_seconds"], config.DEFAULT_TARGET_SECONDS,
-                                           5.0, 15.0)
+                                           5.0, 30.0)
     if "max_seconds" in payload:
-        project["max_seconds"] = _float(payload["max_seconds"], config.DEFAULT_MAX_SECONDS, 5.0, 15.0)
+        project["max_seconds"] = _float(payload["max_seconds"], config.DEFAULT_MAX_SECONDS, 5.0, 30.0)
     if isinstance(payload.get("generation"), dict):
         project["generation"] = {**(project.get("generation") or {}), **payload["generation"]}
         _mark_final_stale(project)
@@ -389,12 +500,27 @@ def add_ref(project_id: str, role: str = Form("performer"), title: str = Form(""
     suffix = Path(image.filename or "").suffix.lower()
     if suffix not in ALLOWED_IMAGE:
         raise HTTPException(400, f"不支持的图片格式：{suffix or '未知'}")
+    header = image.file.read(12)
+    image.file.seek(0)
+    if not _looks_like_image(suffix, header):
+        raise HTTPException(400, "图片内容与扩展名不符，请重新导出后再上传。")
     role_value = _role(role)
     refs = project.setdefault("refs", [])
     if len(refs) >= 9:
         raise HTTPException(400, "最多支持 9 张参考图。")
-    filename = f"ref_{len(refs) + 1:02d}{suffix}"
-    target = store.project_dir(project_id) / "refs" / filename
+    refs_dir = store.project_dir(project_id) / "refs"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    # 不能按 len(refs)+1 命名：删过前面的图后会与现存 ref_0X 同名并覆盖原图
+    used = {str(ref.get("filename") or "") for ref in refs}
+    used |= {path.name for path in refs_dir.iterdir() if path.is_file()}
+    index = len(refs) + 1
+    while f"ref_{index:02d}{suffix}" in used:
+        index += 1
+    filename = f"ref_{index:02d}{suffix}"
+    target = refs_dir / filename
+    if target.exists():
+        filename = f"ref_{uuid.uuid4().hex[:8]}{suffix}"
+        target = refs_dir / filename
     with target.open("wb") as handle:
         shutil.copyfileobj(image.file, handle)
     refs.append({
@@ -408,6 +534,7 @@ def add_ref(project_id: str, role: str = Form("performer"), title: str = Form(""
         for position, ref in enumerate(refs):
             if position != len(refs) - 1 and ref.get("role") == "performer":
                 ref["role"] = "appearance"
+    _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project}
 
@@ -427,6 +554,7 @@ def patch_ref(project_id: str, index: int, payload: dict[str, Any]) -> dict[str,
     for key in ("title", "description"):
         if key in payload:
             refs[index][key] = str(payload[key] or "")
+    _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project}
 
@@ -443,6 +571,7 @@ def delete_ref(project_id: str, index: int) -> dict[str, Any]:
         path.unlink()
     except OSError:
         pass
+    _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project}
 
@@ -453,20 +582,44 @@ def upload_voice(project_id: str, voice: UploadFile = File(...)) -> dict[str, An
     if int(project.get("mode") or 0) != config.MODE_VOICE_REF:
         raise HTTPException(400, "只有模式 2（参考音色）需要参考音频。")
     project["voice"] = _save_voice(project_id, voice)
+    _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project}
+
+
+@app.post("/api/projects/{project_id}/voice/sample")
+def update_voice_sample(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """改音色样本的起点/长度（方案 A：长录音只截一段作参考，可试听）。"""
+    project = _project(project_id)
+    if int(project.get("mode") or 0) != config.MODE_VOICE_REF:
+        raise HTTPException(400, "只有模式 2（参考音色）有音色样本。")
+    payload = payload or {}
+    current = project.get("voice") or {}
+    if not (store.project_dir(project_id) / "voice" / "source.wav").is_file():
+        raise HTTPException(400, "这条参考音频没有保留原始录音，请重新上传。")
+    try:
+        start = float(payload.get("start_seconds", current.get("sample_start") or 0))
+        length = float(payload.get("length_seconds",
+                                   current.get("sample_length") or config.VOICE_SAMPLE_SECONDS))
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, "起点/长度必须是数字。") from error
+    project["voice"] = _make_voice_sample(project_id, start, length)
+    _mark_final_stale(project)
+    store.save(project)
+    return {"ok": True, "project": project, "voice": project["voice"]}
 
 
 @app.delete("/api/projects/{project_id}/voice")
 def delete_voice(project_id: str) -> dict[str, Any]:
     project = _project(project_id)
-    filename = str((project.get("voice") or {}).get("filename") or "")
-    if filename:
+    directory = store.project_dir(project_id) / "voice"
+    for name in ("ref.wav", "source.wav"):
         try:
-            (store.project_dir(project_id) / "voice" / filename).unlink()
+            (directory / name).unlink()
         except OSError:
             pass
     project["voice"] = None
+    _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project}
 
@@ -617,8 +770,8 @@ def plan_project(project_id: str, payload: dict[str, Any] | None = None) -> dict
         project["script"] = str(payload.get("script") or "")
     for key in ("chars_per_second", "target_seconds", "max_seconds"):
         if key in payload:
-            limits = {"chars_per_second": (1.0, 12.0), "target_seconds": (5.0, 15.0),
-                      "max_seconds": (5.0, 15.0)}[key]
+            limits = {"chars_per_second": (1.0, 12.0), "target_seconds": (5.0, 30.0),
+                      "max_seconds": (5.0, 30.0)}[key]
             project[key] = _float(payload[key], project.get(key), *limits)
     if not str(project.get("script") or "").strip():
         raise HTTPException(400, "台词为空，无法分段。")
@@ -705,13 +858,19 @@ def generate_prompt(project_id: str, index: int, payload: dict[str, Any] | None 
     config_llm.update(payload.get("llm") or {})
     result = plan.generate_prompt(project, row, config_llm, _ref_images(project_id, project),
                                   repair=bool(payload.get("repair", True)))
-    row["prompt"] = result["text"]
-    row["prompt_source"] = result["source"]
-    row["prompt_warnings"] = result["warnings"]
-    row["prompt_meta"] = result.get("meta") or {}
-    if result.get("beats"):
-        row["beats"] = result["beats"]
-    store.save(project)
+
+    def apply(latest: dict[str, Any]) -> None:
+        # LLM 可能跑几分钟：写回时只改本段，避免整份旧快照覆盖 job 线程的 run/takes
+        target = _row(latest, index)
+        target["prompt"] = result["text"]
+        target["prompt_source"] = result["source"]
+        target["prompt_warnings"] = result["warnings"]
+        target["prompt_meta"] = result.get("meta") or {}
+        if result.get("beats"):
+            target["beats"] = result["beats"]
+
+    project = store.mutate(project_id, apply)
+    row = _row(project, index)
     return {"ok": True, "project": project, "source": result["source"],
             "text": result["text"], "warnings": result["warnings"],
             "prompt_meta": row.get("prompt_meta") or {},
@@ -741,13 +900,18 @@ def repair_prompt(project_id: str, index: int, payload: dict[str, Any] | None = 
     config_llm.update(payload.get("llm") or {})
     result = plan.repair_prompt(project, row, str(row.get("prompt") or ""), config_llm,
                                 _ref_images(project_id, project))
-    row["prompt"] = result["text"]
-    row["prompt_source"] = result["source"]
-    row["prompt_warnings"] = result["warnings"]
-    row["prompt_meta"] = result.get("meta") or {}
-    if result.get("beats"):
-        row["beats"] = result["beats"]
-    store.save(project)
+
+    def apply(latest: dict[str, Any]) -> None:
+        target = _row(latest, index)
+        target["prompt"] = result["text"]
+        target["prompt_source"] = result["source"]
+        target["prompt_warnings"] = result["warnings"]
+        target["prompt_meta"] = result.get("meta") or {}
+        if result.get("beats"):
+            target["beats"] = result["beats"]
+
+    project = store.mutate(project_id, apply)
+    row = _row(project, index)
     return {"ok": True, "project": project, "source": result["source"],
             "text": result["text"], "warnings": result["warnings"],
             "prompt_meta": row.get("prompt_meta") or {}}
@@ -760,17 +924,24 @@ def generate_all_prompts(project_id: str, payload: dict[str, Any] | None = None)
     config_llm.update((payload or {}).get("llm") or {})
     images = _ref_images(project_id, project)
     warnings: list[str] = []
+    computed: list[tuple[int, dict[str, Any], bool]] = []
     for index, row in enumerate(project.get("segments") or []):
         result = plan.generate_prompt(project, row, config_llm, images)
-        row["prompt"] = result["text"]
-        row["prompt_source"] = result["source"]
-        row["prompt_warnings"] = result["warnings"]
-        row["prompt_meta"] = result.get("meta") or {}
-        if result.get("beats") and not row.get("beats"):
-            row["beats"] = result["beats"]
+        computed.append((index, result, bool(row.get("beats"))))
         if result["warnings"]:
             warnings.append(f"第 {index + 1} 段：" + "；".join(result["warnings"]))
-    store.save(project)
+
+    def apply(latest: dict[str, Any]) -> None:
+        for index, result, had_beats in computed:
+            target = _row(latest, index)
+            target["prompt"] = result["text"]
+            target["prompt_source"] = result["source"]
+            target["prompt_warnings"] = result["warnings"]
+            target["prompt_meta"] = result.get("meta") or {}
+            if result.get("beats") and not had_beats:
+                target["beats"] = result["beats"]
+
+    project = store.mutate(project_id, apply)
     return {"ok": True, "project": project, "warnings": warnings}
 
 
@@ -831,7 +1002,13 @@ def overlay_project(project_id: str, payload: dict[str, Any] | None = None) -> d
     indexes = ({int(value) for value in only} if isinstance(only, list) and only else None)
     base = store.project_dir(project_id)
     warnings: list[str] = []
+    applied: list[int] = []
     for index, row in enumerate(project.get("segments") or []):
+        selected = next((take for take in row.get("takes") or []
+                         if str(take.get("take_id")) == str(row.get("selected_take"))), None)
+        if isinstance(selected, dict) and selected.get("overlay"):
+            warnings.append(f"第 {index + 1} 段已叠加过，跳过（避免文字重影）")
+            continue
         if indexes is not None and index not in indexes:
             continue
         output = str(row.get("output") or "").strip()
@@ -847,6 +1024,7 @@ def overlay_project(project_id: str, payload: dict[str, Any] | None = None) -> d
                 warnings.append(f"第 {index + 1} 段叠加失败，保留原片段")
                 continue
             target.replace(take_path)
+            applied.append(index)
             from .. import media  # noqa: PLC0415
             thumb = (base / str(row.get("thumb") or "")) if row.get("thumb") else None
             if thumb:
@@ -856,8 +1034,17 @@ def overlay_project(project_id: str, payload: dict[str, Any] | None = None) -> d
                     pass
         except Exception as error:  # noqa: BLE001
             warnings.append(f"第 {index + 1} 段叠加异常：{error}")
-    _mark_final_stale(project)
-    store.save(project)
+    def apply(latest: dict[str, Any]) -> None:
+        # 叠加期间 job 线程可能写过 take：锁内重新读，只补 overlay 标记 + 过期
+        for index in applied:
+            target = _row(latest, index)
+            take = next((item for item in target.get("takes") or []
+                         if str(item.get("take_id")) == str(target.get("selected_take"))), None)
+            if isinstance(take, dict):
+                take["overlay"] = True
+        _mark_final_stale(latest)
+
+    project = store.mutate(project_id, apply)
     return {"ok": True, "project": project, "warnings": warnings}
 
 
@@ -991,13 +1178,9 @@ def project_media(project_id: str, path: str, request: Request) -> Response:
         ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
         ".webp": "image/webp", ".bmp": "image/bmp",
     }.get(target.suffix.lower(), "application/octet-stream")
-    range_header = request.headers.get("range")
-    if range_header and range_header.startswith("bytes="):
-        raw = range_header.split("=", 1)[1].split(",")[0]
-        start_text, _, end_text = raw.partition("-")
-        start = int(start_text or 0)
-        end = int(end_text) if end_text else file_size - 1
-        end = min(end, file_size - 1)
+    parsed_range = media.parse_range(request.headers.get("range"), file_size)
+    if parsed_range is not None:
+        start, end = parsed_range
         if start >= file_size:
             return Response(status_code=416, headers={"Content-Range": f"bytes */{file_size}"})
         length = end - start + 1

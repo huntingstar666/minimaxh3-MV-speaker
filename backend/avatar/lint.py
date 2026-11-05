@@ -124,6 +124,14 @@ EFFECT_EXIT_TERMS = (
     r"完全消失|退出|退场|淡出|折叠|收回|缩回|溶解|反向擦除|变形为|恢复干净|"
     r"exit|fade\s+out|collapse|retract|dissolve|recover|morph\s+into"
 )
+# 带否定语义的整句（到句号/分号/换行为止）先剔除，再判断是否真的在描述特效
+_NEGATED_EFFECT_RE = re.compile(
+    r"[^.;。；\n]*(?:\bno\b|\bwithout\b|\bfree of\b|不要|禁止|避免|不得|没有)"
+    r"[^.;。；\n]*[.;。；]?",
+    re.I,
+)
+
+
 EFFECT_GRAPHIC_NOUN_RE = (
     r"特效|文字|图标|面板|卡片|节点|图形|模型|字幕|标签|UI|HUD|FUI|全息|"
     r"card|icon|panel|effect|graphic"
@@ -452,23 +460,26 @@ def lint_prompt(text: str, *, mode: str = "Ref2VA", audio_mode: str | None = Non
         ))
 
     # ---- 8. 动态图形（overlay 模式整体跳过） ------------------------------
-    if graphics != "overlay" and re.search(EFFECT_GRAPHIC_NOUN_RE, value, re.I):
-        if not re.search(EFFECT_TRIGGER_TERMS, value, re.I):
+    # 否定句（"no added subtitles / 不要出现图形"）是在禁止特效，不是描述特效；
+    # 以前直接全文匹配 graphic/字幕 等名词，兜底提示词必然误报缺触发词/停留。
+    effect_text = _NEGATED_EFFECT_RE.sub(" ", value)
+    if graphics != "overlay" and re.search(EFFECT_GRAPHIC_NOUN_RE, effect_text, re.I):
+        if not re.search(EFFECT_TRIGGER_TERMS, effect_text, re.I):
             warnings.append(_issue(
                 "semantic-trigger",
                 "特效需绑定精确触发词、语义节拍或可听事件。",
             ))
-        if not re.search(r"保持|停留|hold|readable", value, re.I):
+        if not re.search(r"保持|停留|hold|readable", effect_text, re.I):
             warnings.append(_issue(
                 "readable-hold",
                 "主信息需要可读停留状态（停留至语义终点，不提前撤走）。",
             ))
-        if not re.search(r"恢复|回落|退出|消失|退场|淡出|settle|exit|recover", value, re.I):
+        if not re.search(r"恢复|回落|退出|消失|退场|淡出|settle|exit|recover", effect_text, re.I):
             warnings.append(_issue(
                 "effect-recovery",
                 "特效需要退场、回落或干净恢复状态。",
             ))
-        if not re.search(r"遮挡|安全区|safe|occlu", value, re.I):
+        if not re.search(r"遮挡|安全区|safe|occlu", effect_text, re.I):
             warnings.append(_issue(
                 "safe-placement",
                 "需保护人脸、口型、手部、产品、平台字幕与安全区，写清遮挡关系。",
@@ -476,7 +487,7 @@ def lint_prompt(text: str, *, mode: str = "Ref2VA", audio_mode: str | None = Non
 
         effect_blocks = [
             block.strip()
-            for block in re.split(r"\n[ \t]*\n", value)
+            for block in re.split(r"\n[ \t]*\n", effect_text)
             if re.search(EFFECT_TRIGGER_TERMS, block, re.I)
             and re.search(EFFECT_ENTRANCE_TERMS, block, re.I)
             and re.search(EFFECT_GRAPHIC_NOUN_RE, block, re.I)

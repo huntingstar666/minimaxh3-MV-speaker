@@ -53,8 +53,31 @@ HUMAN_RECOVERY_TERMS = r"回到休息|回看镜头|姿态释放|部分释放|回
 
 
 def ordered(text: str, fields: list[str]) -> bool:
-    positions = [text.find(field) for field in fields]
+    # 兼容全角冒号与 markdown 装饰（后端 lint 也接受，这里不应误杀）
+    positions = []
+    for field in fields:
+        label = field.rstrip(":")
+        match = re.search(
+            r"(?im)^\s*(?:#{1,6}\s*)?(?:\*\*|__)?" + re.escape(label)
+            + r"\s*(?:[:：]|\*\*|__)", text)
+        positions.append(match.start() if match else -1)
     return all(position >= 0 for position in positions) and positions == sorted(positions)
+
+
+def section_text(text: str, field: str) -> str:
+    """按六段标题切出某段正文（兼容全角冒号），用于按段检查 B 腔规则。"""
+    label = field.rstrip(":")
+    match = re.search(
+        r"(?im)^\s*(?:#{1,6}\s*)?(?:\*\*|__)?" + re.escape(label)
+        + r"\s*(?:[:：]|\*\*|__)", text)
+    if not match:
+        return ""
+    rest = text[match.end():]
+    stop = re.search(
+        r"(?im)^\s*(?:#{1,6}\s*)?(?:\*\*|__)?"
+        r"(?:subject_definitions|summary|retention_analysis|detailed_description|"
+        r"overall_soundscape|non_diegetic_music)\s*(?:[:：]|\*\*|__)", rest)
+    return rest[: stop.start()] if stop else rest
 
 
 def main() -> int:
@@ -116,12 +139,15 @@ def main() -> int:
             warnings.append(("runtime-binding", "State how the runtime driver controls mouth, breath, performance, and effects."))
 
     if audio_mode == "reference":
+        summary_section = section_text(text, "summary") or text
+        retention_section = section_text(text, "retention_analysis") or text
         if not re.search(r"<Audio\s+1>", text, re.I):
             errors.append(("reference-audio-label", "B 参考音色腔必须定义 <Audio 1>。"))
-        if not re.search(r"\baudio reference\b", text, re.I):
-            errors.append(("reference-task", "B 参考音色腔 summary 必须包含 task type 'audio reference'。"))
-        if not re.search(r"<Audio\s+1>\s*:\s*reference", text, re.I):
-            errors.append(("reference-retention", "B 参考音色腔 retention_analysis 必须写 <Audio 1>: reference。"))
+        # 按段定位：写在别的段不算（以前全文搜索，脚本绿了后端 lint 仍报错）
+        if not re.search(r"\baudio reference\b", summary_section, re.I):
+            errors.append(("reference-task", "B 参考音色腔 summary 段必须包含 task type 'audio reference'。"))
+        if not re.search(r"<Audio\s+1>\s*:\s*reference", retention_section, re.I):
+            errors.append(("reference-retention", "B 参考音色腔 retention_analysis 段必须写 <Audio 1>: reference。"))
         if not re.search(r"复制.{0,6}波形|复制.{0,6}原话|audio reuse", text, re.I):
             warnings.append(("reference-no-copy", "B 腔建议明确“不复制参考波形与原话”。"))
         if re.search(r"平台运行时驱动音频|runtime driving", text, re.I):
@@ -138,6 +164,8 @@ def main() -> int:
             (r"节奏|停顿|重音|句尾|语调|cadence|pause|stress|intonation", "generated-voice-prosody", "State cadence, pauses, emphasis, or sentence-final contour."),
             (r"领夹|桌面麦克风|吊杆|话筒|近场|收音|麦克风|lavalier|boom|microphone", "generated-voice-mic", "State microphone perspective and distance."),
             (r"室内|房间|空间|混响|底噪|环境声|room tone|reflection|reverb|ambience", "generated-voice-room", "State room tone, reflections, or environmental bleed."),
+            (r"咬字|辅音|连读|齿音|元音|开合|articulation|consonant|diction", "generated-voice-articulation", "State articulation: consonants, linking, sibilance, vowel openness."),
+            (r"情绪|立场|友好|沉稳|可信|好奇|紧迫|冷静|emotion|stance", "generated-voice-stance", "State emotional stance (1 main + 1 accent)."),
             (r"播音|销售|客服|预告片|单调|机械|TTS|vocoder|metallic|announcer|sales", "generated-voice-antistyle", "State the likely synthetic or genre voice failure to avoid."),
         ]
         for pattern, code, message in generated_voice_checks:

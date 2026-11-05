@@ -235,7 +235,8 @@ function fmtSec(value) {
 }
 
 function fmtClock(value) {
-  const total = Math.max(0, num(value));
+  // 先量化到 0.1 秒再拆分钟，避免 59.96s 显示成 00:60.0
+  const total = Math.round(Math.max(0, num(value)) * 10) / 10;
   const minutes = Math.floor(total / 60);
   const seconds = total - minutes * 60;
   return `${pad(minutes)}:${seconds.toFixed(1).padStart(4, "0")}`;
@@ -570,6 +571,8 @@ const api = {
   deleteProject: (id) => request(projectPath(id), { method: "DELETE" }),
   uploadVoice: (id, file) =>
     request(`${projectPath(id)}/voice`, { method: "POST", form: formData({}, "voice", file) }),
+  voiceSample: (id, body) =>
+    request(`${projectPath(id)}/voice/sample`, { method: "POST", body }),
   deleteVoice: (id) => request(`${projectPath(id)}/voice`, { method: "DELETE" }),
   uploadAudio: (id, file) =>
     request(`${projectPath(id)}/audio`, { method: "POST", form: formData({}, "audio", file) }),
@@ -616,6 +619,9 @@ const api = {
     request(`${projectPath(id)}/segments/${index}/takes/${encodeURIComponent(takeId)}`, { method: "DELETE" }),
   assemble: (id) => request(`${projectPath(id)}/assemble`, { method: "POST", body: {} }),
   downloadUrl: (id) => `${projectPath(id)}/download`,
+  exportUrl: (id) => `${projectPath(id)}/export`,
+  importProject: (file) =>
+    request(`${API}/projects/import`, { method: "POST", form: formData({}, "package", file) }),
 };
 
 /* ---------------- 表单读写 ---------------- */
@@ -623,8 +629,8 @@ const api = {
 function readForm() {
   let cps = num($("#f-cps").value, 5);
   cps = clamp(cps, 1, 12);
-  let target = clamp(num($("#f-target").value, 8), 5, 15);
-  let max = clamp(num($("#f-max").value, 12), 5, 15);
+  let target = clamp(num($("#f-target").value, 8), 5, 30);
+  let max = clamp(num($("#f-max").value, 12), 5, 30);
   if (max < target) max = target;
   return {
     name: $("#f-name").value.trim(),
@@ -682,9 +688,33 @@ function fillGeneration(gen) {
   $("#a-lora-strength").value = g.lora_strength ?? "";
 }
 
+function updateRangeTone() {
+  // 越往后拖越红：色相从琥珀 42° 压到 0°，亮度同步压暗，暗示“段越长越吃力”
+  ["#f-target", "#f-max"].forEach((selector) => {
+    const el = $(selector);
+    if (!el) return;
+    const min = num(el.min, 5);
+    const max = num(el.max, 30);
+    const value = clamp(num(el.value, min), min, max);
+    const p = max > min ? (value - min) / (max - min) : 0;
+    const hue = Math.round(42 - 42 * p);
+    const light = Math.round(64 - 18 * p);
+    el.style.setProperty("--range-p", `${(p * 100).toFixed(1)}%`);
+    el.style.setProperty("--range-color", `hsl(${hue} 92% ${light}%)`);
+  });
+  const press = $("#max-pressure");
+  if (press) {
+    const value = num($("#f-max").value, 12);
+    const level = value <= 15 ? "轻" : value <= 22 ? "中" : "重";
+    press.textContent = `压力：${level}`;
+    press.dataset.level = level;
+  }
+}
+
 function updateRangeLabels() {
   $("#target-label").textContent = `${num($("#f-target").value, 8).toFixed(1)}s`;
   $("#max-label").textContent = `${num($("#f-max").value, 12).toFixed(1)}s`;
+  updateRangeTone();
 }
 
 function updateScriptCount() {
@@ -799,6 +829,172 @@ function effectFamilyItems() {
   return FALLBACK_EFFECT_FAMILIES.map((item) => ({ ...item }));
 }
 
+const DENSITY_CARDS = {
+  low: { label: "低", note: "1 条信息 · 长停留" },
+  medium: { label: "中", note: "每拍 1 主视觉" },
+  high: { label: "高", note: "短词组 · 快节奏" },
+};
+
+function svgPreview(markup) {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 96">${markup}</svg>`
+  )}`;
+}
+
+function densityThumb(level) {
+  const colors = { low: "#7C9CBF", medium: "#FFB454", high: "#FF6B5C" };
+  const accent = colors[level] || colors.medium;
+  const count = level === "low" ? 1 : level === "high" ? 5 : 3;
+  let cards = "";
+  for (let i = 0; i < count; i += 1) {
+    const y = 20 + i * 13;
+    if (y > 78) break;
+    cards += `<rect x="96" y="${y}" width="48" height="9" rx="2" fill="${accent}" opacity="${(0.35 + 0.12 * i).toFixed(2)}"/>`;
+  }
+  return svgPreview(`<rect width="160" height="96" fill="#0F1218"/>
+    <circle cx="48" cy="44" r="18" fill="#2B303B"/>
+    <circle cx="48" cy="36" r="8" fill="#3C4657"/>
+    <rect x="33" y="52" width="30" height="24" rx="8" fill="#303A4A"/>
+    ${cards}
+    <text x="8" y="88" font-size="8" fill="#8A94A6">${DENSITY_CARDS[level]?.note || ""}</text>`);
+}
+
+function styleThumb(item) {
+  const accent = safeColor(item.accent_color, "#FFB454");
+  const second = safeColor(item.secondary_color, "#8AB4F8");
+  const id = String(item.id || "");
+  const dark = /technology|documentary|premium/.test(id);
+  const bg = dark ? "#0B0F16" : "#121826";
+  let deco = "";
+  if (id.includes("corporate")) {
+    deco = `<rect x="96" y="20" width="52" height="34" rx="4" fill="${accent}" opacity=".18"/><rect x="102" y="26" width="40" height="4" rx="2" fill="${accent}"/><rect x="102" y="34" width="28" height="3" rx="1.5" fill="${second}" opacity=".7"/>`;
+  } else if (id.includes("technology")) {
+    deco = `<path d="M90 64 L112 42 L132 58 L150 34" stroke="${accent}" stroke-width="2" fill="none"/><circle cx="112" cy="42" r="3" fill="${accent}"/><circle cx="132" cy="58" r="3" fill="${second}"/>`;
+  } else if (id.includes("premium")) {
+    deco = `<rect x="98" y="18" width="50" height="52" rx="2" fill="none" stroke="${accent}" opacity=".8"/><rect x="104" y="26" width="30" height="3" fill="${accent}"/>`;
+  } else if (id.includes("education")) {
+    deco = `<circle cx="120" cy="40" r="16" fill="none" stroke="${accent}" stroke-width="2"/><path d="M112 44 L120 34 L128 44" stroke="${accent}" fill="none" stroke-width="2"/>`;
+  } else if (id.includes("social")) {
+    deco = `<circle cx="118" cy="38" r="20" fill="${accent}" opacity=".2"/><rect x="100" y="30" width="36" height="8" rx="4" fill="${accent}"/>`;
+  } else if (id.includes("news")) {
+    deco = `<rect x="96" y="58" width="54" height="14" rx="2" fill="${accent}" opacity=".2"/><rect x="100" y="62" width="46" height="6" rx="2" fill="${accent}"/><rect x="96" y="20" width="54" height="6" rx="2" fill="${second}" opacity=".6"/>`;
+  } else if (id.includes("warm")) {
+    deco = `<circle cx="120" cy="40" r="22" fill="${accent}" opacity=".16"/><rect x="100" y="34" width="40" height="6" rx="3" fill="${accent}"/>`;
+  } else {
+    deco = `<rect x="100" y="22" width="46" height="40" rx="4" fill="${accent}" opacity=".14"/><rect x="100" y="22" width="46" height="40" rx="4" fill="none" stroke="${accent}" opacity=".4"/>`;
+  }
+  return svgPreview(`<rect width="160" height="96" fill="${bg}"/>
+    <circle cx="44" cy="44" r="18" fill="${second}" opacity=".25"/>
+    <circle cx="44" cy="36" r="8" fill="${second}" opacity=".5"/>
+    <rect x="29" y="52" width="30" height="24" rx="8" fill="${second}" opacity=".25"/>
+    ${deco}
+    <text x="8" y="88" font-size="8" fill="#9AA6B8">${item.label || item.id}</text>`);
+}
+
+function effectThumb(id, accent) {
+  const a = safeColor(accent, "#FFB454");
+  const shapes = {
+    headline: `<rect x="24" y="26" width="80" height="10" rx="3" fill="${a}"/><rect x="24" y="42" width="52" height="6" rx="3" fill="${a}" opacity=".5"/>`,
+    kinetic_type: `<text x="20" y="46" font-size="22" font-weight="700" fill="${a}">Aa</text><rect x="22" y="54" width="52" height="4" fill="${a}" opacity=".5"/>`,
+    lower_third: `<rect x="12" y="58" width="96" height="18" rx="4" fill="${a}" opacity=".2"/><rect x="18" y="64" width="52" height="4" fill="${a}"/><rect x="18" y="71" width="36" height="3" fill="#fff" opacity=".4"/>`,
+    info_card: `<rect x="14" y="18" width="92" height="58" rx="6" fill="${a}" opacity=".18"/><rect x="22" y="26" width="42" height="6" fill="${a}"/><rect x="22" y="38" width="66" height="4" fill="#fff" opacity=".35"/><rect x="22" y="46" width="54" height="4" fill="#fff" opacity=".25"/>`,
+    chart: `<rect x="18" y="52" width="10" height="18" fill="${a}"/><rect x="34" y="42" width="10" height="28" fill="${a}" opacity=".8"/><rect x="50" y="30" width="10" height="40" fill="${a}" opacity=".6"/><rect x="66" y="46" width="10" height="24" fill="${a}" opacity=".4"/>`,
+    icon: `<circle cx="40" cy="40" r="18" fill="none" stroke="${a}" stroke-width="3"/><path d="M32 40 L38 46 L50 32" stroke="${a}" stroke-width="3" fill="none"/>`,
+    hud: `<path d="M20 24 h20 M20 24 v20 M100 24 h-20 M100 24 v20 M20 66 h20 M20 66 v-20 M100 66 h-20 M100 66 v-20" stroke="${a}" stroke-width="2" fill="none"/>`,
+    stepper: `<circle cx="26" cy="36" r="7" fill="${a}"/><circle cx="52" cy="36" r="7" fill="${a}" opacity=".7"/><circle cx="78" cy="36" r="7" fill="${a}" opacity=".4"/><rect x="20" y="52" width="64" height="4" fill="#fff" opacity=".3"/>`,
+    world_panel: `<rect x="16" y="16" width="88" height="62" rx="5" fill="${a}" opacity=".12"/><path d="M16 40 L104 40" stroke="${a}" opacity=".3"/><rect x="24" y="24" width="30" height="5" fill="${a}"/>`,
+    default: `<rect x="18" y="22" width="84" height="50" rx="6" fill="${a}" opacity=".2"/><rect x="26" y="32" width="46" height="6" fill="${a}"/>`,
+  };
+  return svgPreview(`<rect width="160" height="96" fill="#0F1218"/>${shapes[id] || shapes.default}`);
+}
+
+function renderDesignCards() {
+  const densityBox = $("#design-density");
+  if (densityBox) {
+    densityBox.innerHTML = ["low", "medium", "high"].map((level) => `
+      <button type="button" class="av-density-card" data-density="${level}">
+        <img src="${densityThumb(level)}" alt="">
+        <span><b>${DENSITY_CARDS[level].label}</b><em>${DENSITY_CARDS[level].note}</em></span>
+      </button>`).join("");
+  }
+  const styleBox = $("#design-style-systems");
+  if (styleBox) {
+    styleBox.innerHTML = styleSystemPresets().map((item) => `
+      <button type="button" class="av-style-card${item.id === state.designStyleId ? " active" : ""}" data-style-id="${esc(item.id)}">
+        <img src="${styleThumb(item)}" alt="">
+        <span><b>${esc(item.label || item.id)}</b><em>${esc(item.material || "")}</em></span>
+      </button>`).join("");
+  }
+  updateDesignChrome();
+}
+
+function inferStyleId(design) {
+  const visual = String(design?.style_system?.visual_style || "");
+  const items = styleSystemPresets();
+  const exact = items.find((item) => String(item.visual_style || "") === visual || item.id === visual);
+  if (exact) return exact.id;
+  const typography = String(design?.style_system?.typography || "");
+  const partial = items.find((item) => typography && String(item.typography || "") === typography);
+  return partial ? partial.id : "";
+}
+
+function effectLabel(id) {
+  return effectFamilyItems().find((item) => item.id === id)?.label || id;
+}
+
+function applyStyleSystem(id) {
+  const item = styleSystemPresets().find((entry) => entry.id === id);
+  if (!item) return;
+  const set = (selector, value) => {
+    const el = $(selector);
+    if (el) el.value = value || "";
+  };
+  set("#design-typography", item.typography);
+  set("#design-material", item.material);
+  set("#design-icon-family", item.icon_family);
+  set("#design-motion-grammar", item.motion_grammar);
+  set("#design-visual-style", item.visual_style);
+  $("#design-accent").value = designColor(item.accent_color);
+  $("#design-secondary").value = designColor(item.secondary_color, "secondary");
+  fillPresetSelect($("#design-typography-preset"), presetValues("typography"), item.typography || "");
+  fillPresetSelect($("#design-material-preset"), presetValues("material"), item.material || "");
+  state.designStyleId = id;
+  markDesignDirty();
+  renderDesignCards();
+  updateDesignChrome();
+}
+
+function renderDesignPreview() {
+  const frame = $("#design-preview-frame");
+  if (!frame) return;
+  const accent = safeColor($("#design-accent")?.value, "#FFB454");
+  const second = safeColor($("#design-secondary")?.value, "#8AB4F8");
+  const density = state.designDensity || "medium";
+  const overlay = state.designGraphicsMode === "overlay";
+  const families = selectedEffectIds();
+  const wanted = density === "low" ? 1 : density === "high" ? 3 : 2;
+  const chips = (families.length ? families : ["info_card"]).slice(0, wanted).map((id, index) => `
+    <div class="av-preview-chip" style="border-color:${accent};background:${accent}22;color:${accent};--i:${index}">${esc(effectLabel(id))}</div>`).join("");
+  frame.innerHTML = `
+    <div class="av-preview-bg" style="background:radial-gradient(120% 80% at 76% 8%, ${accent}33, transparent 62%), linear-gradient(160deg, #171d29, #0a0e15)"></div>
+    <div class="av-preview-person" style="background:linear-gradient(180deg, ${second}55, ${second}22)"><i></i><b></b></div>
+    <div class="av-preview-safe" style="inset:8% 6% 12% 6%;border-color:${accent}55"></div>
+    <div class="av-preview-kicker" style="color:${accent}">口播 · 数字人</div>
+    <div class="av-preview-copy" style="color:#fff">这套方法只有三步</div>
+    <div class="av-preview-chips">${chips}</div>
+    <div class="av-preview-mode">${overlay ? "后期叠加" : "生成式图形"} · ${DENSITY_CARDS[density].label}密度</div>`;
+  const title = $("#design-preview-title");
+  if (title) title.textContent = overlay ? "叠加模式预览" : "风格预览";
+  const sub = $("#design-preview-sub");
+  if (sub) sub.textContent = `${DENSITY_CARDS[density].label}密度 · ${families.length} 个效果族 · 主色 ${accent}`;
+  const tags = $("#design-preview-tags");
+  if (tags) {
+    tags.innerHTML = (families.length ? families : ["未选效果族"]).slice(0, 4)
+      .map((id) => `<span>${esc(effectLabel(id) === id && id !== "未选效果族" ? id : effectLabel(id))}</span>`).join("");
+  }
+}
+
+
 function fillPresetSelect(select, values, current) {
   if (!select) return;
   const list = Array.isArray(values) ? values : [];
@@ -821,6 +1017,7 @@ function fillDesignOptions() {
     current?.style_system?.material || $("#design-material")?.value || ""
   );
   renderEffectCheckboxes(current?.effect_families || selectedEffectIds());
+  renderDesignCards();
 }
 
 function readDesignSafe() {
@@ -844,10 +1041,12 @@ function renderEffectCheckboxes(selected = []) {
     box.innerHTML = `<div class="av-effect-empty">效果目录不可用（后端 /effect-catalog 未就绪）</div>`;
     return;
   }
+  const accent = $("#design-accent")?.value || "#FFB454";
   box.innerHTML = families
     .map(
       (item) => `<label class="av-effect-item" title="${esc(item.hint || "")}">
         <input type="checkbox" value="${esc(item.id)}" ${chosen.includes(item.id) ? "checked" : ""}>
+        <img class="av-effect-thumb" src="${effectThumb(item.id, accent)}" alt="" loading="lazy">
         <span>${esc(item.label)}${item.hint ? `<em>${esc(item.hint)}</em>` : ""}</span>
       </label>`
     )
@@ -891,6 +1090,7 @@ function fillDesign(design) {
   const d = deepMerge(designBase(state.mode), design || {});
   state.designDensity = ["low", "medium", "high"].includes(d.effect_density) ? d.effect_density : "medium";
   state.designGraphicsMode = d.graphics_mode === "overlay" ? "overlay" : "generated";
+  state.designStyleId = inferStyleId(d);
   $("#design-accent").value = designColor(d.style_system?.accent_color);
   $("#design-secondary").value = designColor(d.style_system?.secondary_color, "secondary");
   $("#design-typography").value = d.style_system?.typography || "";
@@ -975,6 +1175,9 @@ function updateDesignChrome() {
   $$("#design-graphics-mode [data-gmode]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.gmode === state.designGraphicsMode);
   });
+  $$("#design-style-systems [data-style-id]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.styleId === state.designStyleId);
+  });
   const badge = $("#design-badge");
   if (badge) {
     badge.textContent = GRAPHICS_MODE_LABEL[state.designGraphicsMode] || "生成式";
@@ -984,6 +1187,7 @@ function updateDesignChrome() {
   if (mini) mini.textContent = `密度${DENSITY_LABEL[density] || "中"}`;
   $("#design-graphics-note").classList.toggle("hidden", !overlay);
   $("#design-effects-count").textContent = `${selectedEffectIds().length} 项`;
+  renderDesignPreview();
   $("#design-state").textContent = state.designDirty ? (state.project ? "未保存" : "待新建") : state.project ? "已保存" : "默认";
   const showVoiceCard = state.mode === 3;
   $("#voice-card").hidden = !showVoiceCard;
@@ -1142,6 +1346,14 @@ function modeHintText(mode) {
 function setMode(mode, { quiet = false } = {}) {
   const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 2;
   state.mode = value;
+  // 切模式时清掉不属于当前模式的待上传素材，避免“模式三高亮但表单还挂着参考音频”
+  if (value !== 2 && state.pendingVoice) {
+    state.pendingVoice = null;
+  }
+  if (value !== 1 && state.pendingAudio) {
+    state.pendingAudio = null;
+  }
+  stopVoiceAudition();
   $$("[data-mode-card]").forEach((btn) => {
     btn.classList.toggle("active", Number(btn.dataset.modeCard) === value);
   });
@@ -1176,31 +1388,129 @@ function currentVoice() {
   return null;
 }
 
+function stopVoiceAudition() {
+  const el = $("#voice-audition");
+  if (el) {
+    el.pause();
+    el.removeAttribute("src");
+    try { el.load(); } catch { /* ignore */ }
+  }
+  const label = $("#voice-audition-label");
+  if (label) label.textContent = "试听";
+  if (state.voiceAuditionObjectUrl) {
+    URL.revokeObjectURL(state.voiceAuditionObjectUrl);
+    state.voiceAuditionObjectUrl = "";
+  }
+}
+
+async function toggleVoiceAudition() {
+  const voice = currentVoice();
+  const el = $("#voice-audition");
+  const label = $("#voice-audition-label");
+  if (!voice || !el) return;
+  if (!el.paused) {
+    stopVoiceAudition();
+    return;
+  }
+  let src = "";
+  if (voice.pending && state.pendingVoice) {
+    if (!state.voiceAuditionObjectUrl) {
+      state.voiceAuditionObjectUrl = URL.createObjectURL(state.pendingVoice);
+    }
+    src = state.voiceAuditionObjectUrl;
+  } else if (state.project) {
+    src = `${projectPath(state.project.id)}/media/voice/ref.wav?v=${voice.sample_start || 0}-${voice.sample_length || 0}-${voice.uploaded || 0}`;
+  }
+  if (!src) return;
+  el.src = src;
+  try {
+    await el.play();
+    if (label) label.textContent = "停止";
+  } catch (error) {
+    toast(`试听失败：${error.message || error}`, "err");
+    stopVoiceAudition();
+  }
+}
+
 function renderVoice() {
   const voice = currentVoice();
   const drop = $("#voice-drop");
   const row = $("#voice-row");
   const label = $("#voice-label");
+  const sampleBox = $("#voice-sample-box");
   if (!drop || !row) return;
-  if (!voice) {
-    drop.classList.remove("hidden");
+  if (state.mode !== 2 || !voice) {
+    drop.classList.toggle("hidden", state.mode !== 2);
     row.classList.add("hidden");
-    label.textContent = "";
+    if (sampleBox) sampleBox.classList.add("hidden");
+    if (label) label.textContent = "";
+    stopVoiceAudition();
     return;
   }
   drop.classList.add("hidden");
   row.classList.remove("hidden");
   $("#voice-name").textContent = voice.filename || "参考音频";
+  const sourceDuration = num(voice.source_duration);
+  const sampleDuration = num(voice.sample_length) || num(voice.duration);
   const parts = [];
-  if (num(voice.duration) > 0) parts.push(`${num(voice.duration).toFixed(1)} 秒`);
-  if (voice.pending) parts.push("创建作品后上传");
-  else if (voice.sample_rate) parts.push(`${num(voice.sample_rate)} Hz`);
-  if (!parts.length) parts.push("已上传");
-  const outOfRange = num(voice.duration) > 0 && (num(voice.duration) < 2 || num(voice.duration) > 15);
+  if (voice.pending) {
+    parts.push(sourceDuration > 0 ? `原音 ${sourceDuration.toFixed(1)} 秒` : "已选择");
+    parts.push("创建作品后自动截取音色样本");
+  } else {
+    if (sourceDuration > sampleDuration + 0.1) {
+      parts.push(`原音 ${sourceDuration.toFixed(1)} 秒`);
+      parts.push(`样本 ${sampleDuration.toFixed(1)} 秒`);
+    } else if (sampleDuration > 0) {
+      parts.push(`${sampleDuration.toFixed(1)} 秒`);
+    }
+    if (voice.sample_rate) parts.push(`${num(voice.sample_rate)} Hz`);
+    if (!parts.length) parts.push("已上传");
+  }
   const span = $("#voice-duration");
-  span.textContent = parts.join(" · ") + (outOfRange ? " · 建议 2–15 秒" : num(voice.duration) > 0 ? " · 时长合适" : "");
-  span.classList.toggle("warn", outOfRange);
+  span.textContent = parts.join(" · ");
+  span.classList.remove("warn");
   label.textContent = voice.filename || "";
+
+  if (sampleBox) {
+    const hasSource = !voice.pending && num(voice.source_duration) > 0;
+    sampleBox.classList.toggle("hidden", !hasSource);
+    if (hasSource) {
+      const total = num(voice.source_duration);
+      const length = num(voice.sample_length) || 12;
+      const start = num(voice.sample_start) || 0;
+      const slider = $("#f-voice-start");
+      slider.max = String(Math.max(0, total - length));
+      slider.value = String(clamp(start, 0, Math.max(0, total - length)));
+      slider.disabled = total <= length + 0.05;
+      $("#voice-sample-range").textContent =
+        `${start.toFixed(1)}–${Math.min(total, start + length).toFixed(1)}s（原音 ${total.toFixed(1)}s）`;
+      const source = $("#voice-sample-source");
+      if (source) source.textContent = voice.trimmed ? "原始录音已保留" : "原音不足 15 秒，整段使用";
+      $("#voice-sample-hint").textContent = voice.trimmed
+        ? "只把这一段送给 H3 当音色参考；拖动起点后点「试听」确认。"
+        : "原音不足 15 秒，已整段作为音色样本。";
+      $("#btn-voice-audition").disabled = false;
+    }
+  }
+}
+
+async function saveVoiceSample() {
+  const project = state.project;
+  const voice = project?.voice;
+  if (!project || !voice?.source_filename) return;
+  const slider = $("#f-voice-start");
+  const start = num(slider?.value, num(voice.sample_start));
+  const length = num(voice.sample_length) || 12;
+  $("#voice-sample-range").textContent =
+    `${start.toFixed(1)}–${Math.min(num(voice.source_duration), start + length).toFixed(1)}s（原音 ${num(voice.source_duration).toFixed(1)}s）`;
+  try {
+    const data = await api.voiceSample(project.id, { start_seconds: start, length_seconds: length });
+    applyProject(data.project, { fill: false, segments: false });
+    toast("音色样本已更新，可点「试听」确认", "ok");
+  } catch (error) {
+    toast(`音色样本更新失败：${error.message}`, "err");
+    renderVoice();
+  }
 }
 
 function currentAudio() {
@@ -1289,14 +1599,20 @@ async function handleVoiceFile(file) {
       const data = await api.uploadVoice(state.project.id, file);
       state.pendingVoice = null;
       applyProject(data.project, { fill: false, segments: false });
-      toast("参考音频已上传", "ok");
+      const voice = data.project?.voice || {};
+      const sample = num(voice.sample_length);
+      toast(sample > 0 && num(voice.source_duration) > sample + 0.1
+        ? `参考音频已上传：原音 ${num(voice.source_duration).toFixed(1)} 秒，已自动截取 ${sample.toFixed(1)} 秒音色样本`
+        : "参考音频已上传", "ok");
     }).catch((err) => toast(`音频上传失败：${err.message}`, "err"));
     return;
   }
   state.pendingVoice = file;
   file._probeDuration = duration;
   renderVoice();
-  toast("参考音频已选择，创建作品时一起上传", "info");
+  toast(duration > 15
+    ? `已选择 ${duration.toFixed(1)} 秒录音，创建作品后会自动截取 12 秒音色样本`
+    : "参考音频已选择，创建作品时一起上传", "info");
 }
 
 async function deleteVoice() {
@@ -3176,6 +3492,7 @@ async function pollRun() {
     if (state.project) state.project.run = state.run;
     renderRun(state.run);
     const status = state.run?.status || "idle";
+    state.pollFailures = 0;
     state.pollCount += 1;
     if (RUN_TERMINAL.has(status)) {
       stopPolling();
@@ -3189,8 +3506,13 @@ async function pollRun() {
       await refreshProject();
     }
   } catch (err) {
-    stopPolling();
-    toast(`获取运行状态失败：${err.message}`, "err", 6000);
+    // 网络抖动/后端重启一次就永久停轮询，会让任务还在跑但界面再也不更新；
+    // 连续失败 3 次才停。
+    state.pollFailures = (state.pollFailures || 0) + 1;
+    if (state.pollFailures >= 3) {
+      stopPolling();
+      toast(`获取运行状态失败：${err.message}`, "err", 6000);
+    }
   } finally {
     state.polling = false;
   }
@@ -3399,6 +3721,18 @@ function bindDesignEvents() {
     markDesignDirty();
     updateDesignChrome();
   });
+  $("#design-style-systems").addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-style-id]");
+    if (!btn) return;
+    applyStyleSystem(btn.dataset.styleId);
+  });
+  ["#design-accent", "#design-secondary"].forEach((selector) => {
+    const el = $(selector);
+    if (el) el.addEventListener("input", () => {
+      markDesignDirty();
+      updateDesignChrome();
+    });
+  });
   $("#design-graphics-mode").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-gmode]");
     if (!btn) return;
@@ -3464,9 +3798,37 @@ function bindEvents() {
   });
   $("#f-target").addEventListener("input", () => clampRanges("target"));
   $("#f-max").addEventListener("input", () => clampRanges("max"));
+  ["#f-target", "#f-max"].forEach((selector) => {
+    const el = $(selector);
+    if (el) el.addEventListener("input", updateRangeTone);
+  });
 
   $("#btn-create").addEventListener("click", () => (state.project ? saveSettings() : createProject()));
   $("#btn-new").addEventListener("click", () => clearProject());
+  // 数字人包（.h3avatar.zip）导入 / 导出：后端与文档已定义契约，之前页面没有入口
+  $("#btn-import-pack")?.addEventListener("click", () => $("#pack-input")?.click());
+  $("#pack-input")?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    await withBusy($("#btn-import-pack"), async () => {
+      try {
+        const data = await api.importProject(file);
+        await loadProjects();
+        if (data.project?.id) await openProject(data.project.id);
+        toast(`已导入「${data.project?.name || "数字人包"}」`, "ok");
+      } catch (error) {
+        toast(`导入失败：${error.message}`, "err", 6000);
+      }
+    });
+  });
+  $("#btn-export-pack")?.addEventListener("click", () => {
+    if (!state.project) {
+      toast("请先打开一个作品再导出。", "warn");
+      return;
+    }
+    window.location.href = api.exportUrl(state.project.id);
+  });
   $("#btn-plan").addEventListener("click", () => planSegments());
   $("#btn-plan2").addEventListener("click", () => planSegments());
   $("#btn-prompts-all").addEventListener("click", generateAllPrompts);
@@ -3491,6 +3853,18 @@ function bindEvents() {
   bindDragEvents($("#voice-drop"), $("#voice-input"), handleVoiceFile);
   $("#btn-voice-replace").addEventListener("click", () => $("#voice-input").click());
   $("#btn-voice-del").addEventListener("click", deleteVoice);
+  $("#btn-voice-audition").addEventListener("click", toggleVoiceAudition);
+  $("#voice-audition").addEventListener("ended", stopVoiceAudition);
+  $("#f-voice-start").addEventListener("input", () => {
+    const voice = state.project?.voice;
+    if (!voice) return;
+    const total = num(voice.source_duration);
+    const length = num(voice.sample_length) || 12;
+    const start = num($("#f-voice-start").value, 0);
+    $("#voice-sample-range").textContent =
+      `${start.toFixed(1)}–${Math.min(total, start + length).toFixed(1)}s（原音 ${total.toFixed(1)}s）`;
+  });
+  $("#f-voice-start").addEventListener("change", saveVoiceSample);
 
   $("#btn-ref-upload").addEventListener("click", () => $("#ref-input").click());
   $("#ref-input").addEventListener("change", async (event) => {

@@ -26,15 +26,20 @@ ROLES = {"performer", "environment", "appearance", "subject", "other"}
 MODES = {1: ("locked_audio", "runtime"), 2: ("ref_native", "reference"), 3: ("ref_native", "generated")}
 HEADINGS = ["subject_definitions", "summary", "retention_analysis",
             "detailed_description", "overall_soundscape", "non_diegetic_music"]
-JOBS = {"hook", "definition", "number", "list", "steps", "comparison", "cause",
-        "benefit", "warning", "proof", "location", "time", "technology",
-        "finance", "education", "emotion", "cta"}
-EFFECTS = {"info_card", "headline", "lower_third", "stepper", "chart", "icon",
-           "hud", "particle", "quote", "map", "cta_card"}
-ANCHORS = {"right_side", "lower_third", "beside_speaker", "top_left", "world_space", "surface"}
+# 与 backend/avatar/effect_catalog.py 保持一致（工作台导出的包必须能被自家校验器接受）
+JOBS = {"greeting", "identity", "hook", "definition", "number", "list", "steps",
+        "comparison", "cause", "benefit", "warning", "proof", "location", "time",
+        "technology", "finance", "education", "emotion", "cta"}
+EFFECTS = {"headline", "kinetic_type", "lower_third", "tracked_callout", "info_card",
+           "hud", "fui", "chart", "infographic", "stepper", "icon", "particle",
+           "surface_graphic", "world_panel", "chat_card", "document_card"}
+ANCHORS = {"right_side", "left_side", "lower_third", "top_left", "top_right",
+           "upper_center", "beside_speaker", "center_shared", "world_space", "surface"}
 LAYERS = {"screen", "world", "surface", "camera", "subject_tracked"}
 LIFECYCLE = ("entrance", "landing", "hold", "exit", "recovery")
 MANIFEST_NAMES = ("manifest.json", "h3avatar.json", "avatar.json")
+MAX_ENTRIES = 400
+MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
 
 errors: list[str] = []
 warnings: list[str] = []
@@ -51,6 +56,12 @@ def warn(message: str) -> None:
 def load_package(path: Path):
     if path.is_dir():
         names = [p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_file()]
+        for name in names:
+            suffix = Path(name).suffix.lower()
+            if Path(name).name not in MANIFEST_NAMES and suffix not in AUDIO_EXT | IMAGE_EXT | DOC_EXT:
+                raise SystemExit(f"包内包含不支持的文件类型：{name}")
+        if len(names) > MAX_ENTRIES:
+            raise SystemExit(f"包内文件过多：{len(names)}（上限 {MAX_ENTRIES}）")
         candidates = [name for name in names if Path(name).name in MANIFEST_NAMES]
         if not candidates:
             raise SystemExit("包里缺少 manifest.json")
@@ -63,6 +74,11 @@ def load_package(path: Path):
         if bad:
             raise SystemExit(f"zip 损坏：{bad}")
         names = [info.filename.replace("\\", "/") for info in archive.infolist() if not info.is_dir()]
+        if len(names) > MAX_ENTRIES:
+            raise SystemExit(f"包内文件过多：{len(names)}（上限 {MAX_ENTRIES}）")
+        total_bytes = sum(info.file_size for info in archive.infolist() if not info.is_dir())
+        if total_bytes > MAX_TOTAL_BYTES:
+            raise SystemExit("包解压后超过 2GB，已拒绝。")
         for name in names:
             suffix = Path(name).suffix.lower()
             if Path(name).name not in MANIFEST_NAMES and suffix not in AUDIO_EXT | IMAGE_EXT | DOC_EXT:
@@ -184,8 +200,8 @@ def check_segment(item: dict, index: int, mode: int, cps: float,
     except (TypeError, ValueError):
         fail(f"{label}.frames 必须是整数")
         frames_value = 0
-    if frames_value and (frames_value < 124 or frames_value > 362 or (frames_value - 5) % 17):
-        fail(f"{label}.frames 必须是 H3 合法帧数 5+17k（124–362）")
+    if frames_value and (frames_value < 124 or frames_value > 719 or (frames_value - 5) % 17):
+        fail(f"{label}.frames 必须是 H3 合法帧数 5+17k（124–719）")
     if frames_value and seconds is not None:
         expected = frames_value / 24
         try:
@@ -253,26 +269,31 @@ def check_segment(item: dict, index: int, mode: int, cps: float,
             warn(f"{label}.prompt_meta.speech_chars 与 chars 不一致")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="校验 H3 数字人包")
-    parser.add_argument("path", help="包目录或 .h3avatar.zip")
-    parser.add_argument("--zip", dest="zip_out", help="校验通过后打包到该路径")
-    parser.add_argument("--require-prompts", action="store_true",
-                        help="设计包：每段必须有 prompt")
-    parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
-
+def _run(args) -> int:
     path = Path(args.path).resolve()
     if not path.exists():
         raise SystemExit(f"路径不存在：{path}")
     if path.is_file() and path.suffix.lower() not in {".zip", ".h3avatar"}:
         raise SystemExit("路径必须是数字人包目录，或 .h3avatar.zip 文件。")
-    manifest, root, names = load_package(path)
+    try:
+        manifest, root, names = load_package(path)
+    except (OSError, ValueError, json.JSONDecodeError, zipfile.BadZipFile) as error:
+        message = f"读取包失败：{error}"
+        if args.json:
+            print(json.dumps({"ok": False, "errors": [message], "warnings": []},
+                             ensure_ascii=False))
+        else:
+            print(f"FAIL\n  ✗ {message}")
+        return 1
     if not isinstance(manifest, dict):
         raise SystemExit("manifest 必须是 JSON 对象")
     if manifest.get("schema") != SCHEMA:
         fail(f"schema 必须是 {SCHEMA}")
-    if int(manifest.get("version") or 0) != VERSION:
+    try:
+        version_value = int(manifest.get("version") or 0)
+    except (TypeError, ValueError):
+        version_value = -1
+    if version_value != VERSION:
         fail(f"version 必须是 {VERSION}")
     mode = manifest.get("mode")
     if mode not in MODES:
@@ -284,8 +305,8 @@ def main() -> int:
     if not str(manifest.get("name") or "").strip():
         warn("缺少 name")
     cps = number(manifest.get("chars_per_second", 5.0), "chars_per_second", 1, 12) or 5.0
-    number(manifest.get("target_seconds", 8.0), "target_seconds", 5, 15)
-    number(manifest.get("max_seconds", 12.0), "max_seconds", 5, 15)
+    number(manifest.get("target_seconds", 8.0), "target_seconds", 5, 30)
+    number(manifest.get("max_seconds", 12.0), "max_seconds", 5, 30)
     audio = manifest.get("audio")
     voice = manifest.get("voice")
     if mode == 1:
@@ -294,17 +315,17 @@ def main() -> int:
         else:
             check_exists(str(audio["file"]), "audio", root, names)
         if voice:
-            warn("mode 1 不应有 voice")
+            fail("mode 1 不应包含 voice（参考音色）；后端导入会直接拒绝")
     elif mode == 2:
         if not isinstance(voice, dict) or not voice.get("file"):
             fail("mode 2 必须提供 voice.file")
         else:
             check_exists(str(voice["file"]), "voice", root, names)
         if audio:
-            warn("mode 2 不应有 audio")
+            fail("mode 2 不应包含 audio（驱动音频）；后端导入会直接拒绝")
     else:
         if audio or voice:
-            warn("mode 3 不应有 audio/voice 文件")
+            fail("mode 3 不应包含 audio / voice；后端导入会直接拒绝")
         if not str(manifest.get("voice_description") or "").strip():
             warn("mode 3 建议填写 voice_description 或完整 voice_card")
     refs = manifest.get("refs") or []
@@ -331,7 +352,9 @@ def main() -> int:
     else:
         if design.get("route") not in (None, "Ref2VA"):
             warn("design.route 当前应为 Ref2VA")
-        if design.get("audio_mode") and design["audio_mode"] != audio_mode:
+        if not str(design.get("audio_mode") or "").strip():
+            fail(f"design.audio_mode 必填（mode{mode} 应为 {audio_mode}）")
+        elif design["audio_mode"] != audio_mode:
             fail(f"design.audio_mode 必须是 {audio_mode}")
         if design.get("effect_density") not in (None, "low", "medium", "high"):
             fail("design.effect_density 无效")
@@ -356,8 +379,9 @@ def main() -> int:
             if budget.get("max_flashes_per_sec") not in (None, 1, 2, 3):
                 warn("design.graphics_budget.max_flashes_per_sec 建议 ≤3")
         voice_card = design.get("voice_card")
-        if mode == 3 and not isinstance(voice_card, dict):
-            fail("mode 3 必须提供 design.voice_card")
+        if mode == 3 and not isinstance(voice_card, dict) \
+                and not str(manifest.get("voice_description") or "").strip():
+            warn("mode 3 建议提供 design.voice_card 或 voice_description（否则声音退回通用默认）")
         elif mode == 3 and isinstance(voice_card, dict):
             missing = [key for key in ("presentation", "age_band", "pitch", "resonance",
                                        "texture", "articulation", "pace_phrasing",
@@ -371,11 +395,23 @@ def main() -> int:
         fail("segments 必须是非空数组")
         segments = []
     graphics_mode = str(design.get("graphics_mode") or "generated")
+    expected_start = 0
     for index, item in enumerate(segments):
         if not isinstance(item, dict):
             fail(f"segments[{index}] 必须是对象")
             continue
         check_segment(item, index, mode, cps, root, names, graphics_mode)
+        start_frame = item.get("start_frame")
+        end_frame = item.get("end_frame")
+        if isinstance(start_frame, int) and isinstance(end_frame, int):
+            if start_frame != expected_start:
+                fail(f"segments[{index}] start_frame {start_frame} 与上一段结尾 "
+                     f"{expected_start} 不连续（重叠/留缝会让音画错位）")
+            expected_start = end_frame
+        else:
+            frames = item.get("frames")
+            if isinstance(frames, int):
+                expected_start += frames
     if args.require_prompts:
         missing = [index + 1 for index, item in enumerate(segments)
                    if not str((item or {}).get("prompt") or "").strip()]
@@ -385,6 +421,10 @@ def main() -> int:
         warn("建议附 design.md（分镜/节拍/审阅记录）")
 
     if errors:
+        if args.json:
+            print(json.dumps({"ok": False, "errors": errors, "warnings": warnings},
+                             ensure_ascii=False))
+            return 1
         print("FAIL")
         for message in errors:
             print("  ✗", message)
@@ -406,8 +446,37 @@ def main() -> int:
             output.write_bytes(path.read_bytes())
         print(f"ZIPPED {output}")
     if args.json:
-        print(json.dumps({"errors": errors, "warnings": warnings}, ensure_ascii=False))
+        print(json.dumps({"ok": True, "errors": errors, "warnings": warnings},
+                         ensure_ascii=False))
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="校验 H3 数字人包")
+    parser.add_argument("path", help="包目录或 .h3avatar.zip")
+    parser.add_argument("--zip", dest="zip_out", help="校验通过后打包到该路径")
+    parser.add_argument("--require-prompts", action="store_true",
+                        help="设计包：每段必须有 prompt")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    try:
+        return _run(args)
+    except SystemExit as error:
+        message = str(error.code) if error.code not in (None, 0) else "校验失败"
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "errors": [message], "warnings": []},
+                             ensure_ascii=False))
+        else:
+            print(f"FAIL\n  ✗ {message}")
+        return 1
+    except Exception as error:  # noqa: BLE001
+        message = f"校验脚本异常：{type(error).__name__}: {error}"
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "errors": [message], "warnings": []},
+                             ensure_ascii=False))
+        else:
+            print(f"FAIL\n  ✗ {message}")
+        return 1
 
 
 if __name__ == "__main__":
