@@ -185,6 +185,14 @@ def _validate_anchor(project: dict[str, Any], generation: dict[str, Any],
     sampler = str(generation.get("anchor_sampler") or "plain").strip().lower()
     if sampler not in {"selflift", "plain"}:
         raise HTTPException(400, "anchor_sampler 必须是 selflift 或 plain。")
+    if sampler == "selflift":
+        try:
+            steps = int(generation.get("steps") or 6)
+            transition = int(generation.get("transition_step") or 4)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "steps / transition_step 必须是整数。") from None
+        if transition < 1 or transition >= steps:
+            raise HTTPException(400, "SelfLift：低清步数必须 ≥1 且小于总步数。")
     mid = str(generation.get("anchor_mid") or "center").strip().lower()
     if mid not in {"none", "center", "thirds", "custom"}:
         raise HTTPException(400, "anchor_mid 必须是 none/center/thirds/custom。")

@@ -437,6 +437,10 @@ def build_anchor(generation: dict[str, Any], prompt: str, ref: str, audio_file: 
             raise ValueError("缺少 SelfLiftAvatarH3SamplerFix / SelfLiftAvatarH3Sampler 节点。")
         if not str(generation.get("upscaler_model") or "").strip():
             raise ValueError("SelfLift 二采需要 upscaler_model。")
+        steps = int(generation.get("steps") or 6)
+        transition = int(generation.get("transition_step") or 4)
+        if transition < 1 or transition >= steps:
+            raise ValueError("SelfLift：低清步数必须 ≥1 且小于总步数。")
 
     nodes: dict[str, Any] = {
         "unet": {

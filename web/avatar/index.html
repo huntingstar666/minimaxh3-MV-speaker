@@ -516,6 +516,14 @@
           <p class="av-anchor-hint">SelfLift 使用 Fix + 分块，并自动关闭中间锚点；默认普通单采更平滑。</p>
           <div class="av-anchor-grid" id="anchor-selflift-wrap" hidden>
             <div class="av-anchor-field">
+              <label>低清步数 <span class="hint">二采前</span></label>
+              <input id="f-anchor-transition" class="input mono" type="number" min="1" max="99" step="1" value="4">
+            </div>
+            <div class="av-anchor-field">
+              <label>高清二采步数 <span class="hint">自动 = 总步数 − 低清</span></label>
+              <input id="f-anchor-highsteps" class="input mono" readonly value="2">
+            </div>
+            <div class="av-anchor-field">
               <label>低清比例 <span class="hint">二采第一遍</span></label>
               <select id="f-anchor-lowres" class="input">
                 <option value="0.5">0.5</option>
@@ -532,7 +540,8 @@
               </select>
             </div>
           </div>
-          <p class="av-anchor-hint" id="anchor-selflift-hint" hidden>二采建议采样步数 ≥ 10（高级生成参数）；1MP 下 2 块 + 0.75 最稳。</p>
+          <p class="av-anchor-hint" id="anchor-step-hint" hidden>总步数 6 = 低清 4 + 高清二采 2（总 NFE 不变）</p>
+          <p class="av-anchor-hint" id="anchor-selflift-hint" hidden>低清比例 0.5 / 2 块最稳；总步数在「高级生成参数」里改。</p>
         </div>
       </div>
 

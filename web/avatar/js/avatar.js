@@ -704,6 +704,7 @@ function readGeneration() {
     gen.anchor_upscale = $("#f-anchor-upscale")?.value || "lanczos";
     gen.anchor_pin_frames = ($("#f-anchor-pin")?.value || "false") === "true";
     gen.lowres_scale = Number($("#f-anchor-lowres")?.value || 0.5);
+    gen.transition_step = Math.max(1, Number($("#f-anchor-transition")?.value || 4));
     const tiling = $("#f-anchor-tiling")?.value || "auto";
     gen.tiling_mode = tiling === "auto" ? "auto" : "manual";
     gen.tiling_tiles = tiling === "auto" ? 2 : Number(tiling);
@@ -739,6 +740,9 @@ function fillGeneration(gen) {
   if ($("#f-anchor-pin")) $("#f-anchor-pin").value = pin ? "true" : "false";
   setSegmented("f-anchor-pin-seg", pin ? "true" : "false");
   setSelectValue($("#f-anchor-lowres"), String(g.lowres_scale ?? 0.5));
+  if ($("#f-anchor-transition")) {
+    $("#f-anchor-transition").value = String(g.transition_step ?? 4);
+  }
   setSelectValue($("#f-anchor-tiling"),
     g.tiling_mode === "manual" ? String(g.tiling_tiles || 2) : "auto");
   if ($("#f-anchor-mid-frames")) {
@@ -791,6 +795,24 @@ function lockAnchorModelFields(locked) {
       el.disabled = locked;
       el.title = locked ? "首尾帧单采/双采使用参考工作流的固定模型栈" : "";
     });
+}
+
+function updateAnchorStepSplit() {
+  const total = Math.max(1, Number($("#a-steps")?.value || 6));
+  const low = Math.max(1, Number($("#f-anchor-transition")?.value || 4));
+  const high = total - low;
+  const highEl = $("#f-anchor-highsteps");
+  if (highEl) {
+    highEl.value = String(Math.max(0, high));
+    highEl.classList.toggle("is-invalid", high < 1);
+  }
+  const hint = $("#anchor-step-hint");
+  if (hint) {
+    hint.textContent = high > 0
+      ? `总步数 ${total} = 低清 ${low} + 高清二采 ${high}（总 NFE 不变）`
+      : "低清步数必须小于总步数：请调低「低清步数」或调高总步数";
+    hint.classList.toggle("is-invalid", high < 1);
+  }
 }
 
 function syncAnchorUI() {
@@ -881,6 +903,9 @@ function syncAnchorUI() {
   if (liftWrap) liftWrap.hidden = !(on && selflift);
   const liftHint = $("#anchor-selflift-hint");
   if (liftHint) liftHint.hidden = !(on && selflift);
+  const stepHint = $("#anchor-step-hint");
+  if (stepHint) stepHint.hidden = !(on && selflift);
+  updateAnchorStepSplit();
   const card = $(".av-anchor-card");
   if (card) card.classList.toggle("is-compact", !on);
 }
@@ -904,6 +929,8 @@ function initAnchorControls() {
   bindSegmented("f-anchor-mid-seg", "f-anchor-mid");
   bindSegmented("f-anchor-pin-seg", "f-anchor-pin");
   $("#f-anchor-sampler")?.addEventListener("change", syncAnchorUI);
+  $("#a-steps")?.addEventListener("input", updateAnchorStepSplit);
+  $("#f-anchor-transition")?.addEventListener("input", updateAnchorStepSplit);
   syncAnchorUI();
 }
 
