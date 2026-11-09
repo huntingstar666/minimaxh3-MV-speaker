@@ -664,7 +664,8 @@ function readForm() {
 }
 
 function readGeneration() {
-  const gen = { ...(state.generationDefaults || {}) };
+  const defaults = state.generationDefaults || {};
+  const gen = { ...defaults };
   gen.aspect_ratio = $("#f-aspect").value || gen.aspect_ratio || "9:16";
   const mp = Number($("#f-mp").value);
   if (Number.isFinite(mp)) gen.megapixels = mp;
@@ -690,7 +691,7 @@ function readGeneration() {
   pickText("#a-sampler", "sampler");
   pickText("#a-scheduler", "scheduler");
 
-  gen.stitch = $("#f-stitch")?.value || g.stitch || "hard";
+  gen.stitch = $("#f-stitch")?.value || defaults.stitch || "hard";
   gen.anchor_ref = "first";
   gen.anchor_seed = gen.seed;
   if (gen.stitch === "anchor") {
@@ -705,7 +706,7 @@ function readGeneration() {
     gen.anchor_pin_frames = ($("#f-anchor-pin")?.value || "false") === "true";
     gen.lowres_scale = Number($("#f-anchor-lowres")?.value || 0.5);
     gen.transition_step = Math.max(1, Number($("#f-anchor-transition")?.value || 4));
-    gen.upscaler_model = $("#f-anchor-upscaler")?.value || g.upscaler_model;
+    gen.upscaler_model = $("#f-anchor-upscaler")?.value || defaults.upscaler_model;
     gen.rho = Number($("#f-anchor-rho")?.value || 0);
     gen.w_min = Number($("#f-anchor-wmin")?.value || 0.5);
     gen.w_max = Number($("#f-anchor-wmax")?.value || 1);
