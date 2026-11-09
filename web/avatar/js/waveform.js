@@ -198,7 +198,8 @@ export class Waveform {
         const x2 = clamp(timeToX(segment.end), 0, width);
         if (x2 - x1 < 0.6) return;
         const tint = this.palette(index);
-        ctx.fillStyle = index % 2 ? tint.tintB : tint.tintA;
+        // 密集分段（<56px）不交替底色：34px 一段的深浅条纹会变成噪点
+        ctx.fillStyle = x2 - x1 >= 56 && index % 2 ? tint.tintB : tint.tintA;
         ctx.fillRect(x1, bodyTop, x2 - x1, bodyBottom - bodyTop);
       });
     }
@@ -517,14 +518,17 @@ export class Waveform {
     ctx.textBaseline = "alphabetic";
     ctx.font = `600 10px ${MONO}`;
     const amber = toRgba((this.colors || FALLBACK_COLORS).amber, 1);
+    let lastRight = -Infinity;
     this.segments.forEach((segment, index) => {
       const startX = timeToX(segment.start);
       const endX = timeToX(segment.end);
-      if (endX - startX < 26) return;
+      // 段太窄时不画药丸：22 段这类密集分段下，药丸会连成一排压住波形
+      if (endX - startX < 56) return;
       const label = String(index + 1).padStart(2, "0");
       const textWidth = ctx.measureText(label).width;
       const x = Math.max(1, startX) + 7;
       if (x + textWidth + 9 > width) return;
+      if (x - 4.5 < lastRight + 10) return;
       // 段号药丸放在标尺下方；底色随主题走，保证压在波形上也读得清
       const y = RULER_H + 1.5;
       ctx.beginPath();
@@ -536,6 +540,7 @@ export class Waveform {
       ctx.stroke();
       ctx.fillStyle = amber;
       ctx.fillText(label, x, y + 10.5);
+      lastRight = x + textWidth + 4.5;
     });
     ctx.restore();
   }
