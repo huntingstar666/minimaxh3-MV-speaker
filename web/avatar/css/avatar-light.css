@@ -66,8 +66,9 @@
   --wave-axis:rgba(0,0,0,.07);
   --wave-hover:rgba(0,0,0,.16);
   --wave-hover-mark:rgba(0,0,0,.35);
-  --wave-boundary:rgba(0,0,0,.14);
-  --wave-boundary-mark:rgba(0,0,0,.28);
+  --wave-boundary:rgba(29,29,31,.55);
+  --wave-boundary-gap:rgba(255,255,255,.95);
+  --wave-boundary-mark:rgba(29,29,31,.72);
   --wave-ruler-bg:rgba(0,0,0,.018);
   --wave-ruler-notch:rgba(0,0,0,.08);
   --wave-ruler-line:rgba(0,0,0,.07);

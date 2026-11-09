@@ -10,8 +10,9 @@ const CHROME_FALLBACKS = {
   axis: "rgba(255,255,255,.055)",
   hover: "rgba(255,255,255,.20)",
   hoverMark: "rgba(255,255,255,.45)",
-  boundary: "rgba(255,255,255,.22)",
-  boundaryMark: "rgba(255,255,255,.50)",
+  boundary: "rgba(255,255,255,.48)",
+  boundaryGap: "rgba(6,9,13,.62)",
+  boundaryMark: "rgba(255,255,255,.82)",
   rulerBg: "rgba(255,255,255,.028)",
   rulerNotch: "rgba(4,7,11,.72)",
   rulerLine: "rgba(255,255,255,.075)",
@@ -414,8 +415,8 @@ export class Waveform {
         kind,
         tip: toRgba(colors.mint, light ? .82 : .90),
         core: toRgba(colors.mint, light ? .34 : .26),
-        tintA: toRgba(colors.mint, light ? .05 : .028),
-        tintB: toRgba(colors.mint, light ? .08 : .046),
+        tintA: toRgba(colors.mint, light ? .055 : .028),
+        tintB: toRgba(colors.mint, light ? .10 : .046),
       };
     }
     return {
@@ -423,8 +424,8 @@ export class Waveform {
       tip: toRgba(colors.amber, light ? .88 : .95),
       // 浅色下深色背景不成立：核心用同色相中低透明，避免琥珀→橙的渐变在白色上发脏
       core: toRgba(light ? colors.amber : colors.amber2, light ? .34 : .26),
-      tintA: toRgba(colors.amber, light ? .045 : .026),
-      tintB: toRgba(colors.amber, light ? .075 : .044),
+      tintA: toRgba(colors.amber, light ? .05 : .026),
+      tintB: toRgba(colors.amber, light ? .10 : .044),
     };
   }
 
@@ -484,18 +485,27 @@ export class Waveform {
 
   drawBoundaries(ctx, width, timeToX, bodyTop, bodyBottom) {
     ctx.save();
-    ctx.lineWidth = 1;
     this.segments.forEach((segment, index) => {
       if (index === 0) return; // 0s 处不画分割线
       const x = Math.round(timeToX(segment.start)) + 0.5;
       if (x < 0 || x > width) return;
-      ctx.strokeStyle = this.chromeOf("boundary");
+      // 先在波形上“挖”一条背景色间隙，再压深色实线：
+      // 密集柱体里 1px 半透明线几乎不可见，留白 + 实线才能一眼看出切点
+      ctx.strokeStyle = this.chromeOf("boundaryGap");
+      ctx.lineWidth = 4.5;
       ctx.beginPath();
       ctx.moveTo(x, bodyTop);
       ctx.lineTo(x, bodyBottom);
       ctx.stroke();
+      ctx.strokeStyle = this.chromeOf("boundary");
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(x, bodyTop);
+      ctx.lineTo(x, bodyBottom);
+      ctx.stroke();
+      // 顶部把手：贴着标尺下沿，提示这里可拖
       ctx.fillStyle = this.chromeOf("boundaryMark");
-      this.roundRect(ctx, x - 1.5, bodyTop, 3, 7, 1.5);
+      this.roundRect(ctx, x - 2, bodyTop + 0.5, 4, 10, 2);
       ctx.fill();
     });
     ctx.restore();
