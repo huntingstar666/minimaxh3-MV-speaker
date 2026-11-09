@@ -676,6 +676,15 @@
 .av-seg-time{font-family:var(--mono);font-size:9.5px;color:var(--faint);text-align:center;line-height:1.5;white-space:nowrap;font-variant-numeric:tabular-nums}
 .av-seg-time-range{font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.01em;font-variant-numeric:tabular-nums}
 .av-seg-main{min-width:0;display:flex;flex-direction:column;gap:8px}
+.av-seg-tabs{display:flex;align-items:center;gap:2px;margin:1px 0 -2px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.av-seg-tab{position:relative;padding:5px 9px 6px;border-radius:7px 7px 0 0;font-size:10px;color:var(--dim);letter-spacing:.01em;transition:color var(--av-dur) var(--av-ease),background var(--av-dur) var(--av-ease)}
+.av-seg-tab:hover{color:var(--text);background:var(--av-hover)}
+.av-seg-tab.active{color:var(--amber);background:var(--av-amber-soft);font-weight:600}
+.av-seg-tab.active::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:1px;background:var(--amber)}
+.av-seg-tab i{font-style:normal;font-family:var(--mono);font-size:8.5px;margin-left:4px;padding:0 4px;border-radius:999px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--faint)}
+.av-seg-tab.active i{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber)}
+.av-seg-pane{display:flex;flex-direction:column;gap:8px;min-width:0}
+.av-seg-pane[hidden]{display:none}
 .av-seg-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}
 .av-seg-top h3{margin:0;font-size:12.5px;font-weight:650;color:var(--text);letter-spacing:.02em}
 .av-seg-top .pill{font-size:9px}

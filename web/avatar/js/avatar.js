@@ -172,6 +172,7 @@ const state = {
   health: null,
   options: {},
   generationDefaults: {},
+  anchorPlain: {},
   prompts: null,
   projects: [],
   project: null,
@@ -196,6 +197,7 @@ const state = {
   cuts: [],
   audioFailed: false,
   beatsDraft: {},
+  segTabs: {},
   lintOverride: {},
   mention: { items: [], active: 0, target: null, onPick: null, trimAt: false },
   generatingPrompt: {},
@@ -751,6 +753,26 @@ function setSegmented(id, value) {
   });
 }
 
+function applyAnchorModelStack(sampler) {
+  const plain = sampler === "plain";
+  const saved = state.project?.generation || {};
+  const fallback = state.generationDefaults || {};
+  const preset = state.anchorPlain || {};
+  const pick = (key) => {
+    if (plain) return preset[key];
+    return saved[key] !== undefined && saved[key] !== null ? saved[key] : fallback[key];
+  };
+  setSelectValue($("#a-unet"), pick("unet"));
+  setSelectValue($("#a-clip"), pick("clip"));
+  setSelectValue($("#a-vae"), pick("vae_video"));
+  setSelectValue($("#a-lora"), pick("lora"));
+  const strength = pick("lora_strength");
+  if (strength !== undefined && strength !== null && strength !== "") {
+    $("#a-lora-strength").value = strength;
+  }
+  setSelectValue($("#f-anchor-preprocess"), pick("anchor_preprocess") || "center_crop");
+}
+
 function syncAnchorUI() {
   const stitchInput = $("#f-stitch");
   if (!stitchInput) return;
@@ -800,6 +822,14 @@ function syncAnchorUI() {
   }
   const sampler = $("#f-anchor-sampler")?.value || "plain";
   const selflift = sampler === "selflift";
+  if (on) {
+    applyAnchorModelStack(sampler);
+    if (wfDesc) {
+      wfDesc.textContent += sampler === "plain"
+        ? " · 模型：Cobijada + 官方 dmad@0.8 单采栈（参考图原图直进）"
+        : " · 模型：SelfLift 双采栈";
+    }
+  }
   if (selflift) {
     if ($("#f-anchor-mid")) $("#f-anchor-mid").value = "none";
     setSegmented("f-anchor-mid-seg", "none");
@@ -2422,9 +2452,11 @@ async function loadOptions() {
     const data = await api.options();
     state.options = data.options || {};
     state.generationDefaults = data.defaults || {};
+    state.anchorPlain = data.anchor_plain || {};
   } catch {
     state.options = {};
     state.generationDefaults = {};
+    state.anchorPlain = {};
   }
   fillAspectOptions();
   fillAdvancedOptions();
@@ -3457,6 +3489,11 @@ function segCardHtml(project, seg) {
   const promptActionLabel = anchor
     ? (seg.prompt ? "重填模板" : "填入模板")
     : (seg.prompt ? "重新润色" : "润色（可选）");
+  const takes = Array.isArray(seg.takes) ? seg.takes : [];
+  const activeTab = state.segTabs[seg.index] || "clip";
+  const tabBtn = (key, label, count) => `<button type="button" role="tab"
+    class="av-seg-tab ${activeTab === key ? "active" : ""}"
+    data-action="seg-tab" data-index="${seg.index}" data-tab="${key}">${label}${count === null || count === undefined ? "" : `<i>${count}</i>`}</button>`;
   return `<article class="av-seg ${esc(status)}" data-index="${seg.index}">
     <div class="av-seg-index">
       <span class="seg-num">${pad(seg.index + 1)}</span>
@@ -3471,21 +3508,35 @@ function segCardHtml(project, seg) {
         ${overlayPill}
         ${seg.prompt ? '<span class="pill vocal">已备提示词</span>' : ""}
       </div>
-      <textarea class="av-seg-text" rows="2" spellcheck="false" data-action="seg-text"
-        data-index="${seg.index}" data-fkey="seg-text-${seg.index}"
-        placeholder="${isMode1 ? "这一段的台词（来自语音识别或按比例分配，可修改）…" : "这一段的台词…"}">${esc(seg.text || "")}</textarea>
       ${seg.error ? `<div class="av-seg-error">${esc(seg.error)}</div>` : ""}
       ${warningsHtml(seg)}
-      ${segmentRefsHtml(project, seg)}
-      ${segmentVoicesHtml(project, seg)}
-      ${segmentNoteHtml(seg)}
-      ${promptBlockHtml(project, seg)}
-      ${beatsBlockHtml(project, seg)}
-      <div class="av-takes">
-        <span class="av-takes-label">取片</span>
-        ${takesHtml(project, seg)}
+      <div class="av-seg-tabs" role="tablist">
+        ${tabBtn("clip", "预览 / 片段", takes.length)}
+        ${tabBtn("prompt", "提示词", null)}
+        ${tabBtn("text", "台词", null)}
+        ${tabBtn("ref", "参考图", null)}
       </div>
-      <p class="av-takes-hint">点卡片锁定为合成对象 · 点 ▶ 放大播放</p>
+      <div class="av-seg-pane" data-pane="clip" ${activeTab === "clip" ? "" : "hidden"}>
+        <div class="av-takes">
+          <span class="av-takes-label">取片</span>
+          ${takesHtml(project, seg)}
+        </div>
+        <p class="av-takes-hint">点卡片锁定为合成对象 · 点 ▶ 放大播放</p>
+      </div>
+      <div class="av-seg-pane" data-pane="prompt" ${activeTab === "prompt" ? "" : "hidden"}>
+        ${segmentNoteHtml(seg)}
+        ${promptBlockHtml(project, seg)}
+        ${beatsBlockHtml(project, seg)}
+      </div>
+      <div class="av-seg-pane" data-pane="text" ${activeTab === "text" ? "" : "hidden"}>
+        <textarea class="av-seg-text" rows="2" spellcheck="false" data-action="seg-text"
+          data-index="${seg.index}" data-fkey="seg-text-${seg.index}"
+          placeholder="${isMode1 ? "这一段的台词（可选：来自语音识别或按比例分配，不填不影响生成）…" : "这一段的台词…"}">${esc(seg.text || "")}</textarea>
+        ${segmentVoicesHtml(project, seg)}
+      </div>
+      <div class="av-seg-pane" data-pane="ref" ${activeTab === "ref" ? "" : "hidden"}>
+        ${segmentRefsHtml(project, seg)}
+      </div>
     </div>
     <div class="av-seg-actions">
       <button class="btn ghost sm${state.generatingPrompt[seg.index] ? " generating" : ""}" type="button"
@@ -4663,6 +4714,20 @@ function bindEvents() {
     if (action === "focus-create") {
       $("#f-name").focus();
       $("#f-name").scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    if (action === "seg-tab") {
+      const tab = el.dataset.tab || "clip";
+      state.segTabs[index] = tab;
+      const card = el.closest(".av-seg");
+      if (card) {
+        card.querySelectorAll(".av-seg-tab").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.tab === tab);
+        });
+        card.querySelectorAll(".av-seg-pane").forEach((pane) => {
+          pane.hidden = pane.dataset.pane !== tab;
+        });
+      }
       return;
     }
     if (action === "plan") {
