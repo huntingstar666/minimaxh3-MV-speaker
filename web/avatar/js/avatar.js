@@ -3562,7 +3562,22 @@ function segmentTimeCell(seg) {
   return `${segSeconds(seg).toFixed(1)}s<br>${num(seg.frames)} 帧`;
 }
 
+function activateSegmentTab(index, tab) {
+  const card = document.querySelector(`.av-seg[data-index="${index}"]`);
+  if (!card) return;
+  state.segTabs[index] = tab;
+  card.querySelectorAll(".av-seg-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+  card.querySelectorAll(".av-seg-pane").forEach((pane) => {
+    pane.hidden = pane.dataset.pane !== tab;
+  });
+}
+
 function openSegmentDetails(index, selector) {
+  if (selector.includes("seg-prompt") || selector.includes("av-beats")) {
+    activateSegmentTab(index, "prompt");
+  }
   const card = document.querySelector(`.av-seg[data-index="${index}"]`);
   const details = card?.querySelector(selector);
   if (details) details.open = true;
@@ -4717,17 +4732,7 @@ function bindEvents() {
       return;
     }
     if (action === "seg-tab") {
-      const tab = el.dataset.tab || "clip";
-      state.segTabs[index] = tab;
-      const card = el.closest(".av-seg");
-      if (card) {
-        card.querySelectorAll(".av-seg-tab").forEach((btn) => {
-          btn.classList.toggle("active", btn.dataset.tab === tab);
-        });
-        card.querySelectorAll(".av-seg-pane").forEach((pane) => {
-          pane.hidden = pane.dataset.pane !== tab;
-        });
-      }
+      activateSegmentTab(index, el.dataset.tab || "clip");
       return;
     }
     if (action === "plan") {
