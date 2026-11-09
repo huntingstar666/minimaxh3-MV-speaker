@@ -677,7 +677,7 @@
 .av-seg-time-range{font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.01em;font-variant-numeric:tabular-nums}
 .av-seg-main{min-width:0;display:flex;flex-direction:column;gap:8px}
 .av-seg-tabs{display:flex;align-items:center;gap:2px;margin:1px 0 -2px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.av-seg-tab{position:relative;padding:5px 9px 6px;border-radius:7px 7px 0 0;font-size:10px;color:var(--dim);letter-spacing:.01em;transition:color var(--av-dur) var(--av-ease),background var(--av-dur) var(--av-ease)}
+.av-seg-tab{position:relative;padding:5px 9px 6px;border:0;border-radius:7px 7px 0 0;background:transparent;font-size:10px;color:var(--dim);letter-spacing:.01em;transition:color var(--av-dur) var(--av-ease),background var(--av-dur) var(--av-ease)}
 .av-seg-tab:hover{color:var(--text);background:var(--av-hover)}
 .av-seg-tab.active{color:var(--amber);background:var(--av-amber-soft);font-weight:600}
 .av-seg-tab.active::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:1px;background:var(--amber)}

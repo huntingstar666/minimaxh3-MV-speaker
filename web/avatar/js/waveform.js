@@ -3,6 +3,25 @@
 // 静态内容（标尺、波形、段底色、切点、段号）绘制一次后缓存在离屏 canvas；
 // 播放头、hover 参考线、切点高亮只重绘动态层（paint），不重画静态层。
 const FALLBACK_COLORS = { amber: "#f7b955", amber2: "#ff8a4c", mint: "#57e0c0", violet: "#a78bfa" };
+// 界面骨架色（网格 / 标尺 / 切点 / 段号药丸 / 气泡）：默认深色。
+// 浅色主题在 avatar-light.css 里用 --wave-* 变量覆盖，删掉样式表即回滚。
+const CHROME_FALLBACKS = {
+  base: "rgba(255,255,255,.014)",
+  axis: "rgba(255,255,255,.055)",
+  hover: "rgba(255,255,255,.20)",
+  hoverMark: "rgba(255,255,255,.45)",
+  boundary: "rgba(255,255,255,.22)",
+  boundaryMark: "rgba(255,255,255,.50)",
+  rulerBg: "rgba(255,255,255,.028)",
+  rulerNotch: "rgba(4,7,11,.72)",
+  rulerLine: "rgba(255,255,255,.075)",
+  tickMajor: "rgba(255,255,255,.28)",
+  tickMinor: "rgba(255,255,255,.13)",
+  tickLabel: "rgba(233,238,246,.52)",
+  pillBg: "rgba(5,8,12,.86)",
+  pillLine: "rgba(247,185,85,.22)",
+  playheadRing: "rgba(7,10,14,.9)",
+};
 const RULER_H = 18;                       // 顶部时间标尺高度
 const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
 const MONO = '"Cascadia Mono","Cascadia Code",Consolas,"JetBrains Mono",monospace';
@@ -168,7 +187,7 @@ export class Waveform {
     const timeToX = (time) => (duration ? (Number(time) || 0) / duration * width : 0);
 
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(255,255,255,.014)";
+    ctx.fillStyle = this.chromeOf("base");
     ctx.fillRect(0, 0, width, height);
 
     // 段底色：低 alpha，只用来区分人声 / 器乐
@@ -184,7 +203,7 @@ export class Waveform {
     }
 
     // 中轴线
-    ctx.strokeStyle = "rgba(255,255,255,.055)";
+    ctx.strokeStyle = this.chromeOf("axis");
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, Math.round(mid) + 0.5);
@@ -220,14 +239,14 @@ export class Waveform {
       if (hx >= 0 && hx <= width) {
         ctx.save();
         ctx.setLineDash([3, 4]);
-        ctx.strokeStyle = "rgba(255,255,255,.20)";
+        ctx.strokeStyle = this.chromeOf("hover");
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(hx, bodyTop);
         ctx.lineTo(hx, height);
         ctx.stroke();
         ctx.restore();
-        ctx.fillStyle = "rgba(255,255,255,.45)";
+        ctx.fillStyle = this.chromeOf("hoverMark");
         ctx.beginPath();
         ctx.moveTo(hx - 3.5, RULER_H);
         ctx.lineTo(hx + 3.5, RULER_H);
@@ -237,22 +256,26 @@ export class Waveform {
       }
     }
 
-    // hover 到切点：琥珀色高亮 + 顶部拉手
+    // hover 到切点：强调色高亮 + 顶部拉手（浅色下不发光）
+    const light = this.isLight;
+    const cutColor = colors.cut || colors.amber;
     if (this.dragging === null && this.hoverBoundary !== null) {
       const segment = this.segments[this.hoverBoundary];
       if (segment) {
         const x = Math.round(timeToX(segment.end)) + 0.5;
         ctx.save();
-        ctx.shadowColor = toRgba(colors.amber, .7);
-        ctx.shadowBlur = 7;
-        ctx.strokeStyle = toRgba(colors.amber, .9);
+        if (!light) {
+          ctx.shadowColor = toRgba(cutColor, .7);
+          ctx.shadowBlur = 7;
+        }
+        ctx.strokeStyle = toRgba(cutColor, .9);
         ctx.lineWidth = 1.8;
         ctx.beginPath();
         ctx.moveTo(x, bodyTop);
         ctx.lineTo(x, height);
         ctx.stroke();
         ctx.restore();
-        ctx.fillStyle = toRgba(colors.amber, .92);
+        ctx.fillStyle = toRgba(cutColor, .92);
         this.roundRect(ctx, x - 2, bodyTop - 1, 4, 9, 2);
         ctx.fill();
       }
@@ -260,18 +283,21 @@ export class Waveform {
 
     // 播放头：光晕 + 顶部圆点
     const px = timeToX(this.playhead);
+    const playheadColor = colors.playhead || colors.amber;
     if (px >= 0 && px <= width) {
       const glow = ctx.createLinearGradient(px - 14, 0, px + 14, 0);
-      glow.addColorStop(0, toRgba(colors.amber, 0));
-      glow.addColorStop(0.5, toRgba(colors.amber, .10));
-      glow.addColorStop(1, toRgba(colors.amber, 0));
+      glow.addColorStop(0, toRgba(playheadColor, 0));
+      glow.addColorStop(0.5, toRgba(playheadColor, light ? .07 : .10));
+      glow.addColorStop(1, toRgba(playheadColor, 0));
       ctx.fillStyle = glow;
       ctx.fillRect(px - 14, bodyTop, 28, height - bodyTop);
 
       ctx.save();
-      ctx.shadowColor = toRgba(colors.amber, .85);
-      ctx.shadowBlur = 9;
-      ctx.strokeStyle = toRgba(colors.amber, .95);
+      if (!light) {
+        ctx.shadowColor = toRgba(playheadColor, .85);
+        ctx.shadowBlur = 9;
+      }
+      ctx.strokeStyle = toRgba(playheadColor, light ? .9 : .95);
       ctx.lineWidth = 1.6;
       ctx.beginPath();
       ctx.moveTo(px, 9);
@@ -280,14 +306,16 @@ export class Waveform {
       ctx.restore();
 
       ctx.save();
-      ctx.shadowColor = toRgba(colors.amber, .8);
-      ctx.shadowBlur = 7;
-      ctx.fillStyle = toRgba(colors.amber, 1);
+      if (!light) {
+        ctx.shadowColor = toRgba(playheadColor, .8);
+        ctx.shadowBlur = 7;
+      }
+      ctx.fillStyle = toRgba(playheadColor, 1);
       ctx.beginPath();
       ctx.arc(px, 9, 3.2, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
-      ctx.strokeStyle = "rgba(7,10,14,.9)";
+      ctx.strokeStyle = this.chromeOf("playheadRing");
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(px, 9, 3.2, 0, Math.PI * 2);
@@ -298,8 +326,10 @@ export class Waveform {
     if (this.dragging !== null && this.dragTime !== null) {
       const dx = clamp((this.dragTime / this.duration) * width, 0, width);
       ctx.save();
-      ctx.shadowColor = toRgba(colors.violet, .85);
-      ctx.shadowBlur = 9;
+      if (!light) {
+        ctx.shadowColor = toRgba(colors.violet, .85);
+        ctx.shadowBlur = 9;
+      }
       ctx.setLineDash([5, 4]);
       ctx.strokeStyle = toRgba(colors.violet, .95);
       ctx.lineWidth = 1.8;
@@ -343,38 +373,58 @@ export class Waveform {
   readColors() {
     let styles = null;
     try { styles = getComputedStyle(this.canvas); } catch { styles = null; }
-    const read = (name, fallback) => {
-      try {
-        const value = styles?.getPropertyValue(name)?.trim();
-        if (value && parseColor(value)) return value;
-      } catch { /* 忽略 */ }
-      return fallback;
+    const readRaw = (name) => {
+      try { return styles?.getPropertyValue(name)?.trim() || ""; } catch { return ""; }
     };
+    const read = (name, fallback) => {
+      const value = readRaw(name);
+      return value && parseColor(value) ? value : fallback;
+    };
+    const amber = read("--amber", FALLBACK_COLORS.amber);
+    const chrome = {};
+    for (const key of Object.keys(CHROME_FALLBACKS)) {
+      const cssVar = `--wave-${key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`;
+      chrome[key] = readRaw(cssVar) || CHROME_FALLBACKS[key];
+    }
     return {
-      amber: read("--amber", FALLBACK_COLORS.amber),
+      amber,
       amber2: read("--amber-2", FALLBACK_COLORS.amber2),
       mint: read("--mint", FALLBACK_COLORS.mint),
       violet: read("--violet", FALLBACK_COLORS.violet),
+      playhead: read("--wave-playhead", amber),
+      cut: read("--wave-cut", amber),
+      tone: readRaw("--wave-tone") === "light" ? "light" : "dark",
+      chrome,
     };
+  }
+
+  chromeOf(key) {
+    return this.colors?.chrome?.[key] || CHROME_FALLBACKS[key] || "transparent";
+  }
+
+  get isLight() {
+    return this.colors?.tone === "light";
   }
 
   paletteFor(kind) {
     const colors = this.colors || FALLBACK_COLORS;
+    const light = this.isLight;
     if (kind === "instrumental") {
       return {
         kind,
-        tip: toRgba(colors.mint, .90),
-        core: toRgba(colors.mint, .26),
-        tintA: toRgba(colors.mint, .028),
-        tintB: toRgba(colors.mint, .046),
+        tip: toRgba(colors.mint, light ? .82 : .90),
+        core: toRgba(colors.mint, light ? .34 : .26),
+        tintA: toRgba(colors.mint, light ? .05 : .028),
+        tintB: toRgba(colors.mint, light ? .08 : .046),
       };
     }
     return {
       kind: "vocal",
-      tip: toRgba(colors.amber, .95),
-      core: toRgba(colors.amber2, .26),
-      tintA: toRgba(colors.amber, .026),
-      tintB: toRgba(colors.amber2, .044),
+      tip: toRgba(colors.amber, light ? .88 : .95),
+      // 浅色下深色背景不成立：核心用同色相中低透明，避免琥珀→橙的渐变在白色上发脏
+      core: toRgba(light ? colors.amber : colors.amber2, light ? .34 : .26),
+      tintA: toRgba(colors.amber, light ? .045 : .026),
+      tintB: toRgba(colors.amber, light ? .075 : .044),
     };
   }
 
@@ -439,12 +489,12 @@ export class Waveform {
       if (index === 0) return; // 0s 处不画分割线
       const x = Math.round(timeToX(segment.start)) + 0.5;
       if (x < 0 || x > width) return;
-      ctx.strokeStyle = "rgba(255,255,255,.22)";
+      ctx.strokeStyle = this.chromeOf("boundary");
       ctx.beginPath();
       ctx.moveTo(x, bodyTop);
       ctx.lineTo(x, bodyBottom);
       ctx.stroke();
-      ctx.fillStyle = "rgba(255,255,255,.5)";
+      ctx.fillStyle = this.chromeOf("boundaryMark");
       this.roundRect(ctx, x - 1.5, bodyTop, 3, 7, 1.5);
       ctx.fill();
     });
@@ -465,13 +515,13 @@ export class Waveform {
       const textWidth = ctx.measureText(label).width;
       const x = Math.max(1, startX) + 7;
       if (x + textWidth + 9 > width) return;
-      // 段号药丸放在标尺下方；深底 + 极细琥珀描边，保证压在波形上也读得清
+      // 段号药丸放在标尺下方；底色随主题走，保证压在波形上也读得清
       const y = RULER_H + 1.5;
       ctx.beginPath();
       this.roundRect(ctx, x - 4.5, y, textWidth + 9, 14, 3.5);
-      ctx.fillStyle = "rgba(5,8,12,.86)";
+      ctx.fillStyle = this.chromeOf("pillBg");
       ctx.fill();
-      ctx.strokeStyle = "rgba(247,185,85,.22)";
+      ctx.strokeStyle = this.chromeOf("pillLine");
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.fillStyle = amber;
@@ -492,15 +542,15 @@ export class Waveform {
     const duration = this.duration;
     if (!duration) return;
     // 标尺底
-    ctx.fillStyle = "rgba(255,255,255,.028)";
+    ctx.fillStyle = this.chromeOf("rulerBg");
     ctx.fillRect(0, 0, width, RULER_H);
-    // 胶片片孔：顶部一排暗色小圆角槽（用短槽暗示，不喧宾夺主）
-    ctx.fillStyle = "rgba(4,7,11,.72)";
+    // 胶片片孔：顶部一排小圆角槽（用短槽暗示，不喧宾夺主）
+    ctx.fillStyle = this.chromeOf("rulerNotch");
     ctx.beginPath();
     for (let x = 5; x < width - 2; x += 12) this.roundRect(ctx, x, 1.8, 5, 2.4, 1.2);
     ctx.fill();
     // 底部发丝线
-    ctx.strokeStyle = "rgba(255,255,255,.075)";
+    ctx.strokeStyle = this.chromeOf("rulerLine");
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, RULER_H - 0.5);
@@ -522,7 +572,7 @@ export class Waveform {
       if (rawX > width - 0.5) break;
       const x = Math.round(rawX) + 0.5;
       // 主刻度：从标尺底往上 7.5px
-      ctx.strokeStyle = "rgba(255,255,255,.28)";
+      ctx.strokeStyle = this.chromeOf("tickMajor");
       ctx.beginPath();
       ctx.moveTo(x, RULER_H);
       ctx.lineTo(x, RULER_H - 7.5);
@@ -530,7 +580,7 @@ export class Waveform {
       // 次刻度：只占底部 3px，落在时间码基线之下
       if (showMinor && time + minorStep <= duration) {
         const minorX = Math.round((time + minorStep) * perSecond) + 0.5;
-        ctx.strokeStyle = "rgba(255,255,255,.13)";
+        ctx.strokeStyle = this.chromeOf("tickMinor");
         ctx.beginPath();
         ctx.moveTo(minorX, RULER_H);
         ctx.lineTo(minorX, RULER_H - 3);
@@ -540,7 +590,7 @@ export class Waveform {
       const label = formatClock(time, 0);
       const labelWidth = ctx.measureText(label).width;
       if (rawX + 5 + labelWidth <= width - 2) {
-        ctx.fillStyle = "rgba(233,238,246,.52)";
+        ctx.fillStyle = this.chromeOf("tickLabel");
         ctx.fillText(label, rawX + 4, RULER_H - 3);
       }
     }
@@ -582,17 +632,18 @@ export class Waveform {
   showTip(x, label, tone) {
     try {
       const el = this.ensureTip();
+      const light = this.isLight;
       el.textContent = label;
       if (tone === "drag") {
-        el.style.background = "rgba(18,12,30,.94)";
-        el.style.border = "1px solid rgba(167,139,250,.5)";
-        el.style.color = "#ddd0ff";
-        el.style.boxShadow = "0 6px 18px rgba(0,0,0,.5)";
+        el.style.background = light ? "rgba(255,255,255,.97)" : "rgba(18,12,30,.94)";
+        el.style.border = light ? "1px solid rgba(110,92,230,.4)" : "1px solid rgba(167,139,250,.5)";
+        el.style.color = light ? "#5b49d6" : "#ddd0ff";
+        el.style.boxShadow = light ? "0 6px 18px rgba(0,0,0,.14)" : "0 6px 18px rgba(0,0,0,.5)";
       } else {
-        el.style.background = "rgba(8,11,16,.92)";
-        el.style.border = "1px solid rgba(247,185,85,.34)";
-        el.style.color = "#ffd9a8";
-        el.style.boxShadow = "0 6px 18px rgba(0,0,0,.45)";
+        el.style.background = light ? "rgba(255,255,255,.97)" : "rgba(8,11,16,.92)";
+        el.style.border = light ? "1px solid rgba(0,0,0,.12)" : "1px solid rgba(247,185,85,.34)";
+        el.style.color = light ? "#1d1d1f" : "#ffd9a8";
+        el.style.boxShadow = light ? "0 6px 18px rgba(0,0,0,.14)" : "0 6px 18px rgba(0,0,0,.45)";
       }
       const anchor = clamp(x, 0, this.width);
       el.style.left = `${anchor}px`;

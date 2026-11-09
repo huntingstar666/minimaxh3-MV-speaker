@@ -57,6 +57,26 @@
   --av-on-amber:#ffffff;
   --av-shade-top:0 0 0 transparent;
   --av-shade-bottom:0 0 0 transparent;
+
+  /* 波形：--wave-tone 决定 JS 的深浅分支，其余是画布骨架色 */
+  --wave-tone:light;
+  --wave-playhead:#1d1d1f;
+  --wave-cut:#0071e3;
+  --wave-base:rgba(0,0,0,.006);
+  --wave-axis:rgba(0,0,0,.07);
+  --wave-hover:rgba(0,0,0,.16);
+  --wave-hover-mark:rgba(0,0,0,.35);
+  --wave-boundary:rgba(0,0,0,.14);
+  --wave-boundary-mark:rgba(0,0,0,.28);
+  --wave-ruler-bg:rgba(0,0,0,.018);
+  --wave-ruler-notch:rgba(0,0,0,.08);
+  --wave-ruler-line:rgba(0,0,0,.07);
+  --wave-tick-major:rgba(0,0,0,.22);
+  --wave-tick-minor:rgba(0,0,0,.10);
+  --wave-tick-label:rgba(0,0,0,.42);
+  --wave-pill-bg:rgba(255,255,255,.92);
+  --wave-pill-line:rgba(0,113,227,.30);
+  --wave-playhead-ring:rgba(255,255,255,.95);
 }
 
 html:has(.av-body.av-light){color-scheme:light}
@@ -269,3 +289,126 @@ body.av-body.av-light{
 .av-body.av-light .av-workspace svg{color:currentColor}
 .av-body.av-light .av-workspace .hint{color:var(--faint)}
 .av-body.av-light .av-workspace .mono{font-variant-numeric:tabular-nums}
+
+/* ---------- 10. 舞台标题与工具栏 ---------- */
+.av-body.av-light .av-stage-head{
+  background:linear-gradient(180deg,rgba(245,245,247,.96) 46%,rgba(245,245,247,.86) 84%,transparent);
+}
+.av-body.av-light .av-stage.is-scrolled .av-stage-head{
+  border-bottom-color:var(--line);
+  box-shadow:0 8px 16px -18px rgba(0,0,0,.18);
+}
+.av-body.av-light .av-stage-title h2{font-size:20px;letter-spacing:-.012em}
+.av-body.av-light .av-stage-title p{color:var(--dim)}
+.av-body.av-light .av-overlay-note{
+  color:#b25000;
+  border-color:#f3cd9e;
+  background:#fff6ec;
+}
+
+/* ---------- 11. 时间线 ---------- */
+.av-body.av-light .av-timeline{
+  background:#fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+.av-body.av-light .av-timeline-head::after{opacity:.28}
+.av-body.av-light .av-timeline-title h3{color:var(--dim)}
+.av-body.av-light .wave-wrap{
+  background:
+    radial-gradient(420px 100px at 50% 50%,rgba(0,113,227,.035),transparent 75%),
+    #f7f7fa;
+  border-color:var(--line);
+}
+.av-body.av-light .wave-cut::before{box-shadow:none}
+.av-body.av-light .wave-cut:hover::before{box-shadow:none}
+.av-body.av-light .wave-head{box-shadow:none}
+
+/* ---------- 12. 分段卡 ---------- */
+.av-body.av-light .av-seg{
+  background:#fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+.av-body.av-light .av-seg:hover{
+  box-shadow:0 4px 16px rgba(0,0,0,.07);
+}
+.av-body.av-light .av-seg.current,
+.av-body.av-light .av-seg.running{
+  box-shadow:0 1px 2px rgba(0,0,0,.03),0 0 0 3px rgba(0,113,227,.08);
+}
+.av-body.av-light .av-seg.running .seg-num{box-shadow:none}
+.av-body.av-light .av-seg-tab.active{font-weight:600}
+.av-body.av-light .av-seg-tab i{background:#f0f0f3;color:var(--faint)}
+.av-body.av-light .av-seg-text{
+  background:#fbfbfd;
+  color:var(--text);
+}
+.av-body.av-light .av-seg-text:hover{border-color:var(--line-strong)}
+.av-body.av-light .av-seg-text:focus{
+  background:#fff;
+  border-color:#9cc7f5;
+  box-shadow:0 0 0 3px rgba(0,113,227,.12);
+}
+.av-body.av-light .av-seg-refs,
+.av-body.av-light .av-seg-voices,
+.av-body.av-light .av-seg-note,
+.av-body.av-light .av-seg-prompt,
+.av-body.av-light .av-beats,
+.av-body.av-light .av-lint{background:#fbfbfd}
+.av-body.av-light .av-seg-prompt summary:hover,
+.av-body.av-light .av-beats summary:hover{background:#f2f2f5}
+.av-body.av-light .av-prompt-meta,
+.av-body.av-light .av-beats-scroll,
+.av-body.av-light .av-prompt-area,
+.av-body.av-light .av-note-area,
+.av-body.av-light .av-workspace .av-prompt-item textarea{background:#fff}
+.av-body.av-light .av-prompt-area{color:var(--dim)}
+.av-body.av-light .av-prompt-area:focus{color:var(--text)}
+.av-body.av-light .av-seg-warn,
+.av-body.av-light .av-overlay-inline{
+  color:#b25000;
+  border-color:#f3cd9e;
+  background:#fff6ec;
+}
+.av-body.av-light .av-workspace .pill{
+  background:#f4f4f7;
+  border-color:var(--line);
+  color:var(--dim);
+}
+.av-body.av-light .av-workspace .pill.status-completed{
+  color:#127a45;border-color:#bfe6d0;background:#e9f7ef;
+}
+.av-body.av-light .av-workspace .pill.status-running{
+  color:#0062c4;border-color:#b6d6f8;background:#e8f2ff;
+}
+.av-body.av-light .av-workspace .pill.status-failed{
+  color:#c40012;border-color:#f3c4c8;background:#fff1f1;
+}
+.av-body.av-light .av-workspace .pill.status-cancelled,
+.av-body.av-light .av-workspace .pill.status-pending{
+  color:var(--dim);border-color:var(--line);background:#f4f4f7;
+}
+
+/* ---------- 13. 取片缩略条 ---------- */
+.av-body.av-light .av-take{background:#fbfbfd}
+.av-body.av-light .av-take.active{
+  border-color:var(--amber);
+  box-shadow:0 0 0 1px rgba(0,113,227,.22),0 4px 12px rgba(0,0,0,.08);
+}
+.av-body.av-light .av-take .take-no{
+  color:#fff;
+  text-shadow:0 1px 3px rgba(0,0,0,.6);
+}
+.av-body.av-light .av-take .take-play{
+  border-color:rgba(255,255,255,.4);
+  background:rgba(0,0,0,.45);
+}
+
+/* ---------- 14. 空态 ---------- */
+.av-body.av-light .av-empty{
+  background:
+    radial-gradient(520px 220px at 50% 0%,rgba(0,113,227,.05),transparent 70%),
+    #fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 32px rgba(0,0,0,.05);
+}
+.av-body.av-light .av-empty li{background:#fbfbfd}
+.av-body.av-light .av-empty li:hover{background:#f2f8ff}
