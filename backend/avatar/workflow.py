@@ -139,6 +139,27 @@ def anchor_plain_generation(generation: dict[str, Any],
     return merged
 
 
+def anchor_selflift_generation(generation: dict[str, Any],
+                               options: dict[str, Any] | None = None) -> dict[str, Any]:
+    """首尾帧双采强制使用参考工作流的模型栈（fl2va int8 + nvfp4 + fp16 + DMAD@0.65）。"""
+    merged = {**(generation or {}), **config.anchor_selflift_generation()}
+    if options is None:
+        try:
+            options = comfy.options()
+        except Exception:  # noqa: BLE001
+            options = {}
+    vae_values = list(options.get("vae") or [])
+    merged["unet"] = _choose(str(merged.get("unet") or ""), list(options.get("unet") or []),
+                             ("fl2va", "minimax_h3"))
+    merged["clip"] = _choose(str(merged.get("clip") or ""), list(options.get("clip") or []),
+                             ("nvfp4", "qwen3vl_32b_minimax_h3", "qwen3vl"))
+    merged["vae_video"] = _choose(str(merged.get("vae_video") or ""), vae_values,
+                                  ("video_vae", "video"))
+    merged["lora"] = _choose(str(merged.get("lora") or ""), list(options.get("lora") or []),
+                             ("DMAD_4step", "4step", "turbo"))
+    return merged
+
+
 def build(generation: dict[str, Any], prompt: str, refs: list[str],
           audio_file: str | list[str] | None, frames: int, fps: int = config.FPS,
           available: dict[str, bool] | None = None) -> dict[str, Any]:

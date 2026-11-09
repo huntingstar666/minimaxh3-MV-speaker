@@ -364,14 +364,23 @@ class AvatarRunner:
             {**(project.get("generation") or {}), **((options or {}).get("generation") or {})})
         anchor = anchor_enabled(project, generation)
         if anchor:
-            # 单采强制换到参考工作流的模型栈；项目里存的双采模型名在这里不生效。
-            if str(generation.get("anchor_sampler") or "plain").strip().lower() == "plain":
+            # 单采/双采各自强制使用参考工作流的模型栈；项目里存的旧值在这里不生效。
+            sampler_mode = str(generation.get("anchor_sampler") or "plain").strip().lower()
+            if sampler_mode == "selflift":
+                generation = workflow.anchor_selflift_generation(generation)
+            else:
                 generation = workflow.anchor_plain_generation(generation)
             generation["anchor_seed"] = anchor_seed(project_id, generation)
             missing = workflow.missing_fields_anchor(generation)
             store.mutate(project_id, lambda latest: latest.__setitem__(
                 "anchor", {"seed": generation["anchor_seed"]}))
         else:
+            # 旧项目可能把单采栈存进了 generation；硬切必须回到 Ref2VA 默认栈。
+            if "cobijada" in str(generation.get("unet") or "").lower():
+                hard = config.generation_defaults()
+                for key in ("unet", "clip", "vae_video", "lora"):
+                    generation[key] = hard[key]
+                generation["lora_strength"] = hard.get("lora_strength", 1.0)
             missing = mv_workflow.missing_fields(generation)
         if missing:
             raise ValueError("缺少生成参数：" + "、".join(missing) + "（请在右侧参数里选择模型）")

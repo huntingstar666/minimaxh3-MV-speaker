@@ -1150,6 +1150,17 @@
   font-size:11px;line-height:1.5;
   color:color-mix(in srgb,var(--text) 50%,transparent);
 }
+.av-anchor-stack{
+  margin:8px 0 0;
+  padding:6px 9px;
+  border-radius:8px;
+  border:1px dashed color-mix(in srgb,var(--amber) 36%,transparent);
+  background:color-mix(in srgb,var(--amber) 7%,transparent);
+  font-family:var(--mono);
+  font-size:9.5px;line-height:1.55;
+  color:var(--amber);
+  word-break:break-word;
+}
 .av-anchor-row{margin-top:11px}
 .av-anchor-row > label,
 .av-anchor-field > label{

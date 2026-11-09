@@ -173,6 +173,8 @@ const state = {
   options: {},
   generationDefaults: {},
   anchorPlain: {},
+  anchorSelflift: {},
+  anchorMidBackup: null,
   prompts: null,
   projects: [],
   project: null,
@@ -753,13 +755,21 @@ function setSegmented(id, value) {
   });
 }
 
-function applyAnchorModelStack(sampler) {
-  const plain = sampler === "plain";
-  const saved = state.project?.generation || {};
+function applyAnchorModelStack(stack) {
+  const savedRaw = state.project?.generation || {};
+  // 旧项目可能保存过单采/双采栈；切回硬切时不能把它当成 Ref2VA 模型。
+  const savedDirty = /cobijada/i.test(String(savedRaw.unet || ""))
+    || /官方仓库dmad/i.test(String(savedRaw.lora || ""));
+  const saved = stack === "hard"
+    && (String(savedRaw.stitch || "hard") !== "hard" || savedDirty)
+    ? {}
+    : savedRaw;
   const fallback = state.generationDefaults || {};
-  const preset = state.anchorPlain || {};
+  const preset = stack === "plain"
+    ? state.anchorPlain
+    : stack === "selflift" ? state.anchorSelflift : null;
   const pick = (key) => {
-    if (plain) return preset[key];
+    if (preset && preset[key] !== undefined && preset[key] !== null) return preset[key];
     return saved[key] !== undefined && saved[key] !== null ? saved[key] : fallback[key];
   };
   setSelectValue($("#a-unet"), pick("unet"));
@@ -771,6 +781,16 @@ function applyAnchorModelStack(sampler) {
     $("#a-lora-strength").value = strength;
   }
   setSelectValue($("#f-anchor-preprocess"), pick("anchor_preprocess") || "center_crop");
+}
+
+function lockAnchorModelFields(locked) {
+  ["#a-unet", "#a-clip", "#a-vae", "#a-lora", "#a-lora-strength", "#f-anchor-preprocess"]
+    .forEach((selector) => {
+      const el = $(selector);
+      if (!el) return;
+      el.disabled = locked;
+      el.title = locked ? "首尾帧单采/双采使用参考工作流的固定模型栈" : "";
+    });
 }
 
 function syncAnchorUI() {
@@ -822,17 +842,33 @@ function syncAnchorUI() {
   }
   const sampler = $("#f-anchor-sampler")?.value || "plain";
   const selflift = sampler === "selflift";
-  if (on) {
-    applyAnchorModelStack(sampler);
-    if (wfDesc) {
-      wfDesc.textContent += sampler === "plain"
-        ? " · 模型：Cobijada + 官方 dmad@0.8 单采栈（参考图原图直进）"
-        : " · 模型：SelfLift 双采栈";
-    }
+  const stack = on ? (selflift ? "selflift" : "plain") : "hard";
+  applyAnchorModelStack(stack);
+  lockAnchorModelFields(on);
+  const stackNote = $("#anchor-stack-note");
+  if (stackNote) {
+    stackNote.hidden = !on;
+    stackNote.textContent = selflift
+      ? "双采栈 · fl2va int8 + nvfp4 CLIP + fp16 VAE + DMAD LoRA@0.65 · SelfLift Fix 二采"
+      : "单采栈 · Cobijada hybrid + 官方 dmad@0.8 + int8 CLIP/VAE · 参考图原图直进";
+  }
+  if (wfDesc) {
+    wfDesc.textContent += on
+      ? (selflift
+        ? " · 模型：fl2va int8 + DMAD@0.65 双采栈"
+        : " · 模型：Cobijada + dmad@0.8 单采栈（原图直进）")
+      : " · 模型：Ref2VA 默认栈";
   }
   if (selflift) {
+    if (state.anchorMidBackup === null || state.anchorMidBackup === undefined) {
+      state.anchorMidBackup = $("#f-anchor-mid")?.value || "center";
+    }
     if ($("#f-anchor-mid")) $("#f-anchor-mid").value = "none";
     setSegmented("f-anchor-mid-seg", "none");
+  } else if (state.anchorMidBackup !== null && state.anchorMidBackup !== undefined) {
+    if ($("#f-anchor-mid")) $("#f-anchor-mid").value = state.anchorMidBackup;
+    setSegmented("f-anchor-mid-seg", state.anchorMidBackup);
+    state.anchorMidBackup = null;
   }
   document.querySelectorAll("#f-anchor-mid-seg [data-value]").forEach((btn) => {
     btn.disabled = selflift;
@@ -2453,10 +2489,12 @@ async function loadOptions() {
     state.options = data.options || {};
     state.generationDefaults = data.defaults || {};
     state.anchorPlain = data.anchor_plain || {};
+    state.anchorSelflift = data.anchor_selflift || {};
   } catch {
     state.options = {};
     state.generationDefaults = {};
     state.anchorPlain = {};
+    state.anchorSelflift = {};
   }
   fillAspectOptions();
   fillAdvancedOptions();
@@ -4315,6 +4353,11 @@ async function refreshProject({ refreshList = false } = {}) {
 
 function applyProject(project, { fill = false, segments = true } = {}) {
   if (!project) return;
+  if (state.project?.id !== project.id) {
+    // 换项目时清掉仅属于上一个项目的 UI 状态，避免 tab / 中间锚点备份串项目。
+    state.segTabs = {};
+    state.anchorMidBackup = null;
+  }
   state.project = project;
   if (project.run !== undefined && project.run !== null) state.run = project.run;
   if (fill) fillForm(project);

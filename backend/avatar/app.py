@@ -463,6 +463,7 @@ def options_api(force: bool = False) -> dict[str, Any]:
         },
         "defaults": config.generation_defaults(),
         "anchor_plain": config.anchor_plain_generation(),
+        "anchor_selflift": config.anchor_selflift_generation(),
         "nodes": nodes,
         "comfy": comfy.ping(),
     }

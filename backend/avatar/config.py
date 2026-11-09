@@ -191,3 +191,20 @@ ANCHOR_PLAIN_GENERATION: dict = {
 
 def anchor_plain_generation() -> dict:
     return dict(ANCHOR_PLAIN_GENERATION)
+
+
+# 首尾帧双采（SelfLift）参考工作流模型栈，来自
+# 《完美Minimax H3 Selflift双采数字人API.json》：fl2va int8 + nvfp4 CLIP +
+# fp16 视频 VAE + DMAD LoRA@0.65，参考图预裁切到目标画幅。
+ANCHOR_SELFLIFT_GENERATION: dict = {
+    "unet": "minimax_h3\\minimax_h3_fl2va_int8_convrot.safetensors",
+    "clip": "MINIMAXH3\\qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+    "vae_video": "MINIMAXH3\\minimax_h3_video_vae_fp16.safetensors",
+    "lora": "minimax_h3\\加速\\minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors",
+    "lora_strength": 0.65,
+    "anchor_preprocess": "center_crop",
+}
+
+
+def anchor_selflift_generation() -> dict:
+    return dict(ANCHOR_SELFLIFT_GENERATION)
