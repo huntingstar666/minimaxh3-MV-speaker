@@ -767,7 +767,13 @@ function syncAnchorUI() {
   if (hint) hint.hidden = !on;
   const note = $("#anchor-mode-note");
   if (note) note.textContent = anchorAvailable ? "仅模式 1 · 固定种子" : "仅模式 1 可用";
-  const seedHint = $("#f-seed")?.closest(".field")?.querySelector(".hint");
+  const seedField = $("#f-seed")?.closest(".field");
+  const seedLabel = seedField?.querySelector("label");
+  if (seedLabel) {
+    const textNode = [...seedLabel.childNodes].find((node) => node.nodeType === 3);
+    if (textNode) textNode.textContent = on ? "锚定种子 " : "随机种子 ";
+  }
+  const seedHint = seedField?.querySelector(".hint");
   if (seedHint) seedHint.textContent = on ? "0 = 项目固定种子" : "0 = 每段随机";
   const anchorBtn = document.querySelector('#f-stitch-seg [data-value="anchor"]');
   if (anchorBtn) {
