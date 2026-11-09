@@ -223,6 +223,27 @@ def _mark_prompt_meta_stale(row: dict[str, Any]) -> None:
         row["prompt_meta"] = {**meta, "stale": True}
 
 
+def _is_anchor(project: dict[str, Any]) -> bool:
+    """首尾帧锚定：模式 1 + generation.stitch=anchor。"""
+    return (int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE
+            and str((project.get("generation") or {}).get("stitch") or "hard") == "anchor")
+
+
+def _fill_anchor_templates(project: dict[str, Any]) -> None:
+    """首尾帧模式：把默认模板写进每段 prompt；用户手改过的（manual）保留不动。"""
+    if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
+        return
+    if str((project.get("generation") or {}).get("stitch") or "hard") != "anchor":
+        return
+    for row in project.get("segments") or []:
+        if str(row.get("prompt_source") or "") == "manual" and str(row.get("prompt") or "").strip():
+            continue
+        row["prompt"] = plan.compose_anchor_prompt(project, row)
+        row["prompt_source"] = "template"
+        row["prompt_warnings"] = []
+        row["prompt_meta"] = {"source": "template"}
+
+
 _IMAGE_MAGIC = {
     ".png": (b"\x89PNG\r\n\x1a\n",),
     ".jpg": (b"\xff\xd8\xff",),
@@ -674,6 +695,7 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         design_mod.update_design(project, payload["design"])
         _mark_final_stale(project)
     design_mod.ensure_design(project)
+    _fill_anchor_templates(project)
     store.save(project)
     return {"ok": True, "project": project}
 
@@ -934,6 +956,8 @@ def analyze_audio(project_id: str, payload: dict[str, Any] | None = None) -> dic
         raise HTTPException(400, str(error)) from error
     except Exception as error:  # noqa: BLE001
         raise HTTPException(400, f"音频分析失败：{error}") from error
+    _fill_anchor_templates(saved)
+    saved = store.save(saved)
     return {"ok": True, "project": saved}
 
 
@@ -946,6 +970,8 @@ def put_cuts(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         saved = audio_pipeline.apply_cuts(project_id, [float(value) for value in cuts])
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
+    _fill_anchor_templates(saved)
+    saved = store.save(saved)
     return {"ok": True, "project": saved}
 
 
@@ -960,6 +986,8 @@ def split_segment(project_id: str, index: int, payload: dict[str, Any] | None = 
         saved = audio_pipeline.split_at(project_id, seconds)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
+    _fill_anchor_templates(saved)
+    saved = store.save(saved)
     return {"ok": True, "project": saved}
 
 
@@ -970,6 +998,8 @@ def merge_segment(project_id: str, index: int) -> dict[str, Any]:
         saved = audio_pipeline.merge_next(project_id, index)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
+    _fill_anchor_templates(saved)
+    saved = store.save(saved)
     return {"ok": True, "project": saved}
 
 
@@ -1029,6 +1059,8 @@ def plan_project(project_id: str, payload: dict[str, Any] | None = None) -> dict
             saved = audio_pipeline.analyze(project_id, payload)
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
+        _fill_anchor_templates(saved)
+        saved = store.save(saved)
         return {"ok": True, "project": saved}
     if payload.get("script") is not None:
         project["script"] = str(payload.get("script") or "")
@@ -1154,6 +1186,20 @@ def generate_prompt(project_id: str, index: int, payload: dict[str, Any] | None 
     project = _project(project_id)
     row = _row(project, index)
     payload = payload or {}
+    if _is_anchor(project):
+        text = plan.compose_anchor_prompt(project, row)
+
+        def apply_anchor(latest: dict[str, Any]) -> None:
+            target = _row(latest, index)
+            target["prompt"] = text
+            target["prompt_source"] = "template"
+            target["prompt_warnings"] = []
+            target["prompt_meta"] = {"source": "template", "anchor": True}
+
+        project = store.mutate(project_id, apply_anchor)
+        return {"ok": True, "project": project, "source": "template", "text": text,
+                "warnings": ["首尾帧模式：提示词为固定模板，未调用 LLM"],
+                "prompt_meta": {"source": "template"}, "beats": []}
     config_llm = _llm_config()
     config_llm.update(payload.get("llm") or {})
     result = plan.generate_prompt(project, row, config_llm, _ref_images(project_id, project),
@@ -1181,6 +1227,11 @@ def generate_prompt(project_id: str, index: int, payload: dict[str, Any] | None 
 def lint_prompt(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     project = _project(project_id)
     row = _row(project, index)
+    if _is_anchor(project):
+        return {"ok": True, "lint": {"ok": True, "errors": [], "warnings": [],
+                                     "skipped": True,
+                                     "reason": "首尾帧模板不做 Ref2VA 结构校验"},
+                "prompt_meta": row.get("prompt_meta") or {}}
     text = str((payload or {}).get("text") or row.get("prompt") or "").strip()
     design = design_mod.ensure_design(project)
     result = lint_mod.lint_prompt(
@@ -1196,6 +1247,20 @@ def repair_prompt(project_id: str, index: int, payload: dict[str, Any] | None = 
     project = _project(project_id)
     row = _row(project, index)
     payload = payload or {}
+    if _is_anchor(project):
+        text = plan.compose_anchor_prompt(project, row)
+
+        def apply_anchor_repair(latest: dict[str, Any]) -> None:
+            target = _row(latest, index)
+            target["prompt"] = text
+            target["prompt_source"] = "template"
+            target["prompt_warnings"] = []
+            target["prompt_meta"] = {"source": "template", "anchor": True}
+
+        project = store.mutate(project_id, apply_anchor_repair)
+        return {"ok": True, "project": project, "source": "template", "text": text,
+                "warnings": ["首尾帧模式：已恢复固定模板，未调用 LLM"],
+                "prompt_meta": {"source": "template"}}
     config_llm = _llm_config()
     config_llm.update(payload.get("llm") or {})
     result = plan.repair_prompt(project, row, str(row.get("prompt") or ""), config_llm,
@@ -1220,6 +1285,21 @@ def repair_prompt(project_id: str, index: int, payload: dict[str, Any] | None = 
 @app.post("/api/projects/{project_id}/prompts")
 def generate_all_prompts(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     project = _project(project_id)
+    if _is_anchor(project):
+        computed = [(index, plan.compose_anchor_prompt(project, row))
+                    for index, row in enumerate(project.get("segments") or [])]
+
+        def apply_anchor_all(latest: dict[str, Any]) -> None:
+            for index, text in computed:
+                target = _row(latest, index)
+                target["prompt"] = text
+                target["prompt_source"] = "template"
+                target["prompt_warnings"] = []
+                target["prompt_meta"] = {"source": "template", "anchor": True}
+
+        project = store.mutate(project_id, apply_anchor_all)
+        return {"ok": True, "project": project,
+                "warnings": ["首尾帧模式：已写入固定模板，未调用 LLM"]}
     config_llm = _llm_config()
     config_llm.update((payload or {}).get("llm") or {})
     images = _ref_images(project_id, project)
