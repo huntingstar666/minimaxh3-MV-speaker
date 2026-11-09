@@ -296,10 +296,12 @@ class AvatarRunner:
                          error=None if cancelled else str(error), finished=time.time())
             if not cancelled:
                 self._log(project_id, f"生成失败：{error}", "error")
+            self._close_running_segments(project_id, None if cancelled else str(error))
         except Exception as error:  # noqa: BLE001
             self._update(project_id, persist=True, status="failed", stage="error",
                          message=f"生成失败：{error}", error=str(error), finished=time.time())
             self._log(project_id, f"生成失败：{error}\n{traceback.format_exc()[-1200:]}", "error")
+            self._close_running_segments(project_id, str(error))
         finally:
             with self.lock:
                 self.active_project = None
@@ -314,6 +316,26 @@ class AvatarRunner:
             except Exception:  # noqa: BLE001
                 pass
             self.cancel_events.pop(project_id, None)
+
+    def _close_running_segments(self, project_id: str, error: str | None) -> None:
+        """任务失败/取消后收尾：把卡在 running/queued 的段改回 failed 或 idle。
+
+        以前只改 run 状态，段卡会一直显示「生成中」，按钮也被禁用。
+        """
+        def apply(latest: dict[str, Any]) -> None:
+            for row in latest.get("segments") or []:
+                if str(row.get("status") or "") in {"queued", "running"}:
+                    if error:
+                        row["status"] = "failed"
+                        row["error"] = error
+                    else:
+                        row["status"] = "idle"
+                        row.pop("error", None)
+
+        try:
+            store.mutate(project_id, apply)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _finish_run(self, project_id: str) -> None:
         latest = store.get(project_id)
@@ -342,6 +364,9 @@ class AvatarRunner:
             {**(project.get("generation") or {}), **((options or {}).get("generation") or {})})
         anchor = anchor_enabled(project, generation)
         if anchor:
+            # 单采强制换到参考工作流的模型栈；项目里存的双采模型名在这里不生效。
+            if str(generation.get("anchor_sampler") or "plain").strip().lower() == "plain":
+                generation = workflow.anchor_plain_generation(generation)
             generation["anchor_seed"] = anchor_seed(project_id, generation)
             missing = workflow.missing_fields_anchor(generation)
             store.mutate(project_id, lambda latest: latest.__setitem__(
@@ -392,9 +417,12 @@ class AvatarRunner:
                      progress=round(base + span * 0.03, 4))
         anchor = anchor_enabled(project, generation)
         if anchor:
-            prompt_text = plan.compose_anchor_prompt(
+            manual = (str(row.get("prompt") or "").strip()
+                      if str(row.get("prompt_source") or "") == "manual" else "")
+            prompt_text = manual or plan.compose_anchor_prompt(
                 project, row, generation_frames / config.FPS)
-            meta = {"source": "anchor", "seed": int(generation.get("anchor_seed") or 0)}
+            meta = {"source": "manual" if manual else "anchor",
+                    "seed": int(generation.get("anchor_seed") or 0)}
         else:
             prompt_text, meta = self._ensure_prompt(project_id, project, row, llm_config)
         ref_indices = plan.segment_ref_indices(project, row)

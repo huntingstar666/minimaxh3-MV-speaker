@@ -114,6 +114,31 @@ def resolve_generation(project_generation: dict[str, Any] | None,
     return merged
 
 
+def anchor_plain_generation(generation: dict[str, Any],
+                            options: dict[str, Any] | None = None) -> dict[str, Any]:
+    """首尾帧单采强制使用参考工作流的模型栈（Cobijada + dmad@0.8 + int8 CLIP/VAE）。
+
+    项目里保存的可能是双采模型名；单采时必须换栈，否则 16:9 会黑背景。
+    仍按 ComfyUI 实际可用模型做一次回退，避免模型未安装时直接报错。
+    """
+    merged = {**(generation or {}), **config.anchor_plain_generation()}
+    if options is None:
+        try:
+            options = comfy.options()
+        except Exception:  # noqa: BLE001
+            options = {}
+    vae_values = list(options.get("vae") or [])
+    merged["unet"] = _choose(str(merged.get("unet") or ""), list(options.get("unet") or []),
+                             ("cobijada", "hybrid", "minimax_h3"))
+    merged["clip"] = _choose(str(merged.get("clip") or ""), list(options.get("clip") or []),
+                             ("int8_convrot", "qwen3vl_32b_minimax_h3", "qwen3vl"))
+    merged["vae_video"] = _choose(str(merged.get("vae_video") or ""), vae_values,
+                                  ("video_vae", "video"))
+    merged["lora"] = _choose(str(merged.get("lora") or ""), list(options.get("lora") or []),
+                             ("dmad", "4step"))
+    return merged
+
+
 def build(generation: dict[str, Any], prompt: str, refs: list[str],
           audio_file: str | list[str] | None, frames: int, fps: int = config.FPS,
           available: dict[str, bool] | None = None) -> dict[str, Any]:

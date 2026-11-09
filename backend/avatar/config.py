@@ -174,3 +174,20 @@ DEFAULT_GENERATION: dict = {
 
 def generation_defaults() -> dict:
     return dict(DEFAULT_GENERATION)
+
+
+# 首尾帧单采（plain）参考工作流模型栈，来自
+# 《H3数字人口播长视频（节点调用）首尾帧接续无限长API.json》：
+# Cobijada hybrid UNET + 官方 dmad LoRA@0.8 + int8 CLIP/VAE，参考图原图直进。
+ANCHOR_PLAIN_GENERATION: dict = {
+    "unet": "minimax_h3\\Cobijada_H3_Hybrid_Uncensored_pruned_hybrid_int8_convrot_pruned.safetensors",
+    "clip": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+    "vae_video": "MINIMAXH3\\minimax_h3_video_vae_int8_convrot.safetensors",
+    "lora": "minimax_h3\\加速\\官方仓库dmad_minimax_h3_4step_full_critic_comfyui.safetensors",
+    "lora_strength": 0.8,
+    "anchor_preprocess": "none",
+}
+
+
+def anchor_plain_generation() -> dict:
+    return dict(ANCHOR_PLAIN_GENERATION)

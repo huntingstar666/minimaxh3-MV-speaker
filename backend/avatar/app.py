@@ -462,6 +462,7 @@ def options_api(force: bool = False) -> dict[str, Any]:
             "upscaler": (options or {}).get("upscaler") or [],
         },
         "defaults": config.generation_defaults(),
+        "anchor_plain": config.anchor_plain_generation(),
         "nodes": nodes,
         "comfy": comfy.ping(),
     }

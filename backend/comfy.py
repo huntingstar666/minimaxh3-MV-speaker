@@ -365,12 +365,23 @@ def wait(prompt_id: str, progress: Callable[[dict[str, Any]], None] | None = Non
     started = time.time()
     last_state = 0.0
     missing = 0
+    error_streak = 0
     try:
         while True:
             if cancel is not None and cancel.is_set():
                 cancel_prompt(prompt_id)
                 raise ComfyError("任务已取消。")
-            entry = history(prompt_id)
+            try:
+                entry = history(prompt_id)
+            except (httpx.HTTPError, OSError) as error:
+                # ComfyUI 在加载大模型时偶发几秒不响应；不能因为一次读超时
+                # 就把仍在跑的任务判失败。连续 2 分钟读不到才认为服务异常。
+                error_streak += 1
+                if error_streak >= 120:
+                    raise ComfyError(f"无法读取 ComfyUI 任务状态：{error}") from error
+                time.sleep(1.0)
+                continue
+            error_streak = 0
             status = (entry.get("status") or {})
             if entry and (status.get("completed") or status.get("status_str") in {"success", "error"}):
                 if status.get("status_str") == "error":
@@ -382,24 +393,28 @@ def wait(prompt_id: str, progress: Callable[[dict[str, Any]], None] | None = Non
                 raise ComfyError("等待 ComfyUI 超时。")
             if now - last_state > 5:
                 last_state = now
-                state = queue_state()
-                position = next((index for index, item in enumerate(state["pending"])
-                                 if str(item[1]) == prompt_id), None)
-                running = any(str(item[1]) == prompt_id for item in state["running"])
-                if progress:
-                    progress({"type": "queue", "data": {
-                        "prompt_id": prompt_id, "queue_position": position,
-                        "queued": position is not None,
-                        "running": running,
-                    }})
-                if not running and not position and not entry:
-                    # ComfyUI 重启或队列被清空时 history 也不会有这条任务，
-                    # 连续 30 秒找不到就判定丢失，避免一直等到 1 小时超时。
-                    missing += 1
-                    if missing >= 6:
-                        raise ComfyError("ComfyUI 中找不到该任务（可能被重启或队列被清空），请重新生成。")
-                else:
-                    missing = 0
+                try:
+                    state = queue_state()
+                except (httpx.HTTPError, OSError):
+                    state = None
+                if state is not None:
+                    position = next((index for index, item in enumerate(state["pending"])
+                                     if str(item[1]) == prompt_id), None)
+                    running = any(str(item[1]) == prompt_id for item in state["running"])
+                    if progress:
+                        progress({"type": "queue", "data": {
+                            "prompt_id": prompt_id, "queue_position": position,
+                            "queued": position is not None,
+                            "running": running,
+                        }})
+                    if not running and not position and not entry:
+                        # ComfyUI 重启或队列被清空时 history 也不会有这条任务，
+                        # 连续 30 秒找不到就判定丢失，避免一直等到 1 小时超时。
+                        missing += 1
+                        if missing >= 6:
+                            raise ComfyError("ComfyUI 中找不到该任务（可能被重启或队列被清空），请重新生成。")
+                    else:
+                        missing = 0
             time.sleep(1.0)
     finally:
         watcher.stop()
