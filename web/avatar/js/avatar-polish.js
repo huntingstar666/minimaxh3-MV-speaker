@@ -169,9 +169,30 @@ function initPanelFold() {
   });
 }
 
+/* ---------------- 主区「作品内容」卡：记忆展开状态 ---------------- */
+
+function initWorkCardFold() {
+  const details = document.querySelector(".av-work-details");
+  if (!details) return;
+  const key = "h3av.workcard.v1";
+  try {
+    if (window.localStorage.getItem(key) === "0") details.open = false;
+  } catch {
+    /* 隐私模式下忽略 */
+  }
+  details.addEventListener("toggle", () => {
+    try {
+      window.localStorage.setItem(key, details.open ? "1" : "0");
+    } catch {
+      /* 忽略 */
+    }
+  });
+}
+
 function boot() {
   initScrollAffordance();
   initPanelFold();
+  initWorkCardFold();
 }
 
 if (document.readyState === "loading") {

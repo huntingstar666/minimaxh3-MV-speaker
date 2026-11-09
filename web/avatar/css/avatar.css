@@ -51,7 +51,7 @@
 .av-workspace{
   height:calc(100vh - var(--topbar-h,60px));
   display:grid;
-  grid-template-columns:clamp(300px,20vw,336px) minmax(0,1fr) clamp(328px,22.5vw,376px);
+  grid-template-columns:clamp(264px,18vw,300px) minmax(0,1fr) clamp(328px,22.5vw,376px);
   gap:14px;
   padding:14px 16px 16px;
   overflow:hidden;
@@ -566,6 +566,42 @@
 .av-graphics-pill{font-size:9px;padding:2px 7px}
 .av-overlay-note{font-size:9.5px;color:var(--amber);border:1px dashed color-mix(in srgb,var(--amber-2) 38%,transparent);background:color-mix(in srgb,var(--amber-2) 7%,transparent);border-radius:999px;padding:3px 9px;white-space:nowrap}
 
+/* 作品内容卡：台词 + 素材（P4 从左侧栏移入主区） */
+.av-stage .av-work-card{
+  flex:0 0 auto;
+  container-type:inline-size;
+  border:1px solid var(--line);
+  border-radius:var(--av-lg);
+  background:var(--av-card);
+  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 4%,transparent);
+  padding:14px 16px;
+}
+.av-work-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:22px;margin:0;padding:0;list-style:none;cursor:pointer;user-select:none}
+.av-work-head::-webkit-details-marker{display:none}
+.av-work-title{font-size:13px;font-weight:650;letter-spacing:.02em;color:var(--text)}
+.av-work-head .hint{font-size:10.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-left:auto}
+.av-work-chevron{width:14px;height:14px;flex:none;color:var(--faint);transition:transform var(--av-dur) var(--av-ease)}
+.av-work-details[open] .av-work-chevron{transform:rotate(90deg)}
+.av-work-head:hover .av-work-chevron{color:var(--dim)}
+.av-work-body{padding-top:8px}
+.av-work-body > .panel-note{margin:0 0 10px}
+.av-work-grid{display:flex;flex-direction:column;gap:12px;min-width:0}
+.av-work-main,.av-work-side{display:flex;flex-direction:column;min-width:0}
+.av-work-side .field:last-child{margin-bottom:0}
+.av-work-card .av-script{min-height:132px}
+.av-work-card .av-dropzone{margin-bottom:8px}
+.av-work-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.av-work-foot .av-form-actions{display:flex;flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 0 auto}
+.av-work-foot .av-form-actions-row{display:flex;gap:8px}
+.av-work-foot .av-form-actions-row .btn,
+.av-work-foot .av-form-actions > .btn{width:auto}
+.av-work-foot #form-hint{flex:1 1 100%;margin:0}
+.av-work-speed{max-width:180px}
+@container (min-width:560px){
+  .av-work-grid{display:grid;grid-template-columns:minmax(0,1fr) clamp(240px,38%,300px);gap:16px;align-items:start}
+  .av-work-side{border-left:1px solid var(--line);padding-left:16px}
+}
+
 /* 时间线：片孔标尺 + 波形 */
 .av-timeline{
   position:relative;
@@ -974,10 +1010,10 @@
 
 /* ---------- 16. 响应式：≥1660 加宽；≤1380 收窄；≤1200 单栏 ---------- */
 @media (min-width:1660px){
-  .av-workspace{grid-template-columns:340px minmax(0,1fr) 384px}
+  .av-workspace{grid-template-columns:300px minmax(0,1fr) 384px}
 }
 @media (max-width:1380px){
-  .av-workspace{grid-template-columns:300px minmax(0,1fr) 336px}
+  .av-workspace{grid-template-columns:272px minmax(0,1fr) 336px}
   .av-seg{grid-template-columns:46px minmax(0,1fr) 104px;gap:12px}
   .av-preset-row{grid-template-columns:112px minmax(0,1fr)}
   .av-toolbar .btn{padding:6px 9px;font-size:11px}

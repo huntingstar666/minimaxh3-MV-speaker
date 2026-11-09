@@ -95,133 +95,6 @@
       <p class="panel-note tiny" id="mode-hint">模式 2 / 3 的成片视频自带生成音频；模式 1 保留上传音频原声。</p>
     </section>
 
-    <section class="panel" id="panel-content">
-      <div class="panel-head"><h2>作品内容</h2><span class="hint" id="project-state">未创建</span></div>
-      <p class="panel-note tiny" id="content-hint">① 写台词或拖入音频 → ② 上传一张人物参考图 → ③ 右栏设参数并开始生成。</p>
-      <div class="field">
-        <label>作品名称</label>
-        <input id="f-name" class="input" maxlength="60" placeholder="例如：老港茶餐厅 · 数字人口播">
-      </div>
-      <div class="field">
-        <label>台词 / 口播稿 <span class="hint" id="script-required">模式 2/3 必填</span> <span class="hint" id="script-count">0 字</span></label>
-        <textarea id="f-script" class="input av-script" rows="6" spellcheck="false"
-          placeholder="粘贴完整台词。按中文标点自动分段，每段按语速估算秒数与帧数。&#10;模式 1 可作为语音识别的对照文本（可选，不填不影响生成）。"></textarea>
-      </div>
-      <div class="field">
-        <label>全局创作要求 <span class="hint">可选 · 支持 @图1（模式 2 另支持 @音频1）</span></label>
-        <textarea id="f-material-note" class="input" rows="3" spellcheck="false"
-          placeholder="例：整体轻松科普感；人物始终在画面左侧，右侧留给信息卡；不要出现手势特写。"></textarea>
-        <p class="panel-note tiny">会随「保存设定」一起发给 AI，优先级高于自动推断。</p>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label>语速 <b>字/秒</b></label>
-          <input id="f-cps" class="input mono" type="number" min="1" max="10" step="0.1" value="5.0">
-        </div>
-        <div class="field">
-          <label>目标段长 <b id="target-label">8.0s</b> <span class="hint">推荐 8–12s</span></label>
-          <input id="f-target" class="av-range" type="range" min="5" max="30" step="0.5" value="8">
-        </div>
-      </div>
-      <div class="field">
-        <label>最长段长 <b id="max-label">12.0s</b> <span class="hint">推荐 ≤15s · 30s 兜底</span> <span class="av-pressure" id="max-pressure" data-level="轻">压力：轻</span></label>
-        <input id="f-max" class="av-range" type="range" min="5" max="30" step="0.5" value="12">
-      </div>
-
-      <div class="av-mode-form hidden" id="mode-form-1">
-        <label class="dropzone av-dropzone" id="audio-drop">
-          <input type="file" id="audio-input" accept="audio/*,video/*" hidden>
-          <svg><use href="#i-wave"/></svg>
-          <strong>拖入音频 / 视频，或点击选择</strong>
-          <span>模式 1 · 以音频波形为时间轴 · 建议 3 秒以上</span>
-          <em id="audio-label"></em>
-        </label>
-        <div class="av-voice-row hidden" id="audio-row">
-          <span class="av-voice-icon"><svg><use href="#i-wave"/></svg></span>
-          <div class="av-voice-meta">
-            <b id="audio-name">—</b>
-            <span id="audio-duration">—</span>
-          </div>
-          <div class="av-voice-actions">
-            <button class="btn ghost sm" type="button" id="btn-audio-replace">替换</button>
-            <button class="btn ghost sm" type="button" id="btn-audio-del">删除</button>
-          </div>
-        </div>
-        <div class="av-asr-row">
-          <label class="av-switch" title="用语音识别结果切分并对齐台词">
-            <input type="checkbox" id="asr-enabled" checked>
-            <i></i><span>语音识别辅助切分</span>
-          </label>
-          <div class="av-asr-opts" id="asr-opts">
-            <select id="asr-model" class="input" title="ASR 模型">
-              <option value="small" selected>small</option>
-              <option value="base">base</option>
-            </select>
-            <select id="asr-language" class="input" title="识别语言">
-              <option value="zh" selected>中文 zh</option>
-              <option value="auto">自动 auto</option>
-            </select>
-          </div>
-        </div>
-        <button class="btn primary block" id="btn-analyze" type="button">
-          <svg><use href="#i-wave"/></svg><span id="btn-analyze-label">上传并分析</span>
-        </button>
-        <p class="panel-note tiny" id="audio-hint">上传并分析后，在中间时间轴拖动切点、按播放头切分或合并下段。</p>
-      </div>
-
-      <div class="av-mode-form" id="mode-form-2">
-        <label class="dropzone av-dropzone" id="voice-drop">
-          <input type="file" id="voice-input" accept="audio/*,video/*" hidden>
-          <svg><use href="#i-wave"/></svg>
-          <strong>拖入参考音频，或点击选择</strong>
-          <span>完整录音也可以：自动截取音色样本（可试听 / 改起点）</span>
-          <em id="voice-label"></em>
-        </label>
-        <div class="av-voice-row hidden" id="voice-row">
-          <span class="av-voice-icon"><svg><use href="#i-wave"/></svg></span>
-          <div class="av-voice-meta">
-            <b id="voice-name">—</b>
-            <span id="voice-duration">—</span>
-          </div>
-          <div class="av-voice-actions">
-            <button class="btn ghost sm" type="button" id="btn-voice-audition">
-              <svg><use href="#i-play"/></svg><span id="voice-audition-label">试听</span>
-            </button>
-            <button class="btn ghost sm" type="button" id="btn-voice-replace">添加音色</button>
-            <button class="btn ghost sm" type="button" id="btn-voice-del">删除全部</button>
-          </div>
-        </div>
-        <div class="av-voice-list" id="voice-list"></div>
-        <p class="panel-note tiny" id="voice-list-hint">音色是参考素材，不与人物绑定：谁用哪个音色写在段落的创作要求里（例如 <code>@图1 用 @音频2 的音色</code>）。</p>
-        <div class="av-voice-sample hidden" id="voice-sample-box">
-          <div class="av-voice-sample-head">
-            <span>音色样本 <b id="voice-sample-range">0.0–12.0s</b></span>
-            <span class="hint" id="voice-sample-source">原始录音已保留</span>
-          </div>
-          <input id="f-voice-start" class="av-range" type="range" min="0" max="0" step="0.1" value="0">
-          <p class="hint" id="voice-sample-hint">拖动起点选择送给 H3 的那一段；原始录音会保留，随时可换。</p>
-          <audio id="voice-audition" preload="none"></audio>
-        </div>
-      </div>
-
-      <div class="av-mode-form hidden" id="mode-form-3">
-        <div class="field">
-          <label>音色描述 <span class="hint">声音设计参考</span></label>
-          <textarea id="f-voice-desc" class="input" rows="3" spellcheck="false"
-            placeholder="例如：三十岁出头的女性，声音偏低、略带沙哑，语速平缓，像深夜电台主播；普通话标准，句尾有轻微的气声，亲和但不甜腻。"></textarea>
-        </div>
-      </div>
-
-      <div class="av-form-actions">
-        <button class="btn primary block" id="btn-create"><svg><use href="#i-plus"/></svg><span id="btn-create-label">新建作品</span></button>
-        <div class="av-form-actions-row" id="form-actions-plan">
-          <button class="btn ghost sm" id="btn-new"><svg><use href="#i-plus"/></svg>新建空白作品</button>
-          <button class="btn ghost sm" id="btn-plan"><svg><use href="#i-spark"/></svg>按台词分段</button>
-        </div>
-      </div>
-      <p class="panel-note tiny" id="form-hint">填写台词后新建作品，再点「按台词分段」。</p>
-    </section>
-
     <section class="panel" id="panel-refs">
       <div class="panel-head"><h2>参考图</h2><span class="hint" id="ref-count">0 张</span></div>
       <div class="av-ref-upload">
@@ -410,6 +283,149 @@
         <a class="btn ghost sm is-disabled" id="btn-download-top" href="#" download aria-disabled="true" title="合成全片后可下载"><svg><use href="#i-download"/></svg>下载成片</a>
       </div>
     </div>
+
+    <section class="av-work-card" id="panel-content">
+      <details class="av-work-details" id="work-details" open>
+        <summary class="av-work-head">
+          <span class="av-work-title">作品内容</span>
+          <span class="hint" id="project-state">未创建</span>
+          <svg class="av-work-chevron"><use href="#i-chevron"/></svg>
+        </summary>
+        <div class="av-work-body">
+          <p class="panel-note tiny" id="content-hint">① 写台词或拖入音频 → ② 上传一张人物参考图 → ③ 右栏设参数并开始生成。</p>
+
+          <div class="av-work-grid">
+            <div class="av-work-main">
+              <div class="field">
+                <label>作品名称</label>
+                <input id="f-name" class="input" maxlength="60" placeholder="例如：老港茶餐厅 · 数字人口播">
+              </div>
+              <div class="field">
+                <label>台词 / 口播稿 <span class="hint" id="script-required">模式 2/3 必填</span> <span class="hint" id="script-count">0 字</span></label>
+                <textarea id="f-script" class="input av-script" rows="5" spellcheck="false"
+                  placeholder="粘贴完整台词。按中文标点自动分段，每段按语速估算秒数与帧数。&#10;模式 1 可作为语音识别的对照文本（可选，不填不影响生成）。"></textarea>
+              </div>
+              <div class="field">
+                <label>全局创作要求 <span class="hint">可选 · 支持 @图1（模式 2 另支持 @音频1）</span></label>
+                <textarea id="f-material-note" class="input" rows="2" spellcheck="false"
+                  placeholder="例：整体轻松科普感；人物始终在画面左侧，右侧留给信息卡；不要出现手势特写。"></textarea>
+                <p class="panel-note tiny">会随「保存设定」一起发给 AI，优先级高于自动推断。</p>
+              </div>
+            </div>
+
+            <div class="av-work-side">
+              <div class="field av-work-speed">
+                <label>语速 <b>字/秒</b></label>
+                <input id="f-cps" class="input mono" type="number" min="1" max="10" step="0.1" value="5.0">
+              </div>
+              <div class="field">
+                <label>目标段长 <b id="target-label">8.0s</b> <span class="hint">推荐 8–12s</span></label>
+                <input id="f-target" class="av-range" type="range" min="5" max="30" step="0.5" value="8">
+              </div>
+              <div class="field">
+                <label>最长段长 <b id="max-label">12.0s</b> <span class="hint">推荐 ≤15s · 30s 兜底</span> <span class="av-pressure" id="max-pressure" data-level="轻">压力：轻</span></label>
+                <input id="f-max" class="av-range" type="range" min="5" max="30" step="0.5" value="12">
+              </div>
+
+              <div class="av-mode-form hidden" id="mode-form-1">
+                <label class="dropzone av-dropzone" id="audio-drop">
+                  <input type="file" id="audio-input" accept="audio/*,video/*" hidden>
+                  <svg><use href="#i-wave"/></svg>
+                  <strong>拖入音频 / 视频，或点击选择</strong>
+                  <span>模式 1 · 以音频波形为时间轴 · 建议 3 秒以上</span>
+                  <em id="audio-label"></em>
+                </label>
+                <div class="av-voice-row hidden" id="audio-row">
+                  <span class="av-voice-icon"><svg><use href="#i-wave"/></svg></span>
+                  <div class="av-voice-meta">
+                    <b id="audio-name">—</b>
+                    <span id="audio-duration">—</span>
+                  </div>
+                  <div class="av-voice-actions">
+                    <button class="btn ghost sm" type="button" id="btn-audio-replace">替换</button>
+                    <button class="btn ghost sm" type="button" id="btn-audio-del">删除</button>
+                  </div>
+                </div>
+                <div class="av-asr-row">
+                  <label class="av-switch" title="用语音识别结果切分并对齐台词">
+                    <input type="checkbox" id="asr-enabled" checked>
+                    <i></i><span>语音识别辅助切分</span>
+                  </label>
+                  <div class="av-asr-opts" id="asr-opts">
+                    <select id="asr-model" class="input" title="ASR 模型">
+                      <option value="small" selected>small</option>
+                      <option value="base">base</option>
+                    </select>
+                    <select id="asr-language" class="input" title="识别语言">
+                      <option value="zh" selected>中文 zh</option>
+                      <option value="auto">自动 auto</option>
+                    </select>
+                  </div>
+                </div>
+                <button class="btn primary block" id="btn-analyze" type="button">
+                  <svg><use href="#i-wave"/></svg><span id="btn-analyze-label">上传并分析</span>
+                </button>
+                <p class="panel-note tiny" id="audio-hint">上传并分析后，在下方时间轴拖动切点、按播放头切分或合并下段。</p>
+              </div>
+
+              <div class="av-mode-form" id="mode-form-2">
+                <label class="dropzone av-dropzone" id="voice-drop">
+                  <input type="file" id="voice-input" accept="audio/*,video/*" hidden>
+                  <svg><use href="#i-wave"/></svg>
+                  <strong>拖入参考音频，或点击选择</strong>
+                  <span>完整录音也可以：自动截取音色样本（可试听 / 改起点）</span>
+                  <em id="voice-label"></em>
+                </label>
+                <div class="av-voice-row hidden" id="voice-row">
+                  <span class="av-voice-icon"><svg><use href="#i-wave"/></svg></span>
+                  <div class="av-voice-meta">
+                    <b id="voice-name">—</b>
+                    <span id="voice-duration">—</span>
+                  </div>
+                  <div class="av-voice-actions">
+                    <button class="btn ghost sm" type="button" id="btn-voice-audition">
+                      <svg><use href="#i-play"/></svg><span id="voice-audition-label">试听</span>
+                    </button>
+                    <button class="btn ghost sm" type="button" id="btn-voice-replace">添加音色</button>
+                    <button class="btn ghost sm" type="button" id="btn-voice-del">删除全部</button>
+                  </div>
+                </div>
+                <div class="av-voice-list" id="voice-list"></div>
+                <p class="panel-note tiny" id="voice-list-hint">音色是参考素材，不与人物绑定：谁用哪个音色写在段落的创作要求里（例如 <code>@图1 用 @音频2 的音色</code>）。</p>
+                <div class="av-voice-sample hidden" id="voice-sample-box">
+                  <div class="av-voice-sample-head">
+                    <span>音色样本 <b id="voice-sample-range">0.0–12.0s</b></span>
+                    <span class="hint" id="voice-sample-source">原始录音已保留</span>
+                  </div>
+                  <input id="f-voice-start" class="av-range" type="range" min="0" max="0" step="0.1" value="0">
+                  <p class="hint" id="voice-sample-hint">拖动起点选择送给 H3 的那一段；原始录音会保留，随时可换。</p>
+                  <audio id="voice-audition" preload="none"></audio>
+                </div>
+              </div>
+
+              <div class="av-mode-form hidden" id="mode-form-3">
+                <div class="field">
+                  <label>音色描述 <span class="hint">声音设计参考</span></label>
+                  <textarea id="f-voice-desc" class="input" rows="4" spellcheck="false"
+                    placeholder="例如：三十岁出头的女性，声音偏低、略带沙哑，语速平缓，像深夜电台主播；普通话标准，句尾有轻微的气声，亲和但不甜腻。"></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="av-work-foot">
+            <div class="av-form-actions">
+              <div class="av-form-actions-row" id="form-actions-plan">
+                <button class="btn ghost sm" id="btn-new"><svg><use href="#i-plus"/></svg>新建空白作品</button>
+                <button class="btn ghost sm" id="btn-plan"><svg><use href="#i-spark"/></svg>按台词分段</button>
+              </div>
+              <button class="btn primary" id="btn-create"><svg><use href="#i-plus"/></svg><span id="btn-create-label">新建作品</span></button>
+            </div>
+            <p class="panel-note tiny" id="form-hint">填写台词后新建作品，再点「按台词分段」。</p>
+          </div>
+        </div>
+      </details>
+    </section>
 
     <section class="av-timeline hidden" id="timeline">
       <div class="av-timeline-head">
