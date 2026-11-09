@@ -189,10 +189,124 @@ function initWorkCardFold() {
   });
 }
 
+/* ---------------- 作品设定 / 参数卡片弹窗 ---------------- */
+
+function bindDialog(modal, openSelector) {
+  if (!modal) return;
+  const openers = Array.from(document.querySelectorAll(openSelector));
+  const close = () => {
+    modal.hidden = true;
+  };
+  openers.forEach((btn) =>
+    btn.addEventListener("click", () => {
+      modal.hidden = false;
+    })
+  );
+  modal.querySelectorAll("[data-close]").forEach((btn) => btn.addEventListener("click", close));
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) close();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !modal.hidden) close();
+  });
+}
+
+function initDialogs() {
+  bindDialog(document.getElementById("modal-settings"), "#btn-settings");
+  bindDialog(document.getElementById("modal-params"), '[data-sheet="params"]');
+  bindDialog(document.getElementById("modal-advanced"), '[data-sheet="advanced"]');
+  bindDialog(document.getElementById("modal-prompts"), '[data-sheet="prompts"]');
+}
+
+/* ---------------- 右栏设置行：显示当前值，不用点开才知道 ---------------- */
+
+function initSettingSummary() {
+  const readSelect = (select) =>
+    select && select.options[select.selectedIndex] ? select.options[select.selectedIndex].textContent.trim() : "";
+
+  const aspect = document.getElementById("f-aspect");
+  const mp = document.getElementById("f-mp");
+  const seed = document.getElementById("f-seed");
+  const paramsOut = document.getElementById("sum-params");
+
+  const syncParams = () => {
+    if (!paramsOut) return;
+    const parts = [];
+    if (aspect && aspect.value.trim()) parts.push(aspect.value.trim());
+    const mpText = readSelect(mp);
+    if (mpText) parts.push(mpText.split("·")[0].trim());
+    const seedValue = seed ? seed.value.trim() : "";
+    parts.push(seedValue && Number(seedValue) !== 0 ? `种子 ${seedValue}` : "种子随机");
+    paramsOut.textContent = parts.join(" · ");
+  };
+
+  if (paramsOut) {
+    [aspect, mp, seed].forEach((el) => {
+      if (!el) return;
+      el.addEventListener("change", syncParams);
+      el.addEventListener("input", syncParams);
+    });
+    if (aspect) new MutationObserver(syncParams).observe(aspect, { childList: true });
+    syncParams();
+    document.querySelector('[data-sheet="params"]')?.addEventListener("click", syncParams);
+  }
+
+  const steps = document.getElementById("a-steps");
+  const cfg = document.getElementById("a-cfg");
+  const advancedOut = document.getElementById("sum-advanced");
+  const syncAdvanced = () => {
+    if (!advancedOut) return;
+    const parts = [];
+    if (steps && steps.value.trim()) parts.push(`采样 ${steps.value.trim()} 步`);
+    if (cfg && cfg.value.trim()) parts.push(`CFG ${cfg.value.trim()}`);
+    advancedOut.textContent = parts.length ? parts.join(" · ") : "采样 / 模型 / 二次采样";
+  };
+  if (advancedOut) {
+    [steps, cfg].forEach((el) => {
+      if (!el) return;
+      el.addEventListener("input", syncAdvanced);
+      el.addEventListener("change", syncAdvanced);
+    });
+    syncAdvanced();
+    document.querySelector('[data-sheet="advanced"]')?.addEventListener("click", syncAdvanced);
+  }
+
+  const promptSummary = document.getElementById("prompt-summary");
+  const promptsOut = document.getElementById("sum-prompts");
+  if (promptSummary && promptsOut) {
+    const syncPrompts = () => {
+      promptsOut.textContent = promptSummary.textContent.trim() || "未配置";
+    };
+    new MutationObserver(syncPrompts).observe(promptSummary, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    syncPrompts();
+  }
+}
+
+/* ---------------- 音轨吸顶：标题栏高度写进 --av-head-h ---------------- */
+
+function initStickyTimeline() {
+  const head = document.querySelector(".av-stage-head");
+  const stage = document.querySelector(".av-stage");
+  if (!head || !stage) return;
+  const sync = () => {
+    stage.style.setProperty("--av-head-h", `${Math.round(head.getBoundingClientRect().height)}px`);
+  };
+  sync();
+  if (typeof ResizeObserver === "function") new ResizeObserver(sync).observe(head);
+  window.addEventListener("resize", sync, { passive: true });
+}
+
 function boot() {
   initScrollAffordance();
   initPanelFold();
   initWorkCardFold();
+  initDialogs();
+  initSettingSummary();
+  initStickyTimeline();
 }
 
 if (document.readyState === "loading") {

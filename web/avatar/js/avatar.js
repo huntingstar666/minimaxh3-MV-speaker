@@ -2559,15 +2559,12 @@ function renderPrompts(data) {
       const item = state.prompts[key] || {};
       const configured = !!item.configured;
       return `<div class="av-prompt-item">
-        <details>
-          <summary class="av-prompt-summary">
-            <svg><use href="#i-chevron"/></svg>
-            <strong>${label}</strong>
-            <span class="grow"></span>
-            <span class="pill ${configured ? "status-completed" : ""}">${configured ? "已配置" : "占位"}</span>
-          </summary>
-          <textarea rows="3" spellcheck="false" data-prompt-key="${key}" placeholder="留空 = 后端使用内置模板（source=fallback）">${esc(item.text || "")}</textarea>
-        </details>
+        <div class="av-prompt-summary">
+          <strong>${label}</strong>
+          <span class="grow"></span>
+          <span class="pill ${configured ? "status-completed" : ""}">${configured ? "已配置" : "占位"}</span>
+        </div>
+        <textarea rows="3" spellcheck="false" data-prompt-key="${key}" placeholder="留空 = 后端使用内置模板（source=fallback）">${esc(item.text || "")}</textarea>
       </div>`;
     })
     .join("");

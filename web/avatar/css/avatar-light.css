@@ -545,18 +545,17 @@ body.av-body.av-light{
 .av-body.av-light .av-stage-head{padding:0 2px 2px}
 .av-body.av-light #stage-name{font-size:18px}
 .av-body.av-light #stage-sub{font-size:11px;margin-top:2px}
-.av-body.av-light .av-stage > #panel-mode{order:1}
-.av-body.av-light .av-stage > #panel-content{order:2}
-.av-body.av-light .av-stage > #audio-card{order:3}
-.av-body.av-light .av-stage > #timeline{order:4}
-.av-body.av-light .av-stage > #seg-list{order:5}
-.av-body.av-light .av-stage > #panel-refs{order:6}
-.av-body.av-light .av-stage > #panel-design{order:7}
-.av-body.av-light .av-stage > #stage-empty{order:8}
-/* 模式 1（音频驱动）：音轨是主工作区，排在台词之前 */
-.av-body.av-light[data-avatar-mode="1"] .av-stage > #audio-card{order:2}
-.av-body.av-light[data-avatar-mode="1"] .av-stage > #timeline{order:3}
-.av-body.av-light[data-avatar-mode="1"] .av-stage > #panel-content{order:4}
+/* 工作台只留音轨与段落；音轨吸顶在标题栏下方，滚到任何位置都能看见 */
+.av-body.av-light .av-stage > #timeline{order:0;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.07)}
+.av-body.av-light .av-stage > #seg-list{order:1}
+.av-body.av-light .av-stage > #stage-empty{order:2}
+
+/* 只有舞台自己是滚动容器（宽屏）时才吸顶；窄屏标题栏是 static，吸顶会悬空 */
+@media (min-width:1201px){
+  .av-body.av-light .av-stage > #timeline{
+    position:sticky;top:var(--av-head-h,0px);z-index:6;
+  }
+}
 
 /* 主区的面板改成独立卡片，不再沿用侧栏的连续控制面 */
 .av-body.av-light .av-stage > .panel{
@@ -687,3 +686,146 @@ body.av-body.av-light{
   .av-body.av-light .av-rail-right{grid-area:right}
   .av-body.av-light .av-rail-left .av-project-list{max-height:calc(100vh - 220px)}
 }
+
+/* ---------- 21. 作品设定卡片弹窗 ---------- */
+.av-body.av-light .av-settings-card{width:min(900px,94vw);max-height:88vh;display:flex;flex-direction:column;background:#fff}
+.av-body.av-light .av-settings-body{
+  display:flex;flex-direction:column;gap:12px;padding:16px;
+  background:#f5f5f7;overflow:auto;
+}
+.av-body.av-light .av-settings-body > .panel{
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+  padding:0 16px 16px;box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+.av-body.av-light .av-settings-body > .panel > .panel-head{
+  position:static;margin:0 -16px 14px;padding:13px 16px;
+  background:none;backdrop-filter:none;border-bottom:1px solid var(--line);
+}
+.av-body.av-light .av-settings-body > .panel > .panel-head h2{font-size:13px;font-weight:600}
+.av-body.av-light .av-settings-body > .av-card{
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+.av-body.av-light .av-settings-body .mode-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.av-body.av-light .av-settings-body .ref-grid{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+@media (max-width:720px){
+  .av-body.av-light .av-settings-body .mode-cards{grid-template-columns:1fr}
+}
+
+/* ---------- 22. 参数入口行 + 参数卡片弹窗 ---------- */
+.av-body.av-light .modal{background:rgba(0,0,0,.24);backdrop-filter:blur(6px)}
+.av-body.av-light .av-settings-modal .modal-card{
+  border-color:var(--line);
+  box-shadow:0 24px 60px rgba(0,0,0,.18);
+}
+
+.av-body.av-light .av-setting-list{
+  display:flex;flex-direction:column;gap:8px;padding:4px 14px 16px;
+}
+.av-body.av-light .av-setting-row{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;
+  font:inherit;color:inherit;text-align:left;cursor:pointer;
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+  transition:background .16s ease,border-color .16s ease,transform .16s ease;
+}
+.av-body.av-light .av-setting-row:hover{background:#f7f7fa;border-color:var(--line-strong)}
+.av-body.av-light .av-setting-row:active{transform:scale(.995)}
+.av-body.av-light .av-setting-row:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(0,113,227,.14)}
+.av-body.av-light .av-setting-icon{
+  display:grid;place-items:center;width:28px;height:28px;border-radius:8px;flex:none;
+  background:#f0f0f3;color:var(--text);
+}
+.av-body.av-light .av-setting-icon svg{width:15px;height:15px}
+.av-body.av-light .av-setting-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.av-body.av-light .av-setting-text b{font-size:12.5px;font-weight:600;color:var(--text)}
+.av-body.av-light .av-setting-text em{
+  font-style:normal;font-size:11px;color:var(--faint);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.av-body.av-light .av-setting-arrow{width:13px;height:13px;color:var(--line-strong);flex:none}
+
+/* 参数弹窗：窄卡放基础参数，宽卡放高级参数与提示词 */
+.av-body.av-light .av-sheet-card{width:min(560px,94vw)}
+.av-body.av-light .av-sheet-card-wide{width:min(760px,94vw)}
+.av-body.av-light .av-sheet-card .av-settings-body > .panel{padding-top:16px}
+.av-body.av-light .av-sheet-card .av-settings-body > .panel > .panel-head{display:none}
+.av-body.av-light .av-sheet-card .av-adv-panel .adv-body{padding-top:0}
+
+/* 弹窗不在 .av-workspace 内，表单控件要单独给浅色 */
+.av-body.av-light .av-settings-body .field label{color:var(--dim)}
+.av-body.av-light .av-settings-body .field label b{color:var(--amber)}
+.av-body.av-light .av-settings-body .field label .hint{color:var(--faint)}
+.av-body.av-light .av-settings-body .hint{color:var(--faint)}
+.av-body.av-light .av-settings-body .mono{font-variant-numeric:tabular-nums}
+.av-body.av-light .av-settings-body .input{
+  background:#fff;border-color:var(--line);color:var(--text);
+}
+.av-body.av-light .av-settings-body .input:hover{border-color:var(--line-strong)}
+.av-body.av-light .av-settings-body .input:focus{
+  border-color:#9cc7f5;box-shadow:0 0 0 3px rgba(0,113,227,.12);background:#fff;
+}
+.av-body.av-light .av-settings-body .input::placeholder{color:var(--faint)}
+.av-body.av-light .av-settings-body .input:disabled{background:#f7f7fa;opacity:.65}
+.av-body.av-light .av-settings-body select.input{
+  background:#fff;
+  background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+  background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+  background-size:5px 5px;background-repeat:no-repeat;padding-right:28px;
+}
+.av-body.av-light .av-settings-body input[type=range].av-range{
+  background:linear-gradient(90deg,
+    var(--range-color,var(--amber)) 0%,
+    var(--range-color,var(--amber)) var(--range-p,40%),
+    #e8e8ed var(--range-p,40%),
+    #e8e8ed 100%);
+}
+.av-body.av-light .av-settings-body input[type=range].av-range::-webkit-slider-thumb{
+  background:#fff;border:2px solid var(--range-color,var(--amber));box-shadow:0 1px 3px rgba(0,0,0,.16);
+}
+.av-body.av-light .av-settings-body .btn{
+  border-color:var(--line);background:#fff;color:var(--text);
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+.av-body.av-light .av-settings-body .btn:hover{background:#f7f7fa;border-color:var(--line-strong)}
+.av-body.av-light .av-settings-body .btn.primary{
+  background:var(--amber);border-color:var(--amber);color:#fff;
+  box-shadow:0 1px 2px rgba(0,113,227,.24);
+}
+.av-body.av-light .av-settings-body .btn.primary:hover{background:#0077ed;border-color:#0077ed}
+.av-body.av-light .av-settings-body .icon-btn{color:var(--dim)}
+.av-body.av-light .av-settings-body .icon-btn:hover{background:#f0f0f2;color:var(--text)}
+.av-body.av-light .av-settings-body .pill{background:#f0f0f3;border-color:var(--line);color:var(--dim)}
+.av-body.av-light .av-settings-body .av-prompt-item textarea{background:#fff}
+.av-body.av-light .av-settings-body .av-switch{color:var(--dim)}
+.av-body.av-light .av-settings-body .av-switch i{background:#ececf0;border-color:var(--line-strong)}
+.av-body.av-light .av-settings-body .av-switch i::after{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+.av-body.av-light .av-settings-body .av-switch input:checked + i{background:#dbeafe;border-color:#9cc7f5}
+.av-body.av-light .av-settings-body .av-switch input:checked + i::after{background:var(--amber);box-shadow:none}
+
+/* 系统提示词：三张卡片平铺，不再用可折叠长列表 */
+.av-body.av-light .av-settings-body .av-prompt-modes{display:flex;flex-direction:column;gap:10px}
+.av-body.av-light .av-settings-body .av-prompt-item{
+  border:1px solid var(--line);border-radius:10px;background:#fbfbfd;padding:10px 12px;
+}
+.av-body.av-light .av-settings-body .av-prompt-summary{
+  display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dim);
+}
+.av-body.av-light .av-settings-body .av-prompt-summary strong{font-weight:600;color:var(--text)}
+.av-body.av-light .av-settings-body .av-prompt-summary .grow{flex:1}
+.av-body.av-light .av-settings-body .av-prompt-summary .pill{
+  font-size:9.5px;padding:1px 7px;background:#f0f0f3;border-color:var(--line);color:var(--faint);
+}
+.av-body.av-light .av-settings-body .av-prompt-summary .pill.status-completed{
+  color:#1d9c58;border-color:#bfe6d0;background:#eefaf3;
+}
+.av-body.av-light .av-settings-body .av-prompt-item textarea{
+  width:100%;margin-top:8px;min-height:88px;resize:vertical;
+  background:#fff;border:1px solid var(--line);border-radius:8px;
+  padding:8px 10px;font-size:11.5px;line-height:1.65;color:var(--text);outline:none;
+  font-family:var(--sans);
+}
+.av-body.av-light .av-settings-body .av-prompt-item textarea:focus{
+  border-color:#9cc7f5;box-shadow:0 0 0 3px rgba(0,113,227,.12);
+}
+.av-body.av-light .av-settings-body #btn-save-prompts{margin-top:12px;align-self:flex-start}
