@@ -10,12 +10,21 @@
 | P0 | `.av-seg` 类名拆分（R14） | 已完成 | `ec9aefa` / `0c1bae4` |
 | P0 | `readGeneration` 未定义 `g`（R15） | 已完成 | `9e6ffa0` / `3b78d92` |
 | P1 | 浅色骨架：token、顶栏、三栏、按钮/输入/分段控件、右栏 tabs | 已完成（待验收） | `1923129` |
-| P2 | 主区、段卡、取片、提示词、时间轴、Waveform 浅色 | 未开始 | — |
+| P2 | 主区、段卡、取片、提示词、时间轴、Waveform 浅色 | 已完成（待验收） | `4efe89e` |
 | P3 | 右栏表单、运行/成片、弹层 | 未开始 | — |
 | P4 | 台词/音频移到主区，左栏收窄（可选） | 未开始 | — |
 
 > 目标：把 `docs/ui-prototype-v2.html` 的浅色视觉语言落到真实工作台 `/avatar/`，保留现有交互、接口与 DOM 契约。
-> P0/P1 已按本文落地；P2/P3 继续按此清单实施，每阶段独立截图验收、可回滚。
+> P0–P2 已按本文落地；P3 继续按此清单实施，每阶段独立截图验收、可回滚。
+
+### P2 实际落地记录（2026-11-09）
+
+- 文件：`web/avatar/css/avatar-light.css`（§10–§14 新增约 120 行）、`web/avatar/js/waveform.js`、`web/avatar/css/avatar.css`（仅 R16 一行）。
+- 波形未按 §6.1 的 `new Waveform(canvas, { theme:"light" })` 实施，改为**纯 CSS 变量驱动**：浅色作用域定义 `--wave-tone:light` 与 `--wave-*` 骨架色，`readColors()` 读取并回退到原来的深色字面量。好处是回滚只删 `avatar-light.css` 的 link 与 body 类，不用改 JS 调用点；深色默认行为逐字保持一致。
+- 波形配色：人声柱 `#0071e3`（tip .88 / core .34）、器乐柱 `#1d9c58`、播放头 `#1d1d1f`、切点 hover `#0071e3`、拖动切点 `#6e5ce6`；浅色下关闭 canvas 发光（shadowBlur），改用 1px 实线 + 白色描边圆点。
+- 段号药丸、标尺片孔、刻度、时间码、hover 参考线、拖动气泡全部走 `--wave-*`，无残留白色叠加。
+- 回归：1440/1280/1024/820 四档截图；四个 tab 切换、取片 hover、▶ 弹层、波形点击定位（30% → 00:09.4）、切点拖拽气泡、`pointercancel` 取消均正常；控制台无 error。
+- 顺带修 R16（`.av-seg-tab` 原生按钮样式未重置），深色主题同步受益。
 
 ---
 
@@ -315,21 +324,17 @@ topbar 60px
 
 ## 6. `Waveform` 浅色适配（JS）
 
-`web/avatar/js/waveform.js` 当前有大量硬编码的白色叠加（暗色底假设），只换 CSS 变量不够。
+`web/avatar/js/waveform.js` 原本有大量硬编码的白色叠加（暗色底假设），只换 CSS 变量不够。
 
-### 6.1 新增参数
+### 6.1 实际方案：CSS 变量驱动，不新增构造参数
 
-```js
-new Waveform(canvas, {
-  // existing...
-  theme: "light", // 新增
-  colors: { amber:"#d98a3a", amber2:"#f56300", mint:"#1d9c58", violet:"#6e5ce6" }
-});
-```
+> 原计划是给 `new Waveform(canvas, { theme:"light" })` 增加参数；实施时改为更省改动、可纯 CSS 回滚的做法，P2 已按此上线。
 
-`FALLBACK_COLORS` 保持；`readColors()` 读取 CSS 变量后，若 `theme === "light"` 用浅色默认值覆盖。
+- `avatar-light.css` 的 `.av-body.av-light` 定义 `--wave-tone:light` 与 `--wave-*` 骨架色（base/axis/hover/boundary/ruler/tick/pill/playhead-ring）。
+- `readColors()` 读取这些变量，读不到就回退到 `CHROME_FALLBACKS`（即原来的深色字面量）；`tone` 只用于切换两处发光与柱体透明度。
+- `avatar.js` 的 `ensureWaveform()` 不需要任何改动。
 
-### 6.2 需要替换的硬编码颜色
+### 6.2 需要替换的硬编码颜色（已全部改为 `--wave-*`）
 
 | 位置（约） | 当前 | 浅色 |
 |---|---|---|
@@ -358,7 +363,7 @@ new Waveform(canvas, {
 |---|---|---|
 | P0 | `web/avatar/index.html`、`web/avatar/css/avatar.css` | 选择器类名 `av-seg` → `av-seg-control` |
 | P1 | 新增 `web/avatar/css/avatar-light.css`；`web/avatar/index.html` | link + `body class="av-body av-light"` + token/骨架样式 |
-| P2 | `avatar-light.css`、`web/avatar/js/avatar.js`、`web/avatar/js/waveform.js` | 段卡/时间轴样式；Waveform `theme:"light"` |
+| P2 | `avatar-light.css`、`web/avatar/js/waveform.js`、`avatar.css`（R16） | 段卡/时间轴样式；Waveform 读取 `--wave-*`；修复原生 button 样式 |
 | P3 | `avatar-light.css` | 右栏、运行、成片、弹层 |
 | P4（可选） | `index.html`、`avatar.js`、`avatar-light.css` | 台词/音频区块移动到主区；左栏收窄 |
 
@@ -428,10 +433,10 @@ new Waveform(canvas, {
 - [ ] 左右栏 `#fbfbfd`，中区白卡片
 - [ ] 主按钮蓝、次按钮灰、润色紫、失败红
 - [ ] 输入框白底、8px 圆角、蓝色 focus 环
-- [ ] 段卡 12px 圆角、白底、轻阴影、选中蓝环
-- [ ] tabs 灰底 pill，active 白/灰，不再是琥珀下划线
-- [ ] 取片卡白底、锁定蓝环、▶ 居中
-- [ ] 波形浅色可读，切点蓝、播放头深色
+- [x] 段卡 12px 圆角、白底、轻阴影、选中蓝环
+- [x] tabs 蓝色 active（保留下划线，去掉原生按钮灰底黑边）
+- [x] 取片卡白底、锁定蓝环、▶ 居中
+- [x] 波形浅色可读，切点蓝、播放头深色
 - [ ] 运行日志/成片卡浅色
 - [ ] 播放器 modal 仍深色遮罩
 
@@ -449,11 +454,11 @@ new Waveform(canvas, {
 
 ### 9.3 截图
 
-- [ ] 1440×900 全页
+- [x] 1440×900 全页
 - [ ] 1280×800 三栏
-- [ ] 1024×768 折行
-- [ ] 820×900 单列
-- [ ] 段卡 clip / prompt / text / ref 四个 tab
+- [x] 1024×768 折行
+- [x] 820×900 单列
+- [x] 段卡 clip / prompt / text / ref 四个 tab
 - [ ] 取片 ▶ 弹层
 - [ ] 运行中 + 完成 + 失败三种状态
 
