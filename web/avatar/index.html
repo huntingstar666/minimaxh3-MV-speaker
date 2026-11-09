@@ -451,9 +451,9 @@
           <span class="av-anchor-note" id="anchor-mode-note">仅模式 1</span>
         </div>
         <input type="hidden" id="f-stitch" value="hard">
-        <div class="av-seg" id="f-stitch-seg" role="tablist" aria-label="段间模式">
-          <button type="button" class="av-seg-item active" data-value="hard">硬切</button>
-          <button type="button" class="av-seg-item" data-value="anchor">首尾帧锚定</button>
+        <div class="av-seg-control" id="f-stitch-seg" role="tablist" aria-label="段间模式">
+          <button type="button" class="av-seg-control-item active" data-value="hard">硬切</button>
+          <button type="button" class="av-seg-control-item" data-value="anchor">首尾帧锚定</button>
         </div>
         <p class="av-anchor-hint" id="anchor-hint" hidden>
           每段首尾同图 + 固定种子；不跨段传递，避免劣化累积。
@@ -466,11 +466,11 @@
           <div class="av-anchor-row">
             <label>中间锚点</label>
             <input type="hidden" id="f-anchor-mid" value="center">
-            <div class="av-seg sm" id="f-anchor-mid-seg" role="tablist" aria-label="中间锚点">
-              <button type="button" class="av-seg-item" data-value="none">无</button>
-              <button type="button" class="av-seg-item active" data-value="center">中间</button>
-              <button type="button" class="av-seg-item" data-value="thirds">三分</button>
-              <button type="button" class="av-seg-item" data-value="custom">自定义</button>
+            <div class="av-seg-control sm" id="f-anchor-mid-seg" role="tablist" aria-label="中间锚点">
+              <button type="button" class="av-seg-control-item" data-value="none">无</button>
+              <button type="button" class="av-seg-control-item active" data-value="center">中间</button>
+              <button type="button" class="av-seg-control-item" data-value="thirds">三分</button>
+              <button type="button" class="av-seg-control-item" data-value="custom">自定义</button>
             </div>
           </div>
           <div class="av-anchor-grid">
@@ -494,9 +494,9 @@
           <div class="av-anchor-row">
             <label>首尾钉帧</label>
             <input type="hidden" id="f-anchor-pin" value="false">
-            <div class="av-seg sm" id="f-anchor-pin-seg" role="tablist" aria-label="首尾钉帧">
-              <button type="button" class="av-seg-item" data-value="true">开</button>
-              <button type="button" class="av-seg-item active" data-value="false">关</button>
+            <div class="av-seg-control sm" id="f-anchor-pin-seg" role="tablist" aria-label="首尾钉帧">
+              <button type="button" class="av-seg-control-item" data-value="true">开</button>
+              <button type="button" class="av-seg-control-item active" data-value="false">关</button>
             </div>
           </div>
           <p class="av-anchor-hint">开：拼接处与参考图完全一致，但段内首尾多 1 帧突变；只用参考图预处理（非「不处理」）时生效。</p>
