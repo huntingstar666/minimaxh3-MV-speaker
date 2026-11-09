@@ -785,6 +785,14 @@ function syncAnchorUI() {
       ? "参数：参考图（首尾同图）+ 段音频 + 固定种子 → FL2VA 工作流"
       : "参数：驱动音频 + 参考图 + 每段随机种子 → 锁定音轨工作流（SelfLift 双采）";
   }
+  const allLabel = $("#btn-prompts-all-label");
+  if (allLabel) allLabel.textContent = on ? "一键填模板（可选）" : "一键润色（可选）";
+  const allBtn = $("#btn-prompts-all");
+  if (allBtn) {
+    allBtn.title = on
+      ? "可选：为每段写入首尾帧固定模板（不调用 LLM）"
+      : "可选：为每段润色提示词（运行不会自动润色）";
+  }
   const anchorBtn = document.querySelector('#f-stitch-seg [data-value="anchor"]');
   if (anchorBtn) {
     anchorBtn.disabled = !anchorAvailable;
@@ -1589,6 +1597,10 @@ function setMode(mode, { quiet = false } = {}) {
   $("#mode-form-3").classList.toggle("hidden", value !== 3);
   const hint = $("#mode-hint");
   if (hint) hint.textContent = modeHintText(value);
+  const scriptRequired = $("#script-required");
+  if (scriptRequired) {
+    scriptRequired.textContent = value === 1 ? "模式 1 可选 · 不阻塞生成" : "模式 2/3 必填";
+  }
   const planRow = $("#form-actions-plan");
   if (planRow) {
     $("#btn-plan").classList.toggle("hidden", value === 1);
@@ -3095,11 +3107,13 @@ function promptElapsed(index) {
   return started ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0;
 }
 
-function promptBlockHtml(seg) {
+function promptBlockHtml(project, seg) {
   const prompt = (seg.prompt || "").trim();
   const generating = Boolean(state.generatingPrompt[seg.index]);
   const overlay = state.designGraphicsMode === "overlay";
   const stale = !!seg.prompt_meta?.stale;
+  const anchor = Number(project?.mode) === 1
+    && String((project?.generation || {}).stitch || "hard") === "anchor";
   const { cls, text } = prompt ? lintSummary(seg) : { cls: "info", text: "未生成" };
   const status = generating ? `生成中（${promptElapsed(seg.index)}s）` : text;
   return `<details class="av-seg-prompt" ${prompt ? "" : "open"}>
@@ -3112,16 +3126,17 @@ function promptBlockHtml(seg) {
       <span class="av-prompt-toggle">展开编辑</span>
     </summary>
     <div class="av-prompt-body">
+      <p class="av-prompt-note">即将发给视频模型的提示词${anchor ? " · 首尾帧固定模板" : " · Ref2VA 模板"} · 润色可选，运行不会自动润色</p>
       <div class="av-prompt-meta" data-meta-index="${seg.index}">${promptMetaInner(seg)}</div>
       <p class="av-overlay-inline" ${overlay ? "" : "hidden"}>叠加模式：提示词只写人物表演 / 构图 / 光，文字与 logo 由后期确定性叠加，不要求生成画面文字。</p>
       <textarea class="av-prompt-area" spellcheck="false" data-prompt-index="${seg.index}"
-        placeholder="可以直接手写/粘贴提示词；也可以点「AI 生成」，让 AI 按全局 + 本段创作要求写…">${esc(seg.prompt || "")}</textarea>
+        placeholder="可以直接手写/粘贴提示词；也可以点「润色」，让 AI 按全局 + 本段创作要求写…">${esc(seg.prompt || "")}</textarea>
       <div class="av-prompt-bar">
         <span class="av-prompt-hint">${generating
           ? "AI 正在写，可继续等待；完成后会自动填入并展开"
-          : (prompt ? "保存后重新生成会用新提示词" : "提示词可以为空：生成视频时会先按内置模板/LLM 自动补上")}</span>
+          : (prompt ? "保存后重新生成会用新提示词；面板内容就是实际发送版本" : "提示词可以为空：生成视频时会先按内置模板/LLM 自动补上")}</span>
         <div class="av-prompt-bar-actions">
-          <button class="btn ghost sm${generating ? " generating" : ""}" type="button" data-action="seg-prompt" data-index="${seg.index}" ${generating ? "disabled" : ""}>${generating ? "生成中…" : "AI 生成"}</button>
+          <button class="btn ghost sm${generating ? " generating" : ""}" type="button" data-action="seg-prompt" data-index="${seg.index}" ${generating ? "disabled" : ""}>${generating ? "生成中…" : (anchor ? "填入模板（可选）" : "润色（可选）")}</button>
           <button class="btn ghost sm" type="button" data-action="save-prompt" data-index="${seg.index}">保存</button>
           <button class="btn ghost sm" type="button" data-action="lint-prompt" data-index="${seg.index}">Lint 检查</button>
           <button class="btn ghost sm" type="button" data-action="repair-prompt" data-index="${seg.index}">
@@ -3389,7 +3404,7 @@ function segRangeLabel(project, seg) {
 function takesHtml(project, seg) {
   const takes = Array.isArray(seg.takes) ? seg.takes : [];
   if (!takes.length) {
-    return `<span class="av-takes-empty">还没有片段 · 点「重生成」或「开始生成」</span>`;
+    return `<span class="av-takes-empty">还没有片段 · 点「单段重跑」或「开始生成」</span>`;
   }
   return takes
     .map((take, takeIndex) => {
@@ -3401,14 +3416,18 @@ function takesHtml(project, seg) {
         ? ""
         : `<span class="take-overlay ${overlayFlag ? "" : "none"}">${overlayFlag ? "已叠加" : "未叠加"}</span>`;
       return `<div class="av-take ${active ? "active" : ""}" role="button" tabindex="0"
-        data-action="take-preview" data-index="${seg.index}" data-take="${esc(take.take_id)}"
-        title="点击预览这个片段${take.created ? ` · ${esc(fmtWhen(take.created))}` : ""}">
+        data-action="take-select" data-index="${seg.index}" data-take="${esc(take.take_id)}"
+        title="点击锁定为合成对象${take.created ? ` · ${esc(fmtWhen(take.created))}` : ""}">
         ${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy">` : fallback}
+        <button class="take-play" type="button" data-action="take-preview"
+          data-index="${seg.index}" data-take="${esc(take.take_id)}" title="放大播放这个片段">
+          <svg><use href="#i-play"/></svg>
+        </button>
         <span class="take-no">${takeIndex + 1}</span>
         ${overlayBadge}
-        ${active ? '<span class="take-picked">✓</span>'
-          : `<button class="take-choose" type="button" data-action="take-select" data-index="${seg.index}" data-take="${esc(take.take_id)}" title="把这条设为使用中的片段">选用</button>`}
+        ${active ? '<span class="take-picked">✓</span>' : ""}
         ${active ? "" : `<button class="take-del" type="button" data-action="take-del" data-index="${seg.index}" data-take="${esc(take.take_id)}" title="删除这个片段"><svg><use href="#i-close"/></svg></button>`}
+        <span class="take-name">${active ? "已锁定" : `片段 ${takeIndex + 1}`}</span>
       </div>`;
     })
     .join("");
@@ -3434,6 +3453,10 @@ function segCardHtml(project, seg) {
   const promptTitle = overlayMode
     ? "叠加模式：提示词只写人物表演/构图/光，不画文字"
     : "用设计层与节拍表生成这一段提示词";
+  const anchor = mode === 1 && String((project.generation || {}).stitch || "hard") === "anchor";
+  const promptActionLabel = anchor
+    ? (seg.prompt ? "重填模板" : "填入模板")
+    : (seg.prompt ? "重新润色" : "润色（可选）");
   return `<article class="av-seg ${esc(status)}" data-index="${seg.index}">
     <div class="av-seg-index">
       <span class="seg-num">${pad(seg.index + 1)}</span>
@@ -3456,22 +3479,23 @@ function segCardHtml(project, seg) {
       ${segmentRefsHtml(project, seg)}
       ${segmentVoicesHtml(project, seg)}
       ${segmentNoteHtml(seg)}
-      ${promptBlockHtml(seg)}
+      ${promptBlockHtml(project, seg)}
       ${beatsBlockHtml(project, seg)}
       <div class="av-takes">
-        <span class="av-takes-label">选片</span>
+        <span class="av-takes-label">取片</span>
         ${takesHtml(project, seg)}
       </div>
+      <p class="av-takes-hint">点卡片锁定为合成对象 · 点 ▶ 放大播放</p>
     </div>
     <div class="av-seg-actions">
       <button class="btn ghost sm${state.generatingPrompt[seg.index] ? " generating" : ""}" type="button"
         data-action="seg-prompt" data-index="${seg.index}" title="${esc(promptTitle)}"
         ${state.generatingPrompt[seg.index] ? "disabled" : ""}>
         <svg><use href="#i-spark"/></svg>${state.generatingPrompt[seg.index]
-          ? `生成中（${promptElapsed(seg.index)}s）` : (seg.prompt ? "重写提示词" : "生成提示词")}
+          ? `生成中（${promptElapsed(seg.index)}s）` : promptActionLabel}
       </button>
-      <button class="btn ghost sm" type="button" data-action="seg-regen" data-index="${seg.index}">
-        <svg><use href="#i-refresh"/></svg>重生成
+      <button class="btn ghost sm" type="button" data-action="seg-regen" data-index="${seg.index}" title="只重跑这一段，不影响其它段与已锁定片段">
+        <svg><use href="#i-refresh"/></svg>单段重跑
       </button>
       ${isMode1 && seg.index < (project.segments || []).length - 1 ? `<button class="btn ghost sm" type="button" data-action="seg-merge" data-index="${seg.index}">
         <svg><use href="#i-merge"/></svg>合并下段
@@ -4704,10 +4728,17 @@ function bindEvents() {
       return;
     }
     if (event.key !== "Enter" && event.key !== " ") return;
-    const take = event.target.closest?.('[data-action="take-select"]');
-    if (take) {
+    const actionEl = event.target.closest?.("[data-action]");
+    if (!actionEl) return;
+    if (actionEl.dataset.action === "take-select") {
       event.preventDefault();
-      selectTake(Number(take.dataset.index), take.dataset.take);
+      selectTake(Number(actionEl.dataset.index), actionEl.dataset.take);
+      return;
+    }
+    if (actionEl.dataset.action === "take-preview") {
+      event.preventDefault();
+      const seg = currentSegment(Number(actionEl.dataset.index));
+      if (seg) openTakePreview(state.project, seg, actionEl.dataset.take);
     }
   });
 

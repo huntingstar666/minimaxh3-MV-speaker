@@ -269,7 +269,7 @@
 .av-workspace details > summary:focus-visible{outline:2px solid var(--av-amber-line);outline-offset:2px;border-radius:6px}
 .av-workspace .av-effect-item:focus-within{background:var(--av-hover);color:var(--text)}
 .av-workspace .av-ref-check:focus-within{color:var(--text)}
-.av-workspace .av-take .take-choose:focus-visible,
+.av-workspace .av-take .take-play:focus-visible,
 .av-workspace .av-take .take-del:focus-visible{outline:2px solid var(--av-amber-line);outline-offset:-2px}
 
 /* ---------- 6. 模式卡：控制面里的三选一，不做卡片墙 ---------- */
@@ -741,7 +741,8 @@
 .av-prompt-bar-actions .btn{padding:4px 8px;font-size:9.5px}
 .av-prompt-bar-actions .btn svg{width:11px;height:11px}
 .av-prompt-hint{font-size:9.5px;color:var(--faint);line-height:1.5}
-.av-prompt-meta{padding:8px 9px;border:1px solid var(--line);border-radius:9px;background:color-mix(in srgb,var(--bg) 72%,transparent);margin:8px 0 7px;display:flex;flex-direction:column;gap:6px}
+.av-prompt-note{font-size:9.5px;line-height:1.55;color:var(--dim);margin:8px 0 0}
+.av-prompt-meta{padding:8px 9px;border:1px solid var(--line);border-radius:9px;background:color-mix(in srgb,var(--bg) 72%,transparent);margin:7px 0;display:flex;flex-direction:column;gap:6px}
 .av-prompt-meta-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .av-summary-line{font-size:10px;line-height:1.55;color:var(--dim);word-break:break-word;min-width:0}
 .av-prompt-stats{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
@@ -791,28 +792,32 @@
 .av-overlay-inline{font-size:9.5px;line-height:1.55;color:var(--amber);margin:0 0 7px;border:1px dashed color-mix(in srgb,var(--amber-2) 34%,transparent);background:color-mix(in srgb,var(--amber-2) 6%,transparent);border-radius:8px;padding:6px 8px}
 
 /* 选片缩略条 */
-.av-takes{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:1px}
-.av-takes-label{font-size:9.5px;letter-spacing:.05em;color:var(--faint);font-family:var(--mono)}
-.av-take{position:relative;width:52px;height:68px;border-radius:8px;overflow:hidden;flex:none;border:1px solid var(--line);background:var(--av-sunk);padding:0;cursor:pointer;transition:border-color var(--av-dur) var(--av-ease),transform 140ms var(--av-ease),box-shadow var(--av-dur) var(--av-ease)}
-.av-take img{width:100%;height:100%;object-fit:cover;display:block}
+.av-takes{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;margin-top:1px;scrollbar-width:thin}
+.av-takes-label{font-size:9.5px;letter-spacing:.05em;color:var(--faint);font-family:var(--mono);flex:none}
+.av-take{position:relative;width:104px;flex:none;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--av-sunk);padding:3px 3px 4px;cursor:pointer;display:flex;flex-direction:column;gap:3px;transition:border-color var(--av-dur) var(--av-ease),transform 140ms var(--av-ease),box-shadow var(--av-dur) var(--av-ease)}
+.av-take img{width:100%;height:56px;object-fit:cover;border-radius:5px;display:block}
 .av-take:hover{border-color:var(--line-strong);transform:translateY(-1px)}
 .av-take:focus-visible{outline:2px solid var(--av-amber-line);outline-offset:2px}
 .av-take.active{border-color:var(--amber);box-shadow:0 0 0 1px color-mix(in srgb,var(--amber) 32%,transparent),0 6px 14px color-mix(in srgb,var(--bg) 50%,transparent)}
-.av-take .take-no{position:absolute;left:2px;top:2px;font-family:var(--mono);font-size:8px;line-height:1.4;color:color-mix(in srgb,var(--text) 92%,transparent);text-shadow:0 1px 3px var(--bg);padding:0 2px}
-.av-take .take-picked{position:absolute;right:2px;bottom:2px;font-size:8px;line-height:1;width:13px;height:13px;display:grid;place-items:center;border-radius:50%;color:var(--av-on-amber);background:var(--amber)}
-.av-take .take-del{position:absolute;right:1px;top:1px;width:15px;height:15px;border-radius:5px;border:none;background:color-mix(in srgb,var(--bg) 76%,transparent);color:color-mix(in srgb,var(--danger) 80%,var(--text));display:grid;place-items:center;opacity:0;transition:opacity var(--av-dur) var(--av-ease)}
+.av-take .take-no{position:absolute;left:6px;top:5px;font-family:var(--mono);font-size:8px;line-height:1.4;color:color-mix(in srgb,var(--text) 92%,transparent);text-shadow:0 1px 3px var(--bg);padding:0 2px}
+.av-take .take-play{position:absolute;left:50%;top:31px;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,.28);background:rgba(0,0,0,.42);color:#fff;display:grid;place-items:center;opacity:.72;cursor:pointer;transition:opacity var(--av-dur) var(--av-ease),background var(--av-dur) var(--av-ease)}
+.av-take:hover .take-play,.av-take .take-play:focus-visible{opacity:1;background:rgba(0,0,0,.58)}
+.av-take .take-play svg{width:10px;height:10px;margin-left:1px}
+.av-take .take-name{font-size:9px;line-height:1.2;text-align:center;color:var(--faint);font-family:var(--mono);white-space:nowrap}
+.av-take.active .take-name{color:var(--amber)}
+.av-take .take-picked{position:absolute;right:6px;top:5px;font-size:8px;line-height:1;width:13px;height:13px;display:grid;place-items:center;border-radius:50%;color:var(--av-on-amber);background:var(--amber)}
+.av-take .take-del{position:absolute;right:5px;top:4px;width:15px;height:15px;border-radius:5px;border:none;background:color-mix(in srgb,var(--bg) 76%,transparent);color:color-mix(in srgb,var(--danger) 80%,var(--text));display:grid;place-items:center;opacity:0;transition:opacity var(--av-dur) var(--av-ease)}
 .av-take:hover .take-del,.av-take:focus-within .take-del{opacity:1}
 .av-take .take-del svg{width:9px;height:9px}
-.av-take .av-take-fallback{width:100%;height:100%;display:grid;place-items:center;color:var(--faint)}
+.av-take .av-take-fallback{width:100%;height:56px;display:grid;place-items:center;color:var(--faint);border-radius:5px;background:color-mix(in srgb,var(--bg) 40%,transparent)}
 .av-take .av-take-fallback svg{width:15px;height:15px;opacity:.55}
-.av-take .take-choose{position:absolute;right:6px;bottom:6px;font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--line-strong);background:color-mix(in srgb,var(--bg) 62%,transparent);color:var(--text);cursor:pointer;transition:border-color var(--av-dur) var(--av-ease),color var(--av-dur) var(--av-ease),background var(--av-dur) var(--av-ease)}
-.av-take .take-choose:hover{border-color:var(--av-amber-line);color:var(--amber);background:var(--av-amber-soft)}
-.av-take .take-overlay{position:absolute;left:2px;bottom:2px;font-size:8px;line-height:1.2;padding:1px 3px;border-radius:3px;background:color-mix(in srgb,var(--bg) 78%,transparent);color:var(--mint);border:1px solid color-mix(in srgb,var(--mint) 32%,transparent)}
+.av-take .take-overlay{position:absolute;left:6px;bottom:22px;font-size:8px;line-height:1.2;padding:1px 3px;border-radius:3px;background:color-mix(in srgb,var(--bg) 78%,transparent);color:var(--mint);border:1px solid color-mix(in srgb,var(--mint) 32%,transparent)}
 .av-take .take-overlay.none{color:var(--faint);border-color:var(--line)}
-.av-take.pending{display:grid;place-items:center;border-style:dashed;cursor:default;color:var(--faint)}
+.av-take.pending{width:104px;display:grid;place-items:center;border-style:dashed;cursor:default;color:var(--faint)}
 .av-take.pending svg{width:15px;height:15px;opacity:.55}
 .av-take.pending span{font-size:8px;margin-top:2px}
 .av-takes-empty{font-size:10px;color:var(--faint);border:1px dashed var(--line);border-radius:7px;padding:4px 9px;line-height:1.5}
+.av-takes-hint{font-size:9.5px;color:var(--faint);margin:0}
 .av-seg-actions{display:flex;flex-direction:column;gap:6px}
 .av-seg-actions .btn{width:100%;justify-content:center;padding:6px 4px;font-size:10.5px;gap:5px}
 .av-seg-actions .btn svg{width:12px;height:12px}

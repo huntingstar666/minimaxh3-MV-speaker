@@ -102,9 +102,9 @@
         <input id="f-name" class="input" maxlength="60" placeholder="例如：老港茶餐厅 · 数字人口播">
       </div>
       <div class="field">
-        <label>台词 / 口播稿 <span class="hint" id="script-count">0 字</span></label>
+        <label>台词 / 口播稿 <span class="hint" id="script-required">模式 2/3 必填</span> <span class="hint" id="script-count">0 字</span></label>
         <textarea id="f-script" class="input av-script" rows="6" spellcheck="false"
-          placeholder="粘贴完整台词。按中文标点自动分段，每段按语速估算秒数与帧数。&#10;模式 1 可作为语音识别的对照文本（可选）。"></textarea>
+          placeholder="粘贴完整台词。按中文标点自动分段，每段按语速估算秒数与帧数。&#10;模式 1 可作为语音识别的对照文本（可选，不填不影响生成）。"></textarea>
       </div>
       <div class="field">
         <label>全局创作要求 <span class="hint">可选 · 支持 @图1（模式 2 另支持 @音频1）</span></label>
@@ -401,10 +401,10 @@
         <span class="pill av-graphics-pill hidden" id="graphics-pill">生成式</span>
         <span class="av-overlay-note hidden" id="overlay-note" title="设计面板选择「后期叠加」后，画面文字/logo 由后期确定性叠加">文字/logo 由后期确定性叠加</span>
         <button class="btn ghost sm" id="btn-plan2" title="按标点与语速自动分段"><svg><use href="#i-spark"/></svg>按台词分段</button>
-        <button class="btn ghost sm" id="btn-prompts-all" title="为每一段重写提示词"><svg><use href="#i-layers"/></svg>全部生成提示词</button>
-        <button class="btn primary" id="btn-generate" title="按分段逐段生成视频（耗时长）"><svg><use href="#i-play"/></svg>开始生成</button>
+        <button class="btn ghost sm" id="btn-prompts-all" title="可选：为每一段润色提示词（运行不会自动润色）"><svg><use href="#i-layers"/></svg><span id="btn-prompts-all-label">一键润色（可选）</span></button>
+        <button class="btn primary" id="btn-generate" title="按分段逐段生成视频（不包含提示词润色）"><svg><use href="#i-play"/></svg>开始生成</button>
         <button class="btn danger hidden" id="btn-cancel"><svg><use href="#i-stop"/></svg>停止</button>
-        <button class="btn ghost sm" id="btn-assemble" title="把选中片段拼成成片"><svg><use href="#i-merge"/></svg>合成成片</button>
+        <button class="btn ghost sm" id="btn-assemble" title="把每段锁定的片段拼成全片；已有成片则重新合成（只跑 ffmpeg，不重生成）"><svg><use href="#i-merge"/></svg>合成全片</button>
         <a class="btn ghost sm is-disabled" id="btn-download-top" href="#" download aria-disabled="true" title="合成成片后可下载"><svg><use href="#i-download"/></svg>下载成片</a>
       </div>
     </div>
