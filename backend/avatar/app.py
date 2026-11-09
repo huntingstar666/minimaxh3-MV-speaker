@@ -710,13 +710,19 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if "max_seconds" in payload:
         project["max_seconds"] = _float(payload["max_seconds"], config.DEFAULT_MAX_SECONDS, 5.0, 30.0)
     if isinstance(payload.get("generation"), dict) or "stitch" in payload:
+        previous = dict(project.get("generation") or {})
         generation = _merged_generation(project, payload)
         _validate_anchor(project, generation)
         project["generation"] = generation
-        _mark_final_stale(project)
+        # 只有参数真的变了才让成片过期：原样保存不应提示“需要重新合成”
+        if generation != previous:
+            _mark_final_stale(project)
     if isinstance(payload.get("design"), dict):
+        before = json.dumps(design_mod.ensure_design(project), sort_keys=True, ensure_ascii=False)
         design_mod.update_design(project, payload["design"])
-        _mark_final_stale(project)
+        after = json.dumps(project["design"], sort_keys=True, ensure_ascii=False)
+        if after != before:
+            _mark_final_stale(project)
     design_mod.ensure_design(project)
     _fill_anchor_templates(project)
     store.save(project)
