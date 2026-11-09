@@ -600,6 +600,10 @@
 .wave-cuts,.wave-head{display:none}
 .wave-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--faint);font-size:11px;pointer-events:none}
 .wave-wrap.loaded .wave-empty{display:none}
+.av-workflow-note{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--av-sunk)}
+.av-workflow-note .wf-line{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;font-weight:600}
+.av-workflow-note .wf-line span{font-weight:400;color:var(--dim);font-size:10.5px}
+.av-workflow-note .wf-desc{margin-top:4px;font-size:10.5px;color:var(--faint);line-height:1.6}
 .wave-cuts{position:absolute;inset:0;pointer-events:none}
 .wave-cut{position:absolute;top:0;bottom:0;width:11px;margin-left:-5px;pointer-events:auto;cursor:ew-resize;touch-action:none;display:flex;justify-content:center}
 .wave-cut::before{content:"";width:2px;height:100%;background:color-mix(in srgb,var(--mint) 85%,transparent);box-shadow:0 0 8px color-mix(in srgb,var(--mint) 42%,transparent);transition:background var(--av-dur) var(--av-ease),box-shadow var(--av-dur) var(--av-ease)}

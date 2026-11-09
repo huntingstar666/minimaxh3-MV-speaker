@@ -775,6 +775,16 @@ function syncAnchorUI() {
   }
   const seedHint = seedField?.querySelector(".hint");
   if (seedHint) seedHint.textContent = on ? "0 = 项目固定种子" : "0 = 每段随机";
+  const wfTitle = $("#wf-title");
+  const wfTemplate = $("#wf-template");
+  const wfDesc = $("#wf-desc");
+  if (wfTitle) wfTitle.textContent = on ? "首尾帧 · FL2VA 首尾同图" : "Ref 模式 · 锁定音轨";
+  if (wfTemplate) wfTemplate.textContent = on ? "提示词：FL2VA 固定模板" : "提示词：Ref2VA 六段";
+  if (wfDesc) {
+    wfDesc.textContent = on
+      ? "参数：参考图（首尾同图）+ 段音频 + 固定种子 → FL2VA 工作流"
+      : "参数：驱动音频 + 参考图 + 每段随机种子 → 锁定音轨工作流（SelfLift 双采）";
+  }
   const anchorBtn = document.querySelector('#f-stitch-seg [data-value="anchor"]');
   if (anchorBtn) {
     anchorBtn.disabled = !anchorAvailable;
