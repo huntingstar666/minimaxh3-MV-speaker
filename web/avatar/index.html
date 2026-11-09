@@ -513,35 +513,7 @@
               <option value="nearest-exact">nearest-exact</option>
             </select>
           </div>
-          <p class="av-anchor-hint">SelfLift 使用 Fix + 分块，并自动关闭中间锚点；默认普通单采更平滑。</p>
-          <div class="av-anchor-grid" id="anchor-selflift-wrap" hidden>
-            <div class="av-anchor-field">
-              <label>低清步数 <span class="hint">二采前</span></label>
-              <input id="f-anchor-transition" class="input mono" type="number" min="1" max="99" step="1" value="4">
-            </div>
-            <div class="av-anchor-field">
-              <label>高清二采步数 <span class="hint">自动 = 总步数 − 低清</span></label>
-              <input id="f-anchor-highsteps" class="input mono" readonly value="2">
-            </div>
-            <div class="av-anchor-field">
-              <label>低清比例 <span class="hint">二采第一遍</span></label>
-              <select id="f-anchor-lowres" class="input">
-                <option value="0.5">0.5</option>
-                <option value="0.6">0.6</option>
-                <option value="0.75">0.75</option>
-              </select>
-            </div>
-            <div class="av-anchor-field">
-              <label>高分辨分块 <span class="hint">按显存自动</span></label>
-              <select id="f-anchor-tiling" class="input">
-                <option value="auto">auto（按显存）</option>
-                <option value="2">2 块</option>
-                <option value="4">4 块</option>
-              </select>
-            </div>
-          </div>
-          <p class="av-anchor-hint" id="anchor-step-hint" hidden>总步数 6 = 低清 4 + 高清二采 2（总 NFE 不变）</p>
-          <p class="av-anchor-hint" id="anchor-selflift-hint" hidden>低清比例 0.5 / 2 块最稳；总步数在「高级生成参数」里改。</p>
+          <p class="av-anchor-hint">SelfLift 使用 Fix + 分块，并自动关闭中间锚点；默认普通单采更平滑。双采步数分配在「高级生成参数」里。</p>
         </div>
       </div>
 
@@ -584,6 +556,38 @@
               <div class="field"><label>LoRA</label><select id="a-lora" class="input"></select></div>
             </div>
             <div class="field"><label>LoRA 强度</label><input id="a-lora-strength" class="input mono" type="number" min="0" max="1.5" step="0.05"></div>
+            <div id="anchor-selflift-wrap" hidden>
+              <div class="field-row">
+                <div class="field">
+                  <label>低清步数 <span class="hint">二采前</span></label>
+                  <input id="f-anchor-transition" class="input mono" type="number" min="1" max="99" step="1" value="4">
+                </div>
+                <div class="field">
+                  <label>高清二采步数 <span class="hint">自动 = 总步数 − 低清</span></label>
+                  <input id="f-anchor-highsteps" class="input mono" readonly value="2">
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>低清比例 <span class="hint">二采第一遍</span></label>
+                  <select id="f-anchor-lowres" class="input">
+                    <option value="0.5">0.5</option>
+                    <option value="0.6">0.6</option>
+                    <option value="0.75">0.75</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>高分辨分块 <span class="hint">按显存自动</span></label>
+                  <select id="f-anchor-tiling" class="input">
+                    <option value="auto">auto（按显存）</option>
+                    <option value="2">2 块</option>
+                    <option value="4">4 块</option>
+                  </select>
+                </div>
+              </div>
+              <p class="av-anchor-hint" id="anchor-step-hint" hidden>总步数 6 = 低清 4 + 高清二采 2（总 NFE 不变）</p>
+              <p class="av-anchor-hint" id="anchor-selflift-hint" hidden>低清比例 0.5 / 2 块最稳；总步数在上方「采样步数」里改。</p>
+            </div>
           </div>
         </details>
       </section>
