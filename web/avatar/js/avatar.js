@@ -3715,7 +3715,7 @@ function renderFinal() {
     state.finalKey = "";
     frame.classList.remove("video-frame");
     frame.removeAttribute("style");
-    frame.innerHTML = `<div class="final-empty av-final-empty"><svg><use href="#i-film"/></svg><span>合成完成后在此预览</span><em>逐段生成并选片后，点「合成全片」</em></div>`;
+    frame.innerHTML = `<div class="final-empty av-final-empty"><svg><use href="#i-film"/></svg><span>合成完成后在此预览</span><em>逐段生成并取片后，点「合成全片」</em></div>`;
     info.classList.add("hidden");
     stale.classList.add("hidden");
     duration.textContent = "—";
@@ -3748,7 +3748,7 @@ function renderFinal() {
   if (assembleLabel) assembleLabel.textContent = "重新合成全片";
   stale.classList.toggle("hidden", !final.stale);
   if (final.stale) {
-    $("#final-stale-text").textContent = "选片或分段已有变更，成片需要重新合成";
+    $("#final-stale-text").textContent = "取片或分段已有变更，成片需要重新合成";
   }
 }
 
@@ -4087,8 +4087,8 @@ async function regenerateSegment(index) {
     renderRun(state.run);
     state.pollCount = 0;
     startPolling();
-    toast(`第 ${index + 1} 段开始重新生成`, "info");
-  }).catch((err) => toast(`重生成失败：${err.message}`, "err", 6000));
+    toast(`第 ${index + 1} 段开始单段重跑`, "info");
+  }).catch((err) => toast(`单段重跑失败：${err.message}`, "err", 6000));
 }
 
 async function cancelRun() {
@@ -4115,9 +4115,9 @@ async function selectTake(index, takeId) {
   try {
     const data = await api.selectTake(p.id, index, takeId);
     applyProject(data.project, { fill: false });
-    toast("已选用这个片段，记得重新合成成片", "ok");
+    toast("已锁定这条片段为合成对象，点「重新合成全片」更新成片", "ok");
   } catch (err) {
-    toast(`选片失败：${err.message}`, "err");
+    toast(`锁定片段失败：${err.message}`, "err");
   }
 }
 
@@ -4139,7 +4139,7 @@ async function assembleFilm() {
   const p = state.project;
   if (!p) return;
   if (!(p.segments || []).length) return toast("请先按台词分段并生成片段", "err");
-  showBusy("正在用 ffmpeg 合成成片…");
+  showBusy("正在用 ffmpeg 合成全片…");
   try {
     const data = await api.assemble(p.id);
     applyProject(data.project, { fill: false });
@@ -4323,7 +4323,7 @@ function syncButtons() {
     downloadTop.classList.remove("hidden");
     downloadTop.classList.toggle("is-disabled", !hasFinal);
     downloadTop.setAttribute("aria-disabled", String(!hasFinal));
-    downloadTop.title = hasFinal ? "下载成片 MP4" : "合成成片后可下载";
+    downloadTop.title = hasFinal ? "下载成片 MP4" : "合成全片后可下载";
   }
 
   const generate = $("#btn-generate");
