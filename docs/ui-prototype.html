@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数字人工作台 · UI 原型</title>
+<style>
+  :root{
+    --bg:#f5f5f7;
+    --surface:#ffffff;
+    --surface-2:#fbfbfd;
+    --text:#1d1d1f;
+    --text-2:#6e6e73;
+    --text-3:#86868b;
+    --hairline:#e8e8ed;
+    --hairline-strong:#d2d2d7;
+    --accent:#0071e3;
+    --accent-soft:#e8f2ff;
+    --green:#1d9c58;
+    --orange:#f56300;
+    --radius:12px;
+    --radius-sm:8px;
+    --shadow:0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.04);
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","PingFang SC","Helvetica Neue",Helvetica,Arial,sans-serif;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:var(--font);font-size:13px;line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  button,input,textarea,select{font:inherit;color:inherit}
+  button{border:0;background:none;cursor:pointer}
+  a{color:var(--accent);text-decoration:none}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    height:56px;display:flex;align-items:center;gap:16px;
+    padding:0 20px;background:rgba(255,255,255,.82);
+    border-bottom:1px solid var(--hairline);
+    backdrop-filter:saturate(180%) blur(20px);
+    position:sticky;top:0;z-index:20;
+  }
+  .brand{display:flex;align-items:center;gap:10px;min-width:200px}
+  .brand-mark{
+    width:26px;height:26px;border-radius:7px;background:var(--text);
+    color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;letter-spacing:.4px;
+  }
+  .brand-name{font-size:13px;font-weight:600;letter-spacing:.2px}
+  .brand-sub{font-size:11px;color:var(--text-3);margin-top:-2px}
+  .topbar-center{display:flex;align-items:center;gap:12px;flex:1}
+  .project-title{font-size:15px;font-weight:600}
+  .status-pill{
+    display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;
+    border-radius:999px;background:#e9f7ef;color:#127a45;font-size:11px;font-weight:600;
+  }
+  .status-pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .meta-inline{font-size:12px;color:var(--text-2)}
+  .topbar-right{display:flex;align-items:center;gap:8px}
+  .chip{
+    display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:999px;
+    background:var(--surface);border:1px solid var(--hairline);font-size:11px;color:var(--text-2);
+  }
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    height:32px;padding:0 14px;border-radius:8px;font-size:13px;font-weight:500;
+    transition:background .16s ease, opacity .16s ease, transform .06s ease;
+  }
+  .btn:active{transform:scale(.98)}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:#0077ed}
+  .btn-secondary{background:#f0f0f2;color:var(--text)}
+  .btn-secondary:hover{background:#e8e8ec}
+  .btn-ghost{color:var(--text-2)}
+  .btn-ghost:hover{background:#f0f0f2}
+
+  /* ---------- layout ---------- */
+  .app{
+    display:grid;grid-template-columns:264px minmax(0,1fr) 344px;
+    gap:0;height:calc(100vh - 56px);
+  }
+  .sidebar{border-right:1px solid var(--hairline);padding:16px 12px;overflow:auto;background:var(--surface-2)}
+  .main{overflow:auto;padding:20px 24px 40px}
+  .inspector{border-left:1px solid var(--hairline);overflow:auto;background:var(--surface-2);padding:16px}
+
+  /* ---------- sidebar ---------- */
+  .side-head{display:flex;align-items:center;justify-content:space-between;padding:0 8px 12px}
+  .side-title{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text-3);text-transform:uppercase}
+  .search{
+    display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;margin:0 4px 12px;
+    background:var(--surface);border:1px solid var(--hairline);border-radius:8px;color:var(--text-3);
+  }
+  .search input{border:0;outline:0;background:none;width:100%;font-size:12px}
+  .proj{
+    display:flex;flex-direction:column;gap:2px;padding:10px 10px;border-radius:10px;cursor:pointer;
+    border:1px solid transparent;
+  }
+  .proj:hover{background:#f0f0f3}
+  .proj.active{background:var(--surface);border-color:var(--hairline);box-shadow:var(--shadow)}
+  .proj-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .proj-meta{font-size:11px;color:var(--text-3)}
+
+  /* ---------- cards ---------- */
+  .card{
+    background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
+    box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden;
+  }
+  .card-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--hairline)}
+  .card-title{font-size:13px;font-weight:600}
+  .card-sub{font-size:11px;color:var(--text-3)}
+  .card-body{padding:16px}
+  .group-label{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text-3);text-transform:uppercase;margin:0 0 10px}
+
+  /* ---------- script ---------- */
+  .script-text{font-size:13px;color:var(--text-2);line-height:1.75;margin:0}
+  .script-foot{display:flex;align-items:center;gap:16px;margin-top:12px;color:var(--text-3);font-size:11px}
+
+  /* ---------- timeline ---------- */
+  .timeline{padding:14px 16px 10px}
+  .wave{position:relative;height:88px;border-radius:8px;background:#fafafc;overflow:hidden;border:1px solid var(--hairline)}
+  .wave svg{display:block;width:100%;height:100%}
+  .cut{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);opacity:.85}
+  .cut::after{content:"";position:absolute;top:-1px;left:-3px;width:8px;height:8px;border-radius:2px;background:var(--accent)}
+  .tick-row{display:flex;justify-content:space-between;color:var(--text-3);font-size:10px;margin-top:6px;font-variant-numeric:tabular-nums}
+
+  /* ---------- segments ---------- */
+  .seg-head{display:flex;align-items:baseline;justify-content:space-between;margin:4px 0 10px}
+  .seg-head h2{font-size:17px;font-weight:600;margin:0}
+  .seg-head .sub{font-size:12px;color:var(--text-3)}
+  .seg{
+    background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
+    box-shadow:var(--shadow);margin-bottom:10px;overflow:hidden;
+  }
+  .seg-row{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer}
+  .seg-index{
+    width:26px;height:26px;border-radius:7px;background:#f0f0f3;color:var(--text-2);
+    display:grid;place-items:center;font-size:11px;font-weight:600;flex:none;
+  }
+  .seg-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+  .seg-tags{display:flex;align-items:center;gap:8px;flex:none}
+  .tag{height:22px;display:inline-flex;align-items:center;padding:0 8px;border-radius:6px;font-size:10px;font-weight:600}
+  .tag-ok{background:#e9f7ef;color:#127a45}
+  .tag-template{background:var(--accent-soft);color:#0062c4}
+  .tag-llm{background:#fff4e5;color:#a05a00}
+  .seg-time{font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums;width:46px;text-align:right}
+  .chevron{color:var(--text-3);transition:transform .18s ease}
+  .seg.open .chevron{transform:rotate(90deg)}
+  .seg-body{display:none;border-top:1px solid var(--hairline);padding:0 14px 14px}
+  .seg.open .seg-body{display:block}
+  .seg-tabs{display:flex;gap:2px;padding:10px 0 12px}
+  .seg-tab{padding:5px 10px;border-radius:6px;font-size:12px;color:var(--text-2)}
+  .seg-tab.active{background:#f0f0f3;color:var(--text);font-weight:500}
+  .prompt-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .prompt-note{font-size:11px;color:var(--text-3)}
+  .prompt-box{
+    border:1px solid var(--hairline);border-radius:10px;background:#fbfbfd;
+    padding:12px 14px;max-height:220px;overflow:auto;
+  }
+  .prompt-box pre{
+    margin:0;font-family:var(--mono);font-size:11px;line-height:1.65;color:#3a3a3c;
+    white-space:pre-wrap;word-break:break-word;
+  }
+  .prompt-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+  .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .thumb-row{display:flex;gap:10px;align-items:center}
+  .thumb{width:64px;height:40px;border-radius:8px;background:linear-gradient(140deg,#0b1e3a,#1d4f8c 60%,#7fd1ff);flex:none}
+  .note{font-size:11px;color:var(--text-3);margin-top:6px}
+
+  /* ---------- inspector ---------- */
+  .tabs{display:grid;grid-template-columns:1fr 1fr;gap:2px;padding:2px;background:#ececf0;border-radius:9px;margin-bottom:16px}
+  .tab{height:28px;border-radius:7px;font-size:12px;color:var(--text-2);display:grid;place-items:center}
+  .tab.active{background:var(--surface);color:var(--text);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .panel{display:none}
+  .panel.active{display:block}
+  .ins-group{margin-bottom:20px}
+  .field{margin-bottom:12px}
+  .field label{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text-2);margin-bottom:6px}
+  .hint{font-size:10px;color:var(--text-3)}
+  .segmented{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;padding:2px;background:#ececf0;border-radius:8px}
+  .segmented button{height:28px;border-radius:6px;font-size:12px;color:var(--text-2)}
+  .segmented button.active{background:var(--surface);color:var(--text);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .select, .input{
+    width:100%;height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--hairline);
+    background:var(--surface);font-size:12px;outline:0;
+  }
+  .input:focus,.select:focus{border-color:#a7c9f5;box-shadow:0 0 0 3px rgba(0,113,227,.12)}
+  .row-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  details.advanced{border-top:1px solid var(--hairline);padding-top:12px}
+  details.advanced summary{cursor:pointer;font-size:12px;color:var(--text-2);list-style:none;display:flex;align-items:center;justify-content:space-between}
+  details.advanced summary::-webkit-details-marker{display:none}
+  details.advanced summary::after{content:"＋";color:var(--text-3)}
+  details.advanced[open] summary::after{content:"－"}
+  .adv-body{padding-top:12px}
+
+  .run-state{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .ring{width:34px;height:34px;border-radius:50%;background:conic-gradient(var(--green) 100%, #ececf0 0);display:grid;place-items:center}
+  .ring::after{content:"";width:26px;height:26px;border-radius:50%;background:var(--surface)}
+  .preview{
+    aspect-ratio:16/9;border-radius:10px;background:radial-gradient(120% 120% at 20% 0%,#12305c,#050a14 70%);
+    display:grid;place-items:center;color:#fff;margin-bottom:12px;position:relative;overflow:hidden;
+  }
+  .preview .play{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.16);backdrop-filter:blur(8px);display:grid;place-items:center;font-size:12px}
+  .kv{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--hairline);font-size:12px}
+  .kv span:first-child{color:var(--text-3)}
+  .kv:last-child{border-bottom:0}
+
+  .toast{
+    position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(12px);
+    background:rgba(29,29,31,.92);color:#fff;font-size:12px;padding:10px 16px;border-radius:10px;
+    opacity:0;pointer-events:none;transition:all .22s ease;z-index:99;backdrop-filter:blur(10px);
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  @media (max-width:1200px){
+    .app{grid-template-columns:220px minmax(0,1fr) 300px}
+    .main{padding:16px}
+  }
+  @media (max-width:980px){
+    .app{grid-template-columns:1fr;height:auto}
+    .sidebar{display:none}
+    .inspector{border-left:0;border-top:1px solid var(--hairline)}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">H3</div>
+    <div>
+      <div class="brand-name">数字人工作台</div>
+      <div class="brand-sub">台词原生生成 · 原型</div>
+    </div>
+  </div>
+  <div class="topbar-center">
+    <span class="project-title" id="projectTitle">30秒口播 · 手动测试</span>
+    <span class="status-pill"><span class="dot"></span>已完成</span>
+    <span class="meta-inline">31.2s · 4 段 · 16:9 · 1376×768</span>
+  </div>
+  <div class="topbar-right">
+    <span class="chip">静态原型 · 不连接后端</span>
+    <button class="btn btn-secondary" onclick="toast('原型：刷新状态')">刷新</button>
+    <button class="btn btn-primary" onclick="toast('原型：这里会提交生成')">开始运行</button>
+  </div>
+</header>
+
+<div class="app">
+
+  <!-- ============ 左栏：作品 ============ -->
+  <aside class="sidebar">
+    <div class="side-head">
+      <span class="side-title">最近作品</span>
+      <button class="btn btn-ghost" style="height:24px;padding:0 8px;font-size:12px" onclick="toast('原型：新建作品')">＋ 新建</button>
+    </div>
+    <label class="search">
+      <span>⌕</span>
+      <input placeholder="搜索作品">
+    </label>
+    <div class="proj active">
+      <span class="proj-name">30秒口播 · 手动测试</span>
+      <span class="proj-meta">4 段 · 31.2s · 已完成</span>
+    </div>
+    <div class="proj">
+      <span class="proj-name">三段口播 · 音频驱动 1109</span>
+      <span class="proj-meta">3 段 · 22.3s · 已完成</span>
+    </div>
+    <div class="proj">
+      <span class="proj-name">anchor-tts-124</span>
+      <span class="proj-meta">1 段 · 5.2s</span>
+    </div>
+    <div class="proj">
+      <span class="proj-name">科技新闻口播 · 女主播</span>
+      <span class="proj-meta">21 段 · 处理中</span>
+    </div>
+  </aside>
+
+  <!-- ============ 中栏：工作区 ============ -->
+  <main class="main">
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">台词 / 口播稿</div>
+          <div class="card-sub">模式 1 · 音频驱动 · 以音频波形为时间轴</div>
+        </div>
+        <button class="btn btn-secondary" onclick="toast('原型：编辑台词')">编辑</button>
+      </div>
+      <div class="card-body">
+        <p class="script-text">过去七天，科技圈最值得注意的，不是又发了几个模型，而是这些模型开始真正进入工作流。有人用它写代码，有人用它做视频，还有人把整条客服线交给了它。热闹之外，真正拉开差距的，是同一件事：谁能把模型变成稳定、可复用的工具，而不是一次性的演示。接下来，我们把镜头交给现场，看看真实世界里的用法。</p>
+        <div class="script-foot">
+          <span>132 字</span><span>语速 5 字/秒</span><span>目标段长 8.0s</span><span>最长 12.0s</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">驱动音频</div>
+          <div class="card-sub">source.wav · 31.2s · 44.1kHz</div>
+        </div>
+        <button class="btn btn-ghost" onclick="toast('原型：替换音频')">替换</button>
+      </div>
+      <div class="timeline">
+        <div class="wave" id="wave">
+          <svg viewBox="0 0 1000 88" preserveAspectRatio="none" aria-hidden="true">
+            <g fill="#d98a3a" opacity=".85"></g>
+          </svg>
+          <div class="cut" style="left:27.7%"></div>
+          <div class="cut" style="left:49.4%"></div>
+          <div class="cut" style="left:83.3%"></div>
+        </div>
+        <div class="tick-row"><span>00:00</span><span>00:08</span><span>00:16</span><span>00:24</span><span>00:31</span></div>
+      </div>
+    </section>
+
+    <div class="seg-head">
+      <h2>段落</h2>
+      <span class="sub">4 段 · 31.2s · 逐段生成，最后自动拼接</span>
+    </div>
+
+    <!-- 段 0（展开） -->
+    <article class="seg open">
+      <div class="seg-row" onclick="toggleSeg(this)">
+        <span class="seg-index">01</span>
+        <span class="seg-text">过去七天，科技圈最值得注意的，不是又发了几个模型，而是这些模型开始真正进入工作流。</span>
+        <span class="seg-tags">
+          <span class="tag tag-ok">完成</span>
+          <span class="tag tag-template">默认模板</span>
+        </span>
+        <span class="seg-time">8.63s</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="seg-body">
+        <div class="seg-tabs">
+          <button class="seg-tab active" onclick="segTab(this)">提示词</button>
+          <button class="seg-tab" onclick="segTab(this)">台词</button>
+          <button class="seg-tab" onclick="segTab(this)">参考图</button>
+          <button class="seg-tab" onclick="segTab(this)">创作要求</button>
+        </div>
+        <div class="prompt-meta">
+          <span class="prompt-note">来源：首尾帧默认模板 · 780 字 · 手改后以你的版本为准</span>
+          <span class="hint">末帧 8.63s</span>
+        </div>
+        <div class="prompt-box">
+<pre>How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns
+with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the
+8.63-second mark of the target video. The shot is one continuous bridge between these
+two aligned frames.
+
+integrated_multimodal_description:
+[Shot 1] The camera stays fixed, with framing consistent with the reference image. The
+performer speaks naturally to camera with natural hand gestures, subtle blinking and
+breathing. Appearance, clothing colours, hairstyle, background and lighting remain
+consistent throughout.
+
+overall_soundscape:
+The supplied runtime driving speech is the soundtrack of this recording; mouth shapes,
+breathing and pauses follow that waveform naturally.
+
+non_diegetic_music:
+N/A</pre>
+        </div>
+        <div class="prompt-actions">
+          <button class="btn btn-secondary" onclick="toast('原型：恢复默认模板')">恢复默认模板</button>
+          <button class="btn btn-primary" onclick="toast('原型：保存提示词')">保存</button>
+        </div>
+      </div>
+    </article>
+
+    <!-- 段 1 -->
+    <article class="seg">
+      <div class="seg-row" onclick="toggleSeg(this)">
+        <span class="seg-index">02</span>
+        <span class="seg-text">有人用它写代码，有人用它做视频，还有人把整条客服线交给了它。</span>
+        <span class="seg-tags"><span class="tag tag-ok">完成</span><span class="tag tag-template">默认模板</span></span>
+        <span class="seg-time">6.79s</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="seg-body">
+        <div class="seg-tabs">
+          <button class="seg-tab active">提示词</button><button class="seg-tab">台词</button><button class="seg-tab">参考图</button><button class="seg-tab">创作要求</button>
+        </div>
+        <div class="prompt-meta"><span class="prompt-note">来源：首尾帧默认模板 · 780 字</span><span class="hint">末帧 15.42s</span></div>
+        <div class="prompt-box"><pre>How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns
+with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the
+6.79-second mark of the target video. …</pre></div>
+      </div>
+    </article>
+
+    <!-- 段 2 -->
+    <article class="seg">
+      <div class="seg-row" onclick="toggleSeg(this)">
+        <span class="seg-index">03</span>
+        <span class="seg-text">热闹之外，真正拉开差距的，是同一件事：谁能把模型变成稳定、可复用的工具，而不是一次性的演示。</span>
+        <span class="seg-tags"><span class="tag tag-ok">完成</span><span class="tag tag-template">默认模板</span></span>
+        <span class="seg-time">10.58s</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="seg-body">
+        <div class="seg-tabs"><button class="seg-tab active">提示词</button><button class="seg-tab">台词</button><button class="seg-tab">参考图</button><button class="seg-tab">创作要求</button></div>
+        <div class="prompt-meta"><span class="prompt-note">来源：首尾帧默认模板 · 781 字</span><span class="hint">末帧 26.00s</span></div>
+        <div class="prompt-box"><pre>How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns
+with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the
+10.58-second mark of the target video. …</pre></div>
+      </div>
+    </article>
+
+    <!-- 段 3 -->
+    <article class="seg">
+      <div class="seg-row" onclick="toggleSeg(this)">
+        <span class="seg-index">04</span>
+        <span class="seg-text">接下来，我们把镜头交给现场，看看真实世界里的用法。</span>
+        <span class="seg-tags"><span class="tag tag-ok">完成</span><span class="tag tag-template">默认模板</span></span>
+        <span class="seg-time">5.21s</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="seg-body">
+        <div class="seg-tabs"><button class="seg-tab active">提示词</button><button class="seg-tab">台词</button><button class="seg-tab">参考图</button><button class="seg-tab">创作要求</button></div>
+        <div class="prompt-meta"><span class="prompt-note">来源：首尾帧默认模板 · 780 字</span><span class="hint">末帧 31.20s</span></div>
+        <div class="prompt-box"><pre>How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns
+with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the
+5.21-second mark of the target video. …</pre></div>
+      </div>
+    </article>
+
+  </main>
+
+  <!-- ============ 右栏：检查器 ============ -->
+  <aside class="inspector">
+    <div class="tabs">
+      <button class="tab active" onclick="inspTab(this,'p-params')">参数</button>
+      <button class="tab" onclick="inspTab(this,'p-run')">运行 / 成片</button>
+    </div>
+
+    <!-- 参数 -->
+    <div class="panel active" id="p-params">
+
+      <div class="ins-group">
+        <div class="group-label">段间模式</div>
+        <div class="segmented" id="stitchSeg">
+          <button onclick="setStitch(this,'hard')">硬切</button>
+          <button class="active" onclick="setStitch(this,'anchor')">首尾帧锚定</button>
+        </div>
+        <div class="note">每段首尾同图 + 固定种子；不跨段传递，避免劣化累积。</div>
+      </div>
+
+      <div class="ins-group" id="anchorGroup">
+        <div class="group-label">首尾帧设置</div>
+        <div class="field">
+          <label>中间锚点</label>
+          <div class="segmented">
+            <button class="active">无</button><button>中间</button><button>三分</button><button>自定义</button>
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label>参考图预处理</label>
+            <select class="select"><option>中心裁切</option><option>拉伸</option><option>不处理</option></select>
+          </div>
+          <div class="field">
+            <label>采样方式</label>
+            <select class="select" id="sampler" onchange="onSampler(this)"><option selected>普通单采</option><option>SelfLift 双采</option></select>
+          </div>
+        </div>
+        <div class="field">
+          <label>首尾钉帧</label>
+          <div class="segmented"><button>开</button><button class="active">关</button></div>
+          <div class="note">开：拼接处与参考图完全一致，但段内首尾多 1 帧突变。</div>
+        </div>
+        <div class="field">
+          <label>缩放插值</label>
+          <select class="select"><option selected>lanczos</option><option>bilinear</option><option>bicubic</option></select>
+        </div>
+      </div>
+
+      <div class="ins-group">
+        <div class="group-label">输出</div>
+        <div class="row-2">
+          <div class="field">
+            <label>画幅</label>
+            <select class="select"><option selected>16:9 横屏</option><option>9:16 竖屏</option></select>
+          </div>
+          <div class="field">
+            <label>清晰度</label>
+            <select class="select"><option selected>1.0 MP · 标准</option><option>0.6 MP · 快速</option><option>2.0 MP · 高清</option></select>
+          </div>
+        </div>
+        <div class="field">
+          <label id="seedLabel">锚定种子 <span class="hint" id="seedHint">0 = 项目固定种子</span></label>
+          <input class="input" type="number" value="12345" min="0" step="1">
+        </div>
+      </div>
+
+      <details class="advanced">
+        <summary>高级生成参数</summary>
+        <div class="adv-body">
+          <div class="row-2">
+            <div class="field"><label>采样步数</label><input class="input" type="number" value="6"></div>
+            <div class="field"><label>CFG</label><input class="input" type="number" value="1.0"></div>
+          </div>
+          <div class="row-2">
+            <div class="field"><label>采样器</label><select class="select"><option selected>euler</option></select></div>
+            <div class="field"><label>调度器</label><select class="select"><option selected>simple</option></select></div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- 运行 -->
+    <div class="panel" id="p-run">
+      <div class="run-state">
+        <div class="ring"></div>
+        <div>
+          <div style="font-size:13px;font-weight:600">成片已完成</div>
+          <div class="note" style="margin-top:2px">4/4 段 · 用时 04:12</div>
+        </div>
+      </div>
+
+      <div class="preview"><div class="play">▶</div></div>
+
+      <div class="kv"><span>成片时长</span><span>31.2s · 24fps</span></div>
+      <div class="kv"><span>尺寸</span><span>1376×768</span></div>
+      <div class="kv"><span>文件大小</span><span>9.8 MB</span></div>
+      <div class="kv"><span>音轨</span><span>原始驱动音频</span></div>
+
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-secondary" style="flex:1" onclick="toast('原型：重新合成')">重新合成</button>
+        <button class="btn btn-primary" style="flex:1" onclick="toast('原型：下载成片')">下载</button>
+      </div>
+
+      <div class="ins-group" style="margin-top:22px">
+        <div class="group-label">日志</div>
+        <div class="note" style="line-height:1.9">
+          21:23:12 第 1/4 段 完成（5.9 MB）<br>
+          21:23:47 第 2/4 段 完成（4.2 MB）<br>
+          21:24:23 第 3/4 段 完成（6.7 MB）<br>
+          21:24:44 第 4/4 段 完成（3.1 MB）<br>
+          21:24:45 成片完成：31.2s / 4 段
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // 波形：用固定规律生成，避免外部依赖
+  (function drawWave(){
+    const g = document.querySelector('#wave svg g');
+    const bars = 220, step = 1000 / bars;
+    let html = '';
+    for (let i = 0; i < bars; i++) {
+      const x = i * step + 1.2;
+      const env = Math.sin(i / bars * Math.PI) * .55 + .45;
+      const n = (Math.sin(i * 1.7) * .5 + Math.sin(i * .37 + 1.2) * .5);
+      const h = Math.max(3, Math.abs(n) * 58 * env + 4);
+      html += `<rect x="${x.toFixed(1)}" y="${(44 - h / 2).toFixed(1)}" width="1.6" height="${h.toFixed(1)}" rx=".8"></rect>`;
+    }
+    g.innerHTML = html;
+  })();
+
+  function toggleSeg(row){
+    const seg = row.closest('.seg');
+    seg.classList.toggle('open');
+  }
+
+  function segTab(btn){
+    const tabs = btn.parentElement.querySelectorAll('.seg-tab');
+    tabs.forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    if (btn.textContent !== '提示词') toast('原型：这里会显示「' + btn.textContent + '」内容');
+  }
+
+  function inspTab(btn, panelId){
+    document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById(panelId).classList.add('active');
+  }
+
+  function setStitch(btn, mode){
+    const seg = document.getElementById('stitchSeg');
+    seg.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const anchor = mode === 'anchor';
+    document.getElementById('anchorGroup').style.display = anchor ? '' : 'none';
+    const label = document.getElementById('seedLabel');
+    const hint = document.getElementById('seedHint');
+    label.childNodes[0].nodeValue = anchor ? '锚定种子 ' : '随机种子 ';
+    hint.textContent = anchor ? '0 = 项目固定种子' : '0 = 每段随机';
+    toast(anchor ? '原型：已切到首尾帧锚定（固定种子）' : '原型：已切到硬切（每段随机种子）');
+  }
+
+  function onSampler(sel){
+    const selflift = sel.value === 'SelfLift 双采';
+    const mid = document.getElementById('anchorGroup');
+    mid.querySelectorAll('.segmented')[0].querySelectorAll('button').forEach(b => {
+      b.disabled = selflift;
+      b.style.opacity = selflift ? .45 : 1;
+      b.style.cursor = selflift ? 'default' : 'pointer';
+    });
+    if (selflift) toast('原型：双采会自动关闭中间锚点');
+  }
+
+  let toastTimer = null;
+  function toast(msg){
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+</script>
+</body>
+</html>

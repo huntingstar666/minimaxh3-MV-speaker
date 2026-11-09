@@ -7,11 +7,15 @@
  *       每段节拍表、提示词摘要与 lint 面板、叠加模式提示。
  * ============================================================ */
 
+import { Waveform } from "./waveform.js";
+
 const API = "/avatar/api";
 const LAST_KEY = "h3avatar:lastProject";
 const FPS = 24;
 const RUN_ACTIVE = new Set(["queued", "running"]);
 const RUN_TERMINAL = new Set(["completed", "failed", "cancelled"]);
+
+let waveform = null;
 
 const MODE_LABEL = { 1: "音频驱动", 2: "参考音色", 3: "无音频参考" };
 const RUN_LABEL = {
@@ -2109,94 +2113,68 @@ function syncAudioSource(project) {
   }
 }
 
-function drawWave() {
+function ensureWaveform() {
+  if (waveform) return waveform;
   const canvas = $("#wave-canvas");
   const wrap = $("#wave-wrap");
-  if (!canvas || !wrap) return;
-  const cssW = Math.max(240, Math.floor(wrap.clientWidth));
-  const cssH = Math.max(56, Math.floor(wrap.clientHeight));
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
-  canvas.style.width = `${cssW}px`;
-  canvas.style.height = `${cssH}px`;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, cssW, cssH);
-  const mid = cssH / 2;
+  if (!canvas || !wrap) return null;
+  waveform = new Waveform(canvas, wrap);
+  waveform.height = 96;
+  waveform.canvas.style.height = "96px";
+  waveform.onSeek = (seconds) => {
+    setPlayhead(seconds);
+    const audio = $("#av-audio");
+    if (audio && audio.dataset.src && audio.readyState >= 1) {
+      try { audio.currentTime = state.playhead; } catch { /* ignore */ }
+    }
+  };
+  waveform.onBoundary = async (cuts) => {
+    const project = state.project;
+    if (!project) return;
+    try {
+      const data = await api.cuts(project.id, cuts.map((value) => Number(Number(value).toFixed(3))));
+      applyProject(data.project, { fill: false });
+      await loadProjects();
+      toast("切点已更新", "ok");
+    } catch (err) {
+      toast(`切点更新失败：${err.message}`, "err", 7000);
+      drawWave();
+    }
+  };
+  waveform.onSplit = (time) => {
+    setPlayhead(time, { seek: false });
+    splitAtPlayhead();
+  };
+  waveform.onDeleteBoundary = (index) => mergeDown(index);
+  return waveform;
+}
+
+function drawWave() {
+  const wf = ensureWaveform();
+  if (!wf) return;
   const project = state.project;
-  const duration = Math.max(audioDuration(), 1e-6);
-
-  const segments = project?.segments || [];
-  if (segments.length) {
-    let x = 0;
-    segments.forEach((seg, index) => {
-      const width = (segSeconds(seg) / duration) * cssW;
-      if (index % 2 === 1) {
-        ctx.fillStyle = "rgba(255,255,255,.018)";
-        ctx.fillRect(x, 0, width, cssH);
-      }
-      x += width;
-    });
-  }
-
   const peaks = project?.analysis?.waveform?.original;
-  if (!Array.isArray(peaks) || !peaks.length) {
-    ctx.fillStyle = "rgba(255,255,255,.10)";
-    ctx.fillRect(0, mid - 0.5, cssW, 1);
-    ctx.fillStyle = "rgba(255,255,255,.28)";
-    ctx.font = "11px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("分析后显示波形（也可先播放音频）", cssW / 2, mid - 8);
-    return;
-  }
-  let maxAbs = 0;
-  const values = new Array(peaks.length);
-  for (let i = 0; i < peaks.length; i += 1) {
-    const value = Math.abs(num(peaks[i]));
-    values[i] = value;
-    if (value > maxAbs) maxAbs = value;
-  }
-  if (maxAbs <= 0) maxAbs = 1;
-  const columns = Math.max(40, Math.floor(cssW / 3));
-  const barWidth = Math.max(1, cssW / columns - 1);
-  const gradient = ctx.createLinearGradient(0, 0, 0, cssH);
-  gradient.addColorStop(0, "rgba(255,196,120,.85)");
-  gradient.addColorStop(0.5, "rgba(255,180,84,.55)");
-  gradient.addColorStop(1, "rgba(255,150,70,.28)");
-  ctx.fillStyle = gradient;
-  for (let i = 0; i < columns; i += 1) {
-    const from = Math.floor((i * values.length) / columns);
-    const to = Math.max(from + 1, Math.floor(((i + 1) * values.length) / columns));
-    let peak = 0;
-    for (let j = from; j < to; j += 1) if (values[j] > peak) peak = values[j];
-    const height = Math.max(1, (peak / maxAbs) * (mid - 3));
-    ctx.fillRect(i * (cssW / columns), mid - height, barWidth, height * 2);
-  }
-  ctx.fillStyle = "rgba(255,255,255,.10)";
-  ctx.fillRect(0, mid - 0.5, cssW, 1);
+  const duration = audioDuration();
+  const segments = (project?.segments || []).map((seg, index) => {
+    const start = segmentStart(project, index);
+    return { start, end: start + segSeconds(seg) };
+  });
+  const active = !!(state.run && RUN_ACTIVE.has(state.run.status));
+  wf.editable = Number(project?.mode) === 1 && !active;
+  wf.setData({
+    peaks: Array.isArray(peaks) ? peaks : [],
+    segments: Number(project?.mode) === 1 ? segments : [],
+    duration: Array.isArray(peaks) && peaks.length ? duration : 0,
+  });
+  wf.setPlayhead(state.playhead);
 }
 
 function renderCutHandles() {
-  const box = $("#wave-cuts");
-  if (!box) return;
-  const duration = Math.max(audioDuration(), 1e-6);
-  box.innerHTML = state.cuts
-    .map(
-      (cut, index) => `<div class="wave-cut" data-cut-index="${index}" style="left:${(cut / duration) * 100}%">
-        <span class="wave-cut-tip">${esc(fmtClock(cut))}</span>
-      </div>`
-    )
-    .join("");
+  // 切点由 Waveform 画布统一绘制（移植自 MV 工作台），DOM 手柄只保留占位
 }
 
 function positionPlayhead() {
-  const head = $("#wave-head");
-  if (!head) return;
-  const duration = Math.max(audioDuration(), 1e-6);
-  const percent = clamp(state.playhead / duration, 0, 1) * 100;
-  head.style.left = `${percent}%`;
+  if (waveform) waveform.setPlayhead(state.playhead);
   const label = $("#playhead-label");
   if (label) label.textContent = `${fmtClock(state.playhead)} / ${fmtClock(Math.max(audioDuration(), 0))}`;
 }
@@ -2623,6 +2601,25 @@ function clearProject({ silent = false } = {}) {
 }
 
 /* ---------------- 创建 / 保存 / 分段 ---------------- */
+
+async function startNewProject() {
+  if (isRunActive(state.run)) {
+    toast("当前有生成任务在运行，请先停止任务再新建作品。", "warn", 5000);
+    return;
+  }
+  if (!state.project) {
+    await createProject();
+    return;
+  }
+  const ok = await confirmDialog(
+    "新建空白作品",
+    "会新建一个空白作品。当前作品可在「最近作品」随时打开；表单里未保存的修改会丢弃。",
+    "新建空白作品"
+  );
+  if (!ok) return;
+  clearProject({ silent: true });
+  await createProject();
+}
 
 async function createProject() {
   const form = readForm();
@@ -4272,6 +4269,8 @@ function syncButtons() {
   if (cancel) cancel.classList.toggle("hidden", !active);
 
   $("#btn-create-label").textContent = hasProject ? "保存设定" : "新建作品";
+  // 已有作品时始终给一个明确的新建入口，避免主按钮变成「保存设定」后找不到新建
+  $("#btn-new")?.classList.toggle("hidden", !hasProject);
 
   const download = $("#btn-download");
   const downloadTop = $("#btn-download-top");
@@ -4323,30 +4322,8 @@ function bindDragEvents(drop, input, handler) {
 }
 
 function bindWaveEvents() {
-  const wrap = $("#wave-wrap");
-  if (!wrap) return;
-  wrap.addEventListener("pointerdown", (event) => {
-    if (event.target.closest?.(".wave-cut")) return;
-    if (event.button !== undefined && event.button !== 0) return;
-    const duration = audioDuration();
-    if (!duration) return;
-    const rect = wrap.getBoundingClientRect();
-    state.draggingPlayhead = true;
-    setPlayhead(timeFromClientX(event.clientX, rect, duration));
-    const onMove = (moveEvent) => setPlayhead(timeFromClientX(moveEvent.clientX, rect, duration));
-    const onUp = () => {
-      state.draggingPlayhead = false;
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-    };
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  });
-  const cutBox = $("#wave-cuts");
-  cutBox?.addEventListener("pointerdown", (event) => {
-    const handle = event.target.closest(".wave-cut");
-    if (handle) beginCutDrag(handle, event);
-  });
+  // 指针交互（定位播放头 / 拖切点 / 双击切分 / 右键合并）由 Waveform 组件接管
+  // （组件移植自 web/js/waveform.js，画布层统一绘制标尺、波形、段底色与播放头）
 }
 
 function bindAudioElement() {
@@ -4507,7 +4484,7 @@ function bindEvents() {
   });
 
   $("#btn-create").addEventListener("click", () => (state.project ? saveSettings() : createProject()));
-  $("#btn-new").addEventListener("click", () => clearProject());
+  $("#btn-new").addEventListener("click", startNewProject);
   // 数字人包（.h3avatar.zip）导入 / 导出：后端与文档已定义契约，之前页面没有入口
   $("#btn-import-pack")?.addEventListener("click", () => $("#pack-input")?.click());
   $("#pack-input")?.addEventListener("change", async (event) => {
@@ -4757,7 +4734,8 @@ async function boot() {
   }
 
   if (!state.project) fillGeneration(state.generationDefaults || {});
-  if (lastId) await openProject(lastId);
+  // 启动恢复上次作品时，如果用户已经抢先新建了作品，就不要再覆盖它
+  if (lastId && !state.project) await openProject(lastId);
   if (!state.project) {
     renderSegments();
     renderRun(null);

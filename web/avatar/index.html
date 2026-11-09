@@ -214,8 +214,8 @@
       <div class="av-form-actions">
         <button class="btn primary block" id="btn-create"><svg><use href="#i-plus"/></svg><span id="btn-create-label">新建作品</span></button>
         <div class="av-form-actions-row" id="form-actions-plan">
+          <button class="btn ghost sm" id="btn-new"><svg><use href="#i-plus"/></svg>新建空白作品</button>
           <button class="btn ghost sm" id="btn-plan"><svg><use href="#i-spark"/></svg>按台词分段</button>
-          <button class="btn ghost sm" id="btn-new"><svg><use href="#i-plus"/></svg>新作品</button>
         </div>
       </div>
       <p class="panel-note tiny" id="form-hint">填写台词后新建作品，再点「按台词分段」。</p>
@@ -423,6 +423,7 @@
       </div>
       <div class="wave-wrap" id="wave-wrap">
         <canvas id="wave-canvas"></canvas>
+        <div class="wave-empty" id="wave-empty">分析后显示波形（也可先播放音频）</div>
         <div class="wave-cuts" id="wave-cuts"></div>
         <div class="wave-head" id="wave-head"></div>
       </div>
