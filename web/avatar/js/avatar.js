@@ -705,9 +705,15 @@ function readGeneration() {
     gen.anchor_pin_frames = ($("#f-anchor-pin")?.value || "false") === "true";
     gen.lowres_scale = Number($("#f-anchor-lowres")?.value || 0.5);
     gen.transition_step = Math.max(1, Number($("#f-anchor-transition")?.value || 4));
+    gen.upscaler_model = $("#f-anchor-upscaler")?.value || g.upscaler_model;
+    gen.rho = Number($("#f-anchor-rho")?.value || 0);
+    gen.w_min = Number($("#f-anchor-wmin")?.value || 0.5);
+    gen.w_max = Number($("#f-anchor-wmax")?.value || 1);
+    gen.tiling_axis = $("#f-anchor-tiling-axis")?.value || "auto";
     const tiling = $("#f-anchor-tiling")?.value || "auto";
+    gen.highres_tiling = tiling !== "off";
     gen.tiling_mode = tiling === "auto" ? "auto" : "manual";
-    gen.tiling_tiles = tiling === "auto" ? 2 : Number(tiling);
+    gen.tiling_tiles = (tiling === "auto" || tiling === "off") ? 2 : Number(tiling);
   }
   return gen;
 }
@@ -743,8 +749,14 @@ function fillGeneration(gen) {
   if ($("#f-anchor-transition")) {
     $("#f-anchor-transition").value = String(g.transition_step ?? 4);
   }
+  setSelectValue($("#f-anchor-upscaler"), g.upscaler_model || "");
+  if ($("#f-anchor-rho")) $("#f-anchor-rho").value = String(g.rho ?? 0);
+  if ($("#f-anchor-wmin")) $("#f-anchor-wmin").value = String(g.w_min ?? 0.5);
+  if ($("#f-anchor-wmax")) $("#f-anchor-wmax").value = String(g.w_max ?? 1);
+  setSelectValue($("#f-anchor-tiling-axis"), g.tiling_axis || "auto");
   setSelectValue($("#f-anchor-tiling"),
-    g.tiling_mode === "manual" ? String(g.tiling_tiles || 2) : "auto");
+    g.highres_tiling === false ? "off"
+      : (g.tiling_mode === "manual" ? String(g.tiling_tiles || 2) : "auto"));
   if ($("#f-anchor-mid-frames")) {
     $("#f-anchor-mid-frames").value = (g.anchor_mid_frames || []).join(",");
   }
@@ -2501,6 +2513,8 @@ function fillAdvancedOptions() {
   fillSelect($("#a-lora"), itemList("lora"), current("#a-lora", g.lora), "默认");
   fillSelect($("#a-sampler"), itemList("samplers"), current("#a-sampler", g.sampler), "默认");
   fillSelect($("#a-scheduler"), itemList("schedulers"), current("#a-scheduler", g.scheduler), "默认");
+  fillSelect($("#f-anchor-upscaler"), itemList("upscaler"),
+    current("#f-anchor-upscaler", g.upscaler_model), "默认");
 }
 
 function fillAspectOptions() {

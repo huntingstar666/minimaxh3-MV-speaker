@@ -578,13 +578,42 @@
                   </select>
                 </div>
                 <div class="field">
-                  <label>高分辨分块 <span class="hint">按显存自动</span></label>
-                  <select id="f-anchor-tiling" class="input">
-                    <option value="auto">auto（按显存）</option>
-                    <option value="2">2 块</option>
-                    <option value="4">4 块</option>
+                  <label>高清放大模型 <span class="hint">latent upscaler</span></label>
+                  <select id="f-anchor-upscaler" class="input"></select>
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>校正比例 rho <span class="hint">0 = 只用放大模型</span></label>
+                  <input id="f-anchor-rho" class="input mono" type="number" min="0" max="1" step="0.05" value="0">
+                </div>
+                <div class="field">
+                  <label>分块方向</label>
+                  <select id="f-anchor-tiling-axis" class="input">
+                    <option value="auto">auto（长边）</option>
+                    <option value="width">width（左右）</option>
+                    <option value="height">height（上下）</option>
                   </select>
                 </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>校正下限 w_min</label>
+                  <input id="f-anchor-wmin" class="input mono" type="number" min="0" max="1" step="0.05" value="0.5">
+                </div>
+                <div class="field">
+                  <label>校正上限 w_max</label>
+                  <input id="f-anchor-wmax" class="input mono" type="number" min="0" max="1" step="0.05" value="1">
+                </div>
+              </div>
+              <div class="field">
+                <label>高分辨分块 <span class="hint">关闭则整帧处理，更吃显存</span></label>
+                <select id="f-anchor-tiling" class="input">
+                  <option value="off">关闭</option>
+                  <option value="auto">auto（按显存）</option>
+                  <option value="2">2 块</option>
+                  <option value="4">4 块</option>
+                </select>
               </div>
               <p class="av-anchor-hint" id="anchor-step-hint" hidden>总步数 6 = 低清 4 + 高清二采 2（总 NFE 不变）</p>
               <p class="av-anchor-hint" id="anchor-selflift-hint" hidden>低清比例 0.5 / 2 块最稳；总步数在上方「采样步数」里改。</p>
