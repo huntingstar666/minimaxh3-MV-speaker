@@ -273,16 +273,26 @@ body.av-body.av-light{
 .av-body.av-light .av-seg-control-item:disabled{opacity:.4}
 
 /* ---------- 8. 右栏 tabs ---------- */
-.av-body.av-light .av-rail-tabs{border-bottom-color:var(--line)}
-.av-body.av-light .av-rail-tab{
+.av-body.av-light .av-rail-tabs{
+  border-bottom:0;
+  padding:3px;
+  margin:10px 12px 10px;
   background:#ececf0;
+  border-radius:11px;
+  gap:2px;
+}
+.av-body.av-light .av-rail-tab{
+  background:transparent;
+  border-color:transparent;
+  border-radius:8px;
+  padding:6px 8px;
   color:var(--dim);
 }
-.av-body.av-light .av-rail-tab:hover{background:#e4e4ea;color:var(--text)}
+.av-body.av-light .av-rail-tab:hover{background:rgba(0,0,0,.04);color:var(--text)}
 .av-body.av-light .av-rail-tab.active{
   background:#fff;color:var(--text);
   border-color:transparent;
-  box-shadow:0 1px 2px rgba(0,0,0,.06);
+  box-shadow:0 1px 2px rgba(0,0,0,.10),0 0 0 .5px rgba(0,0,0,.03);
 }
 
 /* ---------- 9. 基础文字与图标 ---------- */
@@ -412,3 +422,114 @@ body.av-body.av-light{
 }
 .av-body.av-light .av-empty li{background:#fbfbfd}
 .av-body.av-light .av-empty li:hover{background:#f2f8ff}
+
+/* ---------- 15. 运行 / 成片 ---------- */
+.av-body.av-light .av-workspace #panel-run .progress-strip{
+  background:linear-gradient(180deg,rgba(0,113,227,.06),rgba(0,113,227,.02));
+  border-color:#cfe3fa;
+}
+.av-body.av-light .av-workspace #panel-run .progress-track{
+  background:#ececf0;
+  border-color:var(--line);
+}
+.av-body.av-light .av-workspace #panel-run .progress-track i{
+  background:linear-gradient(90deg,#0071e3,#4a9bff,#0071e3);
+  background-size:240% 100%;
+}
+.av-body.av-light .av-workspace .av-final-frame.video-frame{
+  background:#0b0e13;
+  border-color:rgba(0,0,0,.12);
+}
+.av-body.av-light .av-workspace .av-final-info div{background:#fbfbfd}
+.av-body.av-light .av-workspace .final-stale{
+  background:#e8f2ff;
+  border-color:#cfe3fa;
+  color:#0062c4;
+}
+
+/* ---------- 16. 工作台之外的按钮（顶栏 / 弹层 / @ 选择器） ---------- */
+.av-body.av-light .av-topbar .btn,
+.av-body.av-light .modal .btn,
+.av-body.av-light .mention-pop .btn{
+  border-color:var(--line);
+  background:#fff;
+  color:var(--text);
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+.av-body.av-light .av-topbar .btn:hover,
+.av-body.av-light .modal .btn:hover,
+.av-body.av-light .mention-pop .btn:hover{
+  background:#f7f7fa;
+  border-color:var(--line-strong);
+  transform:none;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.av-body.av-light .av-topbar .btn.ghost,
+.av-body.av-light .modal .btn.ghost,
+.av-body.av-light .mention-pop .btn.ghost{
+  background:transparent;
+  border-color:transparent;
+  box-shadow:none;
+}
+.av-body.av-light .av-topbar .btn.ghost:hover,
+.av-body.av-light .modal .btn.ghost:hover,
+.av-body.av-light .mention-pop .btn.ghost:hover{background:#f0f0f2}
+.av-body.av-light .modal .btn.danger{
+  background:#fff1f1;border-color:#f3c4c8;color:#c40012;
+}
+.av-body.av-light .modal .btn.danger:hover{background:#ffe5e7}
+.av-body.av-light .av-topbar .btn.primary,
+.av-body.av-light .modal .btn.primary,
+.av-body.av-light .mention-pop .btn.primary{
+  background:#0071e3;border-color:#0071e3;color:#fff;
+}
+.av-body.av-light .modal .icon-btn,
+.av-body.av-light .mention-pop .icon-btn{color:var(--faint)}
+.av-body.av-light .modal .icon-btn:hover,
+.av-body.av-light .mention-pop .icon-btn:hover{background:#f0f0f2;color:var(--text)}
+.av-body.av-light .mention-pop .mention-item:hover,
+.av-body.av-light .mention-pop .mention-item.active{background:#e8f2ff}
+
+/* ---------- 17. 弹层 ---------- */
+.av-body.av-light .modal{
+  background:rgba(0,0,0,.45);
+  backdrop-filter:blur(8px);
+}
+.av-body.av-light .modal-card{
+  background:#fff;
+  border-color:var(--line);
+  box-shadow:0 24px 60px rgba(0,0,0,.18),0 2px 6px rgba(0,0,0,.06);
+}
+.av-body.av-light .modal-head{border-bottom-color:var(--line)}
+.av-body.av-light .modal-foot{border-top-color:var(--line)}
+.av-body.av-light .modal-head h2{color:var(--text)}
+.av-body.av-light #modal-image-preview img{background:#f7f7fa}
+
+/* 片段播放器：保持深色 shell（与视频画面连成一体） */
+.av-body.av-light #modal-take-preview .modal-card{
+  background:#0b0e13;
+  border-color:rgba(255,255,255,.12);
+  box-shadow:0 34px 90px rgba(0,0,0,.55);
+}
+.av-body.av-light #modal-take-preview .modal-head{border-bottom-color:rgba(255,255,255,.1)}
+.av-body.av-light #modal-take-preview .modal-head h2{color:#f5f5f7}
+.av-body.av-light #modal-take-preview .icon-btn{color:#c7c7cc}
+.av-body.av-light #modal-take-preview .icon-btn:hover{
+  background:rgba(255,255,255,.1);
+  color:#fff;
+}
+.av-body.av-light #modal-take-preview video{background:#05070a}
+
+/* ---------- 18. Toast：保持深色，与浅色页面形成明确层级 ---------- */
+.av-body.av-light .av-toasts .toast{
+  background:rgba(29,29,31,.94);
+  border-color:rgba(255,255,255,.14);
+  color:#f5f5f7;
+  box-shadow:0 10px 28px rgba(0,0,0,.22);
+  backdrop-filter:blur(12px);
+}
+
+/* ---------- 19. 单列布局：分段控件不铺满整行 ---------- */
+@media (max-width:1200px){
+  .av-body.av-light .av-rail-right .av-rail-tabs{max-width:420px}
+}
