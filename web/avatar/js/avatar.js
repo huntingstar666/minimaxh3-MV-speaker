@@ -614,7 +614,7 @@ const api = {
     request(`${projectPath(id)}/segments/${index}`, { method: "PATCH", body }),
   segmentPrompt: (id, index, body = {}) =>
     request(`${projectPath(id)}/segments/${index}/prompt`, { method: "POST", body }),
-  promptsAll: (id) => request(`${projectPath(id)}/prompts`, { method: "POST", body: {} }),
+  promptsAll: (id, payload = {}) => request(`${projectPath(id)}/prompts`, { method: "POST", body: payload }),
   lintPrompt: (id, index, text) =>
     request(`${projectPath(id)}/segments/${index}/prompt/lint`, { method: "POST", body: { text } }),
   repairPrompt: (id, index) =>
@@ -3537,6 +3537,29 @@ function overlayStateOf(seg) {
   return typeof selected?.overlay === "boolean" ? selected.overlay : null;
 }
 
+function promptKind(seg) {
+  if (!String(seg?.prompt || "").trim()) return "";
+  const source = String(seg?.prompt_source || "");
+  if (source === "llm" || source === "repair") return "polished";
+  if (source === "manual") return "manual";
+  return "template";
+}
+
+function updatePolishPill() {
+  const pill = $("#polish-pill");
+  if (!pill) return;
+  const project = state.project;
+  const segments = project?.segments || [];
+  const anchor = Number(project?.mode) === 1
+    && String((project?.generation || {}).stitch || "hard") === "anchor";
+  const polished = segments.filter((seg) => promptKind(seg) === "polished").length;
+  pill.classList.toggle("hidden", !project || anchor || polished === 0);
+  if (project && !anchor && polished > 0) {
+    pill.textContent = `已润色 ${polished}/${segments.length}`;
+    pill.title = "「一键润色」会跳过已润色和手改过的段";
+  }
+}
+
 function segCardHtml(project, seg) {
   const status = seg.status || "idle";
   const [statusText, statusClass] = runStatusMeta(status);
@@ -3571,7 +3594,7 @@ function segCardHtml(project, seg) {
         ${isMode1 ? `<span class="pill av-seg-time-range">${esc(segRangeLabel(project, seg))}</span>` : ""}
         <span class="pill">${num(seg.chars)} 字</span>
         ${overlayPill}
-        ${seg.prompt ? '<span class="pill vocal">已备提示词</span>' : ""}
+        ${seg.prompt ? `<span class="pill vocal">${promptKind(seg) === "polished" ? "已润色" : promptKind(seg) === "manual" ? "已手改" : "已备提示词"}</span>` : ""}
       </div>
       ${seg.error ? `<div class="av-seg-error">${esc(seg.error)}</div>` : ""}
       ${warningsHtml(seg)}
@@ -3656,12 +3679,14 @@ function renderSegments() {
   if (!project) {
     list.innerHTML = "";
     showEmpty("no-project");
+    updatePolishPill();
     return;
   }
   const segments = project.segments || [];
   if (!segments.length) {
     list.innerHTML = "";
     showEmpty("no-segments");
+    updatePolishPill();
     return;
   }
   const openPrompt = $$("#seg-list .av-seg-prompt[open]").map((details) =>
@@ -3680,6 +3705,7 @@ function renderSegments() {
     if (details) details.open = true;
   });
   updateOverlayInline();
+  updatePolishPill();
 }
 
 function updateOverlayInline() {
@@ -4173,11 +4199,26 @@ async function generateAllPrompts() {
     updateSummary(data.project);
     syncButtons();
     const warnings = data.warnings || [];
-    toast(
-      warnings.length ? `提示词已重写（${warnings.length} 条提示）` : "全部提示词已生成",
-      warnings.length ? "info" : "ok",
-      6000
-    );
+    const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+    const generated = Number.isFinite(Number(data.generated))
+      ? Number(data.generated) : Math.max(0, (p.segments || []).length - skipped.length);
+    const anchor = Number(p.mode) === 1
+      && String((p.generation || {}).stitch || "hard") === "anchor";
+    if (!anchor && !generated) {
+      toast(`全部 ${skipped.length} 段已润色或手改，已跳过`, "info", 6000);
+    } else if (!anchor && skipped.length) {
+      toast(
+        `已润色 ${generated} 段，跳过 ${skipped.length} 段已润色/手改${warnings.length ? `（${warnings.length} 条提示）` : ""}`,
+        warnings.length ? "info" : "ok",
+        6000
+      );
+    } else {
+      toast(
+        warnings.length ? `提示词已重写（${warnings.length} 条提示）` : "全部提示词已生成",
+        warnings.length ? "info" : "ok",
+        6000
+      );
+    }
   });
   } catch (err) {
     toast(`提示词生成失败：${err.message}`, "err", 6000);

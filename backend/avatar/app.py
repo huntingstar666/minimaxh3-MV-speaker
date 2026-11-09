@@ -1309,17 +1309,29 @@ def generate_all_prompts(project_id: str, payload: dict[str, Any] | None = None)
 
         project = store.mutate(project_id, apply_anchor_all)
         return {"ok": True, "project": project,
-                "warnings": ["首尾帧模式：已写入固定模板，未调用 LLM"]}
+                "warnings": ["首尾帧模式：已写入固定模板，未调用 LLM"],
+                "skipped": [], "generated": len(computed)}
     config_llm = _llm_config()
     config_llm.update((payload or {}).get("llm") or {})
     images = _ref_images(project_id, project)
     warnings: list[str] = []
     computed: list[tuple[int, dict[str, Any], bool]] = []
+    skipped: list[int] = []
+    force = bool((payload or {}).get("force"))
     for index, row in enumerate(project.get("segments") or []):
+        source = str(row.get("prompt_source") or "")
+        # 一键润色默认跳过已润色和手改过的段，避免二次扩写覆盖用户版本。
+        if (not force and str(row.get("prompt") or "").strip()
+                and source in {"llm", "repair", "manual"}):
+            skipped.append(index + 1)
+            continue
         result = plan.generate_prompt(project, row, config_llm, images)
         computed.append((index, result, bool(row.get("beats"))))
         if result["warnings"]:
             warnings.append(f"第 {index + 1} 段：" + "；".join(result["warnings"]))
+    if not computed:
+        return {"ok": True, "project": project, "warnings": [],
+                "skipped": skipped, "generated": 0}
 
     def apply(latest: dict[str, Any]) -> None:
         for index, result, had_beats in computed:
@@ -1332,7 +1344,8 @@ def generate_all_prompts(project_id: str, payload: dict[str, Any] | None = None)
                 target["beats"] = result["beats"]
 
     project = store.mutate(project_id, apply)
-    return {"ok": True, "project": project, "warnings": warnings}
+    return {"ok": True, "project": project, "warnings": warnings,
+            "skipped": skipped, "generated": len(computed)}
 
 
 @app.post("/api/projects/{project_id}/segments/{index}/beats")
