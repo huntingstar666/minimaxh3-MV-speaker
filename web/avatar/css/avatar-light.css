@@ -1,0 +1,271 @@
+/* ============================================================
+ * H3 DIGITAL HUMAN · 浅色主题（UI v2）
+ * ------------------------------------------------------------
+ * 加载顺序：avatar.css 之后；作用域 .av-body.av-light。
+ * 深色样式保留，删除 link / body 类即可回滚。
+ * P1：token + 骨架 + 顶栏 + 三栏 + 按钮/输入/分段控件。
+ * ============================================================ */
+
+/* ---------- 1. 设计 token：覆盖主样式，仅作用于数字人页面 ---------- */
+.av-body.av-light{
+  color-scheme:light;
+
+  --bg:#f5f5f7;
+  --bg-soft:#fbfbfd;
+  --panel:#ffffff;
+  --panel-2:#fbfbfd;
+  --panel-3:#f0f0f3;
+  --text:#1d1d1f;
+  --dim:#6e6e73;
+  --faint:#86868b;
+  --line:#e8e8ed;
+  --line-strong:#d2d2d7;
+
+  --amber:#0071e3;
+  --amber-2:#f56300;
+  --mint:#1d9c58;
+  --violet:#6e5ce6;
+  --danger:#d70015;
+  --ok:#1d9c58;
+
+  --radius:12px;
+  --radius-sm:8px;
+  --radius-lg:14px;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);
+  --topbar-h:56px;
+
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","PingFang SC","Helvetica Neue",Arial,sans-serif;
+  --display:var(--sans);
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+
+  /* 浅色下不用玻璃/发光，统一成平面层 */
+  --av-glass:#fbfbfd;
+  --av-card:#ffffff;
+  --av-card-hi:#ffffff;
+  --av-sunk:#f7f7fa;
+  --av-hover:rgba(0,0,0,.04);
+  --av-hover-strong:rgba(0,0,0,.07);
+  --av-amber-soft:#e8f2ff;
+  --av-amber-line:#9cc7f5;
+  --av-amber-glow:rgba(0,113,227,.16);
+  --av-mint-soft:#e9f7ef;
+  --av-violet-soft:#f0edff;
+  --av-danger-soft:#fff1f1;
+  --av-ok-soft:#e9f7ef;
+  --av-ring:0 0 0 3px rgba(0,113,227,.14);
+  --av-ring-soft:0 0 0 3px rgba(0,113,227,.08);
+  --av-on-amber:#ffffff;
+  --av-shade-top:0 0 0 transparent;
+  --av-shade-bottom:0 0 0 transparent;
+}
+
+html:has(.av-body.av-light){color-scheme:light}
+
+body.av-body.av-light{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- 2. 顶栏 ---------- */
+.av-body.av-light .av-topbar{
+  height:var(--topbar-h);
+  padding:0 20px;
+  background:rgba(255,255,255,.84);
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(20px) saturate(180%);
+}
+.av-body.av-light .av-topbar::after{display:none}
+.av-body.av-light .brand-mark{
+  width:26px;height:26px;border-radius:7px;
+  background:#1d1d1f;border:0;box-shadow:none;
+}
+.av-body.av-light .brand-mark svg{width:15px;height:15px;color:#fff}
+.av-body.av-light .brand:hover .brand-mark{box-shadow:none}
+.av-body.av-light .brand-text h1{
+  font-size:13px;letter-spacing:.06em;font-weight:600;
+  background:none;color:var(--text);
+  -webkit-text-fill-color:currentColor;
+}
+.av-body.av-light .brand-text p{font-size:11px;letter-spacing:.02em;color:var(--faint)}
+.av-body.av-light .status-chip{
+  background:#fff;border-color:var(--line);color:var(--dim);
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+.av-body.av-light .status-chip b{color:var(--text)}
+.av-body.av-light .status-chip .dot{box-shadow:none}
+.av-body.av-light .status-chip.ok .dot,
+.av-body.av-light .status-chip.warn .dot,
+.av-body.av-light .status-chip.err .dot{box-shadow:none;animation:none}
+.av-body.av-light .status-chip:hover{background:#f7f7fa;border-color:var(--line-strong)}
+
+/* ---------- 3. 三栏骨架 ---------- */
+.av-body.av-light .av-workspace{background:var(--bg)}
+.av-body.av-light .av-rail{
+  background:#fbfbfd;
+  border-color:var(--line);
+  box-shadow:none;
+  backdrop-filter:none;
+}
+.av-body.av-light .av-stage{background:transparent}
+.av-body.av-light .av-rail.can-scroll-up,
+.av-body.av-light .av-rail.can-scroll-down,
+.av-body.av-light .av-stage.can-scroll-up,
+.av-body.av-light .av-stage.can-scroll-down,
+.av-body.av-light .av-rail-body.can-scroll-up,
+.av-body.av-light .av-rail-body.can-scroll-down{box-shadow:none}
+
+/* ---------- 4. 侧栏控制面 ---------- */
+.av-body.av-light .av-rail .panel{background:transparent}
+.av-body.av-light .av-rail .panel + .panel{border-top-color:var(--line)}
+.av-body.av-light .av-rail .panel-head{
+  background:linear-gradient(180deg,rgba(255,255,255,.96) 58%,rgba(251,251,253,.86));
+  border-bottom-color:var(--line);
+  backdrop-filter:blur(10px);
+}
+.av-body.av-light .av-rail .panel:first-child .panel-head{
+  border-top-left-radius:var(--radius-lg);
+  border-top-right-radius:var(--radius-lg);
+}
+.av-body.av-light .av-rail .panel-head h2{font-size:13px;font-weight:650;color:var(--text)}
+.av-body.av-light .av-rail .panel-head .hint{color:var(--faint)}
+.av-body.av-light .av-rail .panel-note,
+.av-body.av-light .av-rail .panel-note.tiny{color:var(--faint)}
+
+/* 滚动条 */
+.av-body.av-light .av-rail::-webkit-scrollbar-thumb,
+.av-body.av-light .av-stage::-webkit-scrollbar-thumb,
+.av-body.av-light .av-beats-scroll::-webkit-scrollbar-thumb,
+.av-body.av-light .av-project-list::-webkit-scrollbar-thumb,
+.av-body.av-light .av-effect-list::-webkit-scrollbar-thumb,
+.av-body.av-light .run-log::-webkit-scrollbar-thumb,
+.av-body.av-light .av-voice-list::-webkit-scrollbar-thumb,
+.av-body.av-light .mention-list::-webkit-scrollbar-thumb{
+  background:rgba(0,0,0,.14);background-clip:content-box;
+}
+.av-body.av-light .av-rail::-webkit-scrollbar-thumb:hover,
+.av-body.av-light .av-stage::-webkit-scrollbar-thumb:hover{
+  background:rgba(0,0,0,.22);background-clip:content-box;
+}
+
+/* ---------- 5. 分区标题与表单 ---------- */
+.av-body.av-light .av-workspace .field label{color:var(--dim)}
+.av-body.av-light .av-workspace .field label b{color:var(--amber)}
+.av-body.av-light .av-workspace .field label .hint{color:var(--faint)}
+.av-body.av-light .av-workspace .input{
+  background:#fff;
+  border-color:var(--line);
+  color:var(--text);
+}
+.av-body.av-light .av-workspace .input:hover{border-color:var(--line-strong)}
+.av-body.av-light .av-workspace .input:focus{
+  border-color:#9cc7f5;
+  box-shadow:0 0 0 3px rgba(0,113,227,.12);
+  background:#fff;
+}
+.av-body.av-light .av-workspace .input::placeholder{color:var(--faint)}
+.av-body.av-light .av-workspace .input:disabled{background:#f7f7fa;opacity:.65}
+
+/* 滑杆 */
+.av-body.av-light .av-workspace input[type=range].av-range{
+  background:linear-gradient(90deg,
+    var(--range-color,var(--amber)) 0%,
+    var(--range-color,var(--amber)) var(--range-p,40%),
+    #e8e8ed var(--range-p,40%),
+    #e8e8ed 100%);
+}
+.av-body.av-light .av-workspace input[type=range].av-range::-webkit-slider-thumb{
+  background:#fff;
+  border:2px solid var(--range-color,var(--amber));
+  box-shadow:0 1px 3px rgba(0,0,0,.16);
+}
+.av-body.av-light .av-workspace input[type=range].av-range:focus-visible{
+  box-shadow:0 0 0 3px rgba(0,113,227,.12);
+}
+
+/* 开关 */
+.av-body.av-light .av-switch{color:var(--dim)}
+.av-body.av-light .av-switch i{background:#ececf0;border-color:var(--line-strong)}
+.av-body.av-light .av-switch i::after{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+.av-body.av-light .av-switch input:checked + i{background:#dbeafe;border-color:#9cc7f5}
+.av-body.av-light .av-switch input:checked + i::after{background:var(--amber);box-shadow:none}
+
+/* ---------- 6. 按钮 ---------- */
+.av-body.av-light .av-workspace .btn{
+  border-color:var(--line);
+  background:#fff;
+  color:var(--text);
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+.av-body.av-light .av-workspace .btn:hover{
+  background:#f7f7fa;
+  border-color:var(--line-strong);
+  transform:none;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.av-body.av-light .av-workspace .btn:active{transform:scale(.985)}
+.av-body.av-light .av-workspace .btn:focus-visible{
+  outline:2px solid #9cc7f5;
+  outline-offset:2px;
+}
+.av-body.av-light .av-workspace .btn.ghost{
+  background:transparent;
+  border-color:transparent;
+  box-shadow:none;
+}
+.av-body.av-light .av-workspace .btn.ghost:hover{background:#f0f0f2}
+.av-body.av-light .av-workspace .btn.ghost.active{
+  background:#e8f2ff;border-color:#9cc7f5;color:#0062c4;
+}
+.av-body.av-light .av-workspace .btn.primary{
+  background:#0071e3;color:#fff;border-color:#0071e3;
+  box-shadow:0 1px 2px rgba(0,113,227,.18);
+}
+.av-body.av-light .av-workspace .btn.primary:hover{
+  background:#0077ed;border-color:#0077ed;
+  box-shadow:0 2px 6px rgba(0,113,227,.22);
+}
+.av-body.av-light .av-workspace .btn.danger{
+  background:#fff1f1;border-color:#f3c4c8;color:#c40012;
+}
+.av-body.av-light .av-workspace .btn.danger:hover{background:#ffe5e7}
+.av-body.av-light .av-workspace .btn:disabled,
+.av-body.av-light .av-workspace .btn.is-disabled{
+  background:#f5f5f7;border-color:var(--line);color:var(--faint);
+  opacity:1;box-shadow:none;
+}
+.av-body.av-light .av-workspace .icon-btn{color:var(--dim)}
+.av-body.av-light .av-workspace .icon-btn:hover{background:#f0f0f2;color:var(--text)}
+
+/* ---------- 7. 分段选择器（av-seg-control） ---------- */
+.av-body.av-light .av-seg-control{
+  background:#ececf0;
+  box-shadow:none;
+}
+.av-body.av-light .av-seg-control-item{color:var(--dim)}
+.av-body.av-light .av-seg-control-item:hover{color:var(--text)}
+.av-body.av-light .av-seg-control-item.active{
+  background:#fff;
+  color:var(--text);
+  box-shadow:0 1px 2px rgba(0,0,0,.06),0 0 0 .5px rgba(0,0,0,.04);
+}
+.av-body.av-light .av-seg-control-item:disabled{opacity:.4}
+
+/* ---------- 8. 右栏 tabs ---------- */
+.av-body.av-light .av-rail-tabs{border-bottom-color:var(--line)}
+.av-body.av-light .av-rail-tab{
+  background:#ececf0;
+  color:var(--dim);
+}
+.av-body.av-light .av-rail-tab:hover{background:#e4e4ea;color:var(--text)}
+.av-body.av-light .av-rail-tab.active{
+  background:#fff;color:var(--text);
+  border-color:transparent;
+  box-shadow:0 1px 2px rgba(0,0,0,.06);
+}
+
+/* ---------- 9. 基础文字与图标 ---------- */
+.av-body.av-light .av-workspace svg{color:currentColor}
+.av-body.av-light .av-workspace .hint{color:var(--faint)}
+.av-body.av-light .av-workspace .mono{font-variant-numeric:tabular-nums}
