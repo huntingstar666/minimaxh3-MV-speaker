@@ -3715,10 +3715,12 @@ function renderFinal() {
     state.finalKey = "";
     frame.classList.remove("video-frame");
     frame.removeAttribute("style");
-    frame.innerHTML = `<div class="final-empty av-final-empty"><svg><use href="#i-film"/></svg><span>合成完成后在此预览</span><em>逐段生成并选片后，点「合成成片」</em></div>`;
+    frame.innerHTML = `<div class="final-empty av-final-empty"><svg><use href="#i-film"/></svg><span>合成完成后在此预览</span><em>逐段生成并选片后，点「合成全片」</em></div>`;
     info.classList.add("hidden");
     stale.classList.add("hidden");
     duration.textContent = "—";
+    const assembleLabel = $("#btn-assemble-label");
+    if (assembleLabel) assembleLabel.textContent = "合成全片";
     return;
   }
   const key = `${final.path}|${final.created || ""}|${final.bytes || ""}`;
@@ -3742,6 +3744,8 @@ function renderFinal() {
   const download = api.downloadUrl(p.id);
   $("#btn-download").href = download;
   $("#btn-download-top").href = download;
+  const assembleLabel = $("#btn-assemble-label");
+  if (assembleLabel) assembleLabel.textContent = "重新合成全片";
   stale.classList.toggle("hidden", !final.stale);
   if (final.stale) {
     $("#final-stale-text").textContent = "选片或分段已有变更，成片需要重新合成";
