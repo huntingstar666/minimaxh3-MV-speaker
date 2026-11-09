@@ -542,14 +542,21 @@ body.av-body.av-light{
 .av-body.av-light .av-stage{display:flex;flex-direction:column;gap:14px}
 /* 舞台是可滚动定高容器：卡片自带 overflow:hidden 时 min-height 会变 0，必须禁止收缩 */
 .av-body.av-light .av-stage > *{flex:0 0 auto}
+.av-body.av-light .av-stage-head{padding:0 2px 2px}
+.av-body.av-light #stage-name{font-size:18px}
+.av-body.av-light #stage-sub{font-size:11px;margin-top:2px}
 .av-body.av-light .av-stage > #panel-mode{order:1}
 .av-body.av-light .av-stage > #panel-content{order:2}
-.av-body.av-light .av-stage > #panel-refs{order:3}
-.av-body.av-light .av-stage > #panel-design{order:4}
-.av-body.av-light .av-stage > #audio-card{order:5}
-.av-body.av-light .av-stage > #timeline{order:6}
-.av-body.av-light .av-stage > #seg-list{order:7}
+.av-body.av-light .av-stage > #audio-card{order:3}
+.av-body.av-light .av-stage > #timeline{order:4}
+.av-body.av-light .av-stage > #seg-list{order:5}
+.av-body.av-light .av-stage > #panel-refs{order:6}
+.av-body.av-light .av-stage > #panel-design{order:7}
 .av-body.av-light .av-stage > #stage-empty{order:8}
+/* 模式 1（音频驱动）：音轨是主工作区，排在台词之前 */
+.av-body.av-light[data-avatar-mode="1"] .av-stage > #audio-card{order:2}
+.av-body.av-light[data-avatar-mode="1"] .av-stage > #timeline{order:3}
+.av-body.av-light[data-avatar-mode="1"] .av-stage > #panel-content{order:4}
 
 /* 主区的面板改成独立卡片，不再沿用侧栏的连续控制面 */
 .av-body.av-light .av-stage > .panel{
@@ -603,13 +610,30 @@ body.av-body.av-light{
   margin-top:2px;padding-top:14px;border-top:1px solid var(--line);
 }
 .av-body.av-light .av-script-meta .field{margin-bottom:0}
+
+/* 全局创作要求默认收起，避免把音轨顶到第二屏 */
+.av-body.av-light .av-field-details{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.av-body.av-light .av-field-details > summary{
+  display:flex;align-items:center;gap:6px;list-style:none;cursor:pointer;
+  font-size:12px;color:var(--text);
+}
+.av-body.av-light .av-field-details > summary::-webkit-details-marker{display:none}
+.av-body.av-light .av-field-details > summary::before{
+  content:"+";display:inline-flex;align-items:center;justify-content:center;
+  width:14px;height:14px;border-radius:4px;background:var(--av-fill);
+  font-size:11px;color:var(--faint);flex:none;
+}
+.av-body.av-light .av-field-details[open] > summary::before{content:"−"}
+.av-body.av-light .av-field-details[open] > summary{margin-bottom:8px}
 .av-body.av-light .av-work-foot{display:flex;flex-direction:column;gap:6px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
 .av-body.av-light .av-work-foot .av-form-actions{margin-top:0}
 .av-body.av-light .av-work-foot .panel-note{margin:0}
 
 /* 模式选择：主区顶部三选一，横向紧凑，不做大的卡片墙 */
+.av-body.av-light .av-stage > #panel-mode{padding-bottom:12px}
+.av-body.av-light .av-stage > #panel-mode > .panel-head{display:none}
 .av-body.av-light .av-stage > #panel-mode .mode-cards{
-  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px;
 }
 .av-body.av-light .av-stage > #panel-mode .mode-card{
   grid-template-columns:28px minmax(0,1fr) 16px;gap:8px;padding:10px;

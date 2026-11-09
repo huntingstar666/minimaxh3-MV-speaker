@@ -1701,6 +1701,8 @@ function setMode(mode, { quiet = false } = {}) {
   $("#mode-form-1").classList.toggle("hidden", value !== 1);
   $("#mode-form-2").classList.toggle("hidden", value !== 2);
   $("#mode-form-3").classList.toggle("hidden", value !== 3);
+  // 音频驱动时把音轨提到台词之前：波形是主工作区，不该被设定卡压到第二屏
+  document.body.dataset.avatarMode = String(value);
   const hint = $("#mode-hint");
   if (hint) hint.textContent = modeHintText(value);
   const scriptRequired = $("#script-required");

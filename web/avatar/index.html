@@ -306,14 +306,14 @@
         </div>
         <div class="field">
           <label>台词 / 口播稿 <span class="hint" id="script-required">模式 2/3 必填</span></label>
-          <textarea id="f-script" class="input av-script" rows="6" spellcheck="false"
+          <textarea id="f-script" class="input av-script" rows="4" spellcheck="false"
             placeholder="粘贴完整台词。按中文标点自动分段，每段按语速估算秒数与帧数。&#10;模式 1 可作为语音识别的对照文本（可选，不填不影响生成）。"></textarea>
         </div>
-        <div class="field">
-          <label>全局创作要求 <span class="hint">可选 · 支持 @图1（模式 2 另支持 @音频1）</span></label>
+        <details class="av-field-details">
+          <summary>全局创作要求 <span class="hint">可选 · 支持 @图1（模式 2 另支持 @音频1）</span></summary>
           <textarea id="f-material-note" class="input" rows="2" spellcheck="false"
             placeholder="例：整体轻松科普感；人物始终在画面左侧，右侧留给信息卡；不要出现手势特写。"></textarea>
-        </div>
+        </details>
         <div class="av-script-meta">
           <div class="field av-work-speed">
             <label>语速 <b>字/秒</b></label>
