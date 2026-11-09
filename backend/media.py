@@ -58,6 +58,57 @@ def _video_size(path: Path) -> Optional[Tuple[int, int]]:
         return None
 
 
+def video_frame_count(path: Path) -> int:
+    """视频帧数；优先 nb_frames，缺失时用时长 × 帧率兜底。"""
+    try:
+        data = json.loads(audio.command([
+            audio.ffprobe(), "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=nb_frames,duration,avg_frame_rate",
+            "-of", "json", str(path),
+        ]))
+        stream = (data.get("streams") or [{}])[0]
+        count = int(stream.get("nb_frames") or 0)
+        if count > 0:
+            return count
+        rate = str(stream.get("avg_frame_rate") or "24/1").split("/")
+        fps = float(rate[0]) / float(rate[1]) if len(rate) == 2 and float(rate[1] or 0) else 24.0
+        return max(int(round(float(stream.get("duration") or 0) * fps)), 0)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def pin_edge_frames(src: Path, dst: Path, image: Path, crf: int = 12,
+                    preprocess: str = "center_crop") -> bool:
+    """把首帧与末帧替换成锚点图（首尾同图），用于分段拼接时钉住接缝。
+
+    锚点帧在 H3 里只是 conditioning 软条件，SelfLift 高分辨率阶段步数不足时
+    会残留 1 帧过渡；直接钉成参考图后，拼接处就是"正确的锚点"而非残差。
+    """
+    size = _video_size(src)
+    count = video_frame_count(src)
+    if not size or count < 2:
+        return False
+    width, height = size
+    if preprocess == "stretch":
+        scale = f"scale={width}:{height}"
+    else:
+        scale = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                 f"crop={width}:{height}")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    last = count - 1
+    audio.command([
+        audio.ffmpeg(), "-y", "-v", "error", "-i", str(src),
+        "-loop", "1", "-i", str(image),
+        "-filter_complex",
+        f"[1:v]{scale},setsar=1[pin];"
+        f"[0:v][pin]overlay=enable='eq(n,0)+eq(n,{last})':shortest=1:format=auto[v]",
+        "-map", "[v]", "-map", "0:a?", "-c:a", "copy",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(int(crf)),
+        "-pix_fmt", "yuv420p", str(dst),
+    ], timeout=900)
+    return dst.is_file() and dst.stat().st_size > 0
+
+
 def normalize(src: Path, dst: Path, output_frames: int, crf: int = 18,
               fps: int = frames.FPS) -> None:
     """把一段生成的视频归一化为精确的 output_frames 帧，并按 fps 封装。

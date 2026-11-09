@@ -45,6 +45,18 @@ def _safe_id(project_id: str) -> str:
     return "".join(ch for ch in str(project_id) if ch.isalnum()) or "project"
 
 
+def anchor_enabled(project: dict[str, Any], generation: dict[str, Any]) -> bool:
+    return str(generation.get("stitch") or project.get("stitch") or "hard") == "anchor"
+
+
+def anchor_seed(project_id: str, generation: dict[str, Any]) -> int:
+    """0 = 项目固定种子；>0 = 用户指定。全项目所有段共用。"""
+    value = int(generation.get("anchor_seed") or 0)
+    if value > 0:
+        return value
+    return int(hashlib.sha1(f"{project_id}:anchor".encode("utf-8")).hexdigest()[:8], 16)
+
+
 class AvatarRunner:
     """单 GPU 任务的数字人 runner（与 MV runner 共用 GPU_LOCK，避免同时抢卡）。"""
 
@@ -328,7 +340,14 @@ class AvatarRunner:
                    options: dict[str, Any]) -> None:
         generation = workflow.resolve_generation(
             {**(project.get("generation") or {}), **((options or {}).get("generation") or {})})
-        missing = mv_workflow.missing_fields(generation)
+        anchor = anchor_enabled(project, generation)
+        if anchor:
+            generation["anchor_seed"] = anchor_seed(project_id, generation)
+            missing = workflow.missing_fields_anchor(generation)
+            store.mutate(project_id, lambda latest: latest.__setitem__(
+                "anchor", {"seed": generation["anchor_seed"]}))
+        else:
+            missing = mv_workflow.missing_fields(generation)
         if missing:
             raise ValueError("缺少生成参数：" + "、".join(missing) + "（请在右侧参数里选择模型）")
         nodes = (comfy.options().get("nodes") or {})
@@ -371,17 +390,37 @@ class AvatarRunner:
         self._update(project_id, persist=True, segment=index, stage="prompt",
                      message=f"{label}：生成提示词（{edit_frames / config.FPS:.1f}s）",
                      progress=round(base + span * 0.03, 4))
-        prompt_text, meta = self._ensure_prompt(project_id, project, row, llm_config)
+        anchor = anchor_enabled(project, generation)
+        if anchor:
+            prompt_text = plan.compose_anchor_prompt(
+                project, row, generation_frames / config.FPS)
+            meta = {"source": "anchor", "seed": int(generation.get("anchor_seed") or 0)}
+        else:
+            prompt_text, meta = self._ensure_prompt(project_id, project, row, llm_config)
         ref_indices = plan.segment_ref_indices(project, row)
         segment_refs = [ref_names[index] for index in ref_indices
                         if index < len(ref_names)]
         audio_file = audio_pipeline.slice_audio(project_id, project, row)
         audio_name = comfy.upload(f"h3dh_{_safe_id(project_id)}_seg_{index:04d}.wav",
                                   audio_file.read_bytes())
-        generation = dict(generation)
-        generation["seed"] = int(generation.get("seed") or 0) or random.randint(1, 2 ** 31 - 1)
-        graph = mv_workflow.build(generation, prompt_text, segment_refs, audio_name,
-                                  generation_frames, config.FPS, available=available)
+        if anchor:
+            if not segment_refs:
+                raise ValueError(f"{label}：没有参考图，首尾帧模式需要至少一张。")
+            graph = workflow.build_anchor(
+                generation, prompt_text, segment_refs[0], audio_name,
+                generation_frames, config.FPS,
+                available=workflow.available_nodes(),
+                mid_guides=workflow.anchor_mid_frames(generation, generation_frames),
+                preprocess=str(generation.get("anchor_preprocess") or "center_crop"),
+                upscale_method=str(generation.get("anchor_upscale") or "lanczos"),
+                sampler_mode=str(generation.get("anchor_sampler") or "plain"))
+            output_node = workflow.OUTPUT_NODE
+        else:
+            generation = dict(generation)
+            generation["seed"] = int(generation.get("seed") or 0) or random.randint(1, 2 ** 31 - 1)
+            graph = mv_workflow.build(generation, prompt_text, segment_refs, audio_name,
+                                      generation_frames, config.FPS, available=available)
+            output_node = mv_workflow.OUTPUT_NODE
         self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",
                      progress=round(base + span * 0.06, 4))
         prompt_id = comfy.queue(graph)
@@ -402,20 +441,25 @@ class AvatarRunner:
                 stage="sampling", message=f"{label}：采样 {value}/{maximum}")
 
         entry = comfy.wait(prompt_id, on_progress, self.cancel_events.get(project_id))
-        files = comfy.extract_outputs(entry, mv_workflow.OUTPUT_NODE) or comfy.extract_outputs(entry)
+        files = comfy.extract_outputs(entry, output_node) or comfy.extract_outputs(entry)
         video_file = next((item for item in files if item["filename"].lower().endswith(
             (".mp4", ".webm", ".mov", ".mkv"))), None)
         if not video_file:
             raise comfy.ComfyError(f"{label}：ComfyUI 没有返回视频文件。")
         data = comfy.view(video_file["filename"], video_file["subfolder"], video_file["kind"])
+        if anchor and bool(generation.get("anchor_pin_frames", False)):
+            data = self._pin_anchor_frames(project_id, project, row, data, generation,
+                                           ref_indices)
         data, overlaid = self._maybe_overlay(project_id, project, row, data)
         take = self._store_take(project_id, project, index, row, data, prompt_text,
-                                generation.get("seed"), edit_frames, overlay=overlaid,
+                                generation.get("anchor_seed") if anchor else generation.get("seed"),
+                                edit_frames, overlay=overlaid,
                                 expected_text=str(row.get("text") or ""))
         self._commit_segment(project_id, index, {
             "status": "completed", "error": None, "output": take["file"],
             "finished": time.time(), "prompt_id": prompt_id, "prompt_text": prompt_text,
-            "prompt": prompt_text, "prompt_source": row.get("prompt_source") or "fallback",
+            "prompt": prompt_text,
+            "prompt_source": "anchor" if anchor else (row.get("prompt_source") or "fallback"),
             "prompt_meta": meta, "generation_frames": generation_frames,
         }, expected_text=str(row.get("text") or ""))
         self._log(project_id, f"{label} 完成（{len(data) / 1024 / 1024:.1f} MB）")
@@ -452,6 +496,35 @@ class AvatarRunner:
         return prompt_text, dict(result.get("meta") or {})
 
     # ------------------------------ 叠加 ------------------------------
+    def _pin_anchor_frames(self, project_id: str, project: dict[str, Any],
+                           row: dict[str, Any], data: bytes,
+                           generation: dict[str, Any],
+                           ref_indices: list[int]) -> bytes:
+        """用本段参考图替换首/末帧；几何形变失败时退回原视频。"""
+        preprocess = str(generation.get("anchor_preprocess") or "center_crop")
+        if preprocess == "none":
+            return data
+        refs = project.get("refs") or []
+        if not ref_indices or ref_indices[0] >= len(refs):
+            return data
+        filename = str(refs[ref_indices[0]].get("filename") or "")
+        image = store.project_dir(project_id) / "refs" / filename
+        if not filename or not image.is_file():
+            return data
+        folder = store.project_dir(project_id) / "takes" / f"seg_{int(row['index']):04d}" / "_pin"
+        folder.mkdir(parents=True, exist_ok=True)
+        source, target = folder / "source.mp4", folder / "pinned.mp4"
+        try:
+            source.write_bytes(data)
+            if media.pin_edge_frames(source, target, image,
+                                     crf=int(generation.get("crf") or 12),
+                                     preprocess=preprocess):
+                return target.read_bytes()
+            self._log(project_id, "首尾钉帧未生效（视频探测失败），保留生成画面", "warning")
+        except Exception as error:  # noqa: BLE001
+            self._log(project_id, f"首尾钉帧失败，保留生成画面：{error}", "warning")
+        return data
+
     def _maybe_overlay(self, project_id: str, project: dict[str, Any], row: dict[str, Any],
                        data: bytes) -> tuple[bytes, bool]:
         design = design_mod.ensure_design(project)
@@ -545,6 +618,8 @@ class AvatarRunner:
                           llm_config: dict[str, Any], base: float, span: float,
                           total: int, ordinal: int) -> None:
         label = f"第 {ordinal}/{total} 段"
+        if anchor_enabled(project, generation):
+            raise ValueError("首尾帧模式当前仅支持模式 1（音频驱动）。")
         fallback_seed = random.randint(1, 2 ** 31 - 1)
         self._update(project_id, persist=True, segment=index, stage="prompt",
                      message=f"{label}：生成提示词（{row.get('chars')} 字 / {row.get('frames')} 帧）",

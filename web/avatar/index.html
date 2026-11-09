@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
 <title>H3 DIGITAL HUMAN · 数字人工作室</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0f14'/%3E%3Cpath d='M6 16h2.5M11 11v10M15.5 7v18M20 10v12M24.5 13v6M28 16h-1' stroke='%23f7b955' stroke-width='2.2' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/css/style.css">
 <link rel="stylesheet" href="/avatar/static/css/avatar.css">
 </head>
@@ -92,8 +94,9 @@
       <p class="panel-note tiny" id="mode-hint">模式 2 / 3 的成片视频自带生成音频；模式 1 保留上传音频原声。</p>
     </section>
 
-    <section class="panel" id="panel-project">
-      <div class="panel-head"><h2>作品设定</h2><span class="hint" id="project-state">未创建</span></div>
+    <section class="panel" id="panel-content">
+      <div class="panel-head"><h2>作品内容</h2><span class="hint" id="project-state">未创建</span></div>
+      <p class="panel-note tiny" id="content-hint">① 写台词或拖入音频 → ② 上传一张人物参考图 → ③ 右栏设参数并开始生成。</p>
       <div class="field">
         <label>作品名称</label>
         <input id="f-name" class="input" maxlength="60" placeholder="例如：老港茶餐厅 · 数字人口播">
@@ -208,46 +211,6 @@
         </div>
       </div>
 
-      <div class="field-row">
-        <div class="field">
-          <label>画幅</label>
-          <select id="f-aspect" class="input"></select>
-        </div>
-        <div class="field">
-          <label>清晰度</label>
-          <select id="f-mp" class="input">
-            <option value="0.75">0.75 MP · 草稿</option>
-            <option value="1" selected>1.0 MP · 标准</option>
-            <option value="1.5">1.5 MP · 高清</option>
-          </select>
-        </div>
-      </div>
-      <div class="field">
-        <label>随机种子 <span class="hint">0 = 每段随机</span></label>
-        <input id="f-seed" class="input mono" type="number" min="0" step="1" value="0">
-      </div>
-
-      <details class="advanced" id="av-advanced">
-        <summary><svg><use href="#i-chevron"/></svg>高级生成参数</summary>
-        <div class="adv-body">
-          <div class="field-row">
-            <div class="field"><label>采样步数</label><input id="a-steps" class="input mono" type="number" min="2" max="40" step="1"></div>
-            <div class="field"><label>CFG</label><input id="a-cfg" class="input mono" type="number" min="1" max="10" step="0.1"></div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label>采样器</label><select id="a-sampler" class="input"></select></div>
-            <div class="field"><label>调度器</label><select id="a-scheduler" class="input"></select></div>
-          </div>
-          <div class="field"><label>UNET 模型</label><select id="a-unet" class="input"></select></div>
-          <div class="field"><label>文本编码器</label><select id="a-clip" class="input"></select></div>
-          <div class="field-row">
-            <div class="field"><label>视频 VAE</label><select id="a-vae" class="input"></select></div>
-            <div class="field"><label>LoRA</label><select id="a-lora" class="input"></select></div>
-          </div>
-          <div class="field"><label>LoRA 强度</label><input id="a-lora-strength" class="input mono" type="number" min="0" max="1.5" step="0.05"></div>
-        </div>
-      </details>
-
       <div class="av-form-actions">
         <button class="btn primary block" id="btn-create"><svg><use href="#i-plus"/></svg><span id="btn-create-label">新建作品</span></button>
         <div class="av-form-actions-row" id="form-actions-plan">
@@ -256,6 +219,24 @@
         </div>
       </div>
       <p class="panel-note tiny" id="form-hint">填写台词后新建作品，再点「按台词分段」。</p>
+    </section>
+
+    <section class="panel" id="panel-refs">
+      <div class="panel-head"><h2>参考图</h2><span class="hint" id="ref-count">0 张</span></div>
+      <div class="av-ref-upload">
+        <select id="ref-role" class="input">
+          <option value="performer">人物</option>
+          <option value="environment">场景</option>
+          <option value="appearance">服装 / 造型</option>
+          <option value="subject">道具 / 主体</option>
+          <option value="other">其他</option>
+        </select>
+        <button class="btn ghost sm" id="btn-ref-upload" type="button"><svg><use href="#i-image"/></svg>上传</button>
+        <input type="file" id="ref-input" accept="image/*" hidden multiple>
+      </div>
+      <div class="ref-grid av-ref-grid" id="ref-grid"></div>
+      <div class="av-ref-empty" id="ref-empty">还没有参考图。</div>
+      <p class="panel-note tiny">人物参考图建议 1 张；场景、服装、道具按需补充。后期叠加的 logo 也可作为参考图上传。</p>
     </section>
 
     <section class="panel" id="panel-design">
@@ -397,24 +378,6 @@
       </details>
     </section>
 
-    <section class="panel" id="panel-refs">
-      <div class="panel-head"><h2>参考图</h2><span class="hint" id="ref-count">0 张</span></div>
-      <div class="av-ref-upload">
-        <select id="ref-role" class="input">
-          <option value="performer">人物</option>
-          <option value="environment">场景</option>
-          <option value="appearance">服装 / 造型</option>
-          <option value="subject">道具 / 主体</option>
-          <option value="other">其他</option>
-        </select>
-        <button class="btn ghost sm" id="btn-ref-upload" type="button"><svg><use href="#i-image"/></svg>上传</button>
-        <input type="file" id="ref-input" accept="image/*" hidden multiple>
-      </div>
-      <div class="ref-grid av-ref-grid" id="ref-grid"></div>
-      <div class="av-ref-empty" id="ref-empty">还没有参考图。</div>
-      <p class="panel-note tiny">人物参考图建议 1 张；场景、服装、道具按需补充。后期叠加的 logo 也可作为参考图上传。</p>
-    </section>
-
     <section class="panel" id="panel-projects">
       <div class="panel-head"><h2>最近作品</h2><span class="hint" id="project-count">0 个</span></div>
       <div class="av-form-actions-row">
@@ -475,44 +438,182 @@
   </section>
 
   <aside class="av-rail av-rail-right">
-    <section class="panel" id="panel-run">
-      <div class="panel-head"><h2>运行状态</h2><span class="pill" id="run-state">空闲</span></div>
-      <div class="progress-strip" id="progress-strip">
-        <div class="progress-top">
-          <span class="stage-label" id="run-stage">未开始</span>
-          <span class="stage-percent" id="run-percent">0%</span>
+    <div class="av-rail-tabs" id="rail-tabs" role="tablist" aria-label="右栏视图">
+      <button type="button" class="av-rail-tab active" data-tab="params" role="tab">参数</button>
+      <button type="button" class="av-rail-tab" data-tab="results" role="tab">运行 / 成片</button>
+    </div>
+    <div class="av-rail-body" id="rail-params" data-pane="params">
+      <div class="av-anchor-card">
+        <div class="av-anchor-head">
+          <span class="av-anchor-title">段间模式</span>
+          <span class="av-anchor-note" id="anchor-mode-note">仅模式 1</span>
         </div>
-        <div class="progress-track"><i id="progress-bar"></i></div>
-        <div class="progress-bottom">
-          <span id="run-message">等待任务</span>
-          <span class="mono" id="run-segment"></span>
+        <input type="hidden" id="f-stitch" value="hard">
+        <div class="av-seg" id="f-stitch-seg" role="tablist" aria-label="段间模式">
+          <button type="button" class="av-seg-item active" data-value="hard">硬切</button>
+          <button type="button" class="av-seg-item" data-value="anchor">首尾帧锚定</button>
+        </div>
+        <p class="av-anchor-hint" id="anchor-hint" hidden>
+          每段首尾同图 + 固定种子；不跨段传递，避免劣化累积。
+        </p>
+        <div id="anchor-fields" hidden>
+          <div class="av-anchor-row">
+            <label>中间锚点</label>
+            <input type="hidden" id="f-anchor-mid" value="center">
+            <div class="av-seg sm" id="f-anchor-mid-seg" role="tablist" aria-label="中间锚点">
+              <button type="button" class="av-seg-item" data-value="none">无</button>
+              <button type="button" class="av-seg-item active" data-value="center">中间</button>
+              <button type="button" class="av-seg-item" data-value="thirds">三分</button>
+              <button type="button" class="av-seg-item" data-value="custom">自定义</button>
+            </div>
+          </div>
+          <div class="av-anchor-grid">
+            <div class="av-anchor-field">
+              <label>参考图预处理</label>
+              <select id="f-anchor-preprocess" class="input">
+                <option value="center_crop">中心裁切</option>
+                <option value="stretch">拉伸到画幅</option>
+                <option value="none">不处理（I2V 原生）</option>
+              </select>
+            </div>
+            <div class="av-anchor-field">
+              <label>采样方式</label>
+              <select id="f-anchor-sampler" class="input">
+                <option value="plain" selected>普通单采（推荐）</option>
+                <option value="selflift">SelfLift 二采（Fix + 分块）</option>
+              </select>
+            </div>
+          </div>
+          <div class="av-anchor-row">
+            <label>首尾钉帧</label>
+            <input type="hidden" id="f-anchor-pin" value="false">
+            <div class="av-seg sm" id="f-anchor-pin-seg" role="tablist" aria-label="首尾钉帧">
+              <button type="button" class="av-seg-item" data-value="true">开</button>
+              <button type="button" class="av-seg-item active" data-value="false">关</button>
+            </div>
+          </div>
+          <p class="av-anchor-hint">开：拼接处与参考图完全一致，但段内首尾多 1 帧突变；只用参考图预处理（非「不处理」）时生效。</p>
+          <div class="av-anchor-field" id="anchor-custom-wrap" hidden>
+            <label>自定义锚点帧 <span class="hint">逗号分隔，如 31,62,93</span></label>
+            <input id="f-anchor-mid-frames" class="input mono" placeholder="31,62,93">
+          </div>
+          <div class="av-anchor-field">
+            <label>缩放缓动</label>
+            <select id="f-anchor-upscale" class="input">
+              <option value="lanczos">lanczos</option>
+              <option value="bicubic">bicubic</option>
+              <option value="bilinear">bilinear</option>
+              <option value="area">area</option>
+              <option value="nearest-exact">nearest-exact</option>
+            </select>
+          </div>
+          <p class="av-anchor-hint">SelfLift 使用 Fix + 分块，并自动关闭中间锚点；默认普通单采更平滑。</p>
+          <div class="av-anchor-grid" id="anchor-selflift-wrap" hidden>
+            <div class="av-anchor-field">
+              <label>低清比例 <span class="hint">二采第一遍</span></label>
+              <select id="f-anchor-lowres" class="input">
+                <option value="0.5">0.5</option>
+                <option value="0.6">0.6</option>
+                <option value="0.75">0.75</option>
+              </select>
+            </div>
+            <div class="av-anchor-field">
+              <label>高分辨分块 <span class="hint">按显存自动</span></label>
+              <select id="f-anchor-tiling" class="input">
+                <option value="auto">auto（按显存）</option>
+                <option value="2">2 块</option>
+                <option value="4">4 块</option>
+              </select>
+            </div>
+          </div>
+          <p class="av-anchor-hint" id="anchor-selflift-hint" hidden>二采建议采样步数 ≥ 10（高级生成参数）；1MP 下 2 块 + 0.75 最稳。</p>
         </div>
       </div>
-      <div class="run-log" id="run-log"><div class="av-log-empty">运行日志会显示在这里</div></div>
-    </section>
 
-    <section class="panel" id="panel-final">
-      <div class="panel-head"><h2>成片</h2><span class="hint" id="final-duration">—</span></div>
-      <div class="final-frame av-final-frame" id="final-frame">
-        <div class="final-empty"><svg><use href="#i-film"/></svg><span>合成完成后在此预览</span></div>
-      </div>
-      <div class="final-stale hidden" id="final-stale">
-        <span id="final-stale-text">分段选材已变更，成片需要重新合成</span>
-        <button class="btn primary sm" id="btn-assemble2" type="button">重新合成</button>
-      </div>
-      <div class="av-final-info hidden" id="final-info"></div>
-      <div class="inline av-final-actions">
-        <a class="btn ghost sm hidden" id="btn-download" href="#" download><svg><use href="#i-download"/></svg>下载成片</a>
-      </div>
-    </section>
+      <section class="panel" id="panel-project">
+        <div class="panel-head"><h2>生成参数</h2><span class="hint">画幅 / 清晰度 / 种子</span></div>
+        <div class="field-row">
+          <div class="field">
+            <label>画幅</label>
+            <select id="f-aspect" class="input"></select>
+          </div>
+          <div class="field">
+            <label>清晰度</label>
+            <select id="f-mp" class="input">
+              <option value="0.75">0.75 MP · 草稿</option>
+              <option value="1" selected>1.0 MP · 标准</option>
+              <option value="1.5">1.5 MP · 高清</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>随机种子 <span class="hint">0 = 每段随机</span></label>
+          <input id="f-seed" class="input mono" type="number" min="0" step="1" value="0">
+        </div>
 
-    <section class="panel" id="panel-prompts">
-      <div class="panel-head"><h2>系统提示词</h2><span class="hint" id="prompt-summary">读取中</span></div>
-      <p class="panel-note">占位提示词由后端内置模板兜底（提示词来源显示 fallback）。这里可预留自定义入口。</p>
-      <div class="av-prompt-modes" id="prompt-modes"></div>
-      <button class="btn ghost sm block hidden" id="btn-save-prompts" type="button"><svg><use href="#i-check"/></svg>保存系统提示词</button>
-      <p class="panel-note tiny" id="prompt-note">配置非空时，后端会把系统提示词交给 LLM 扩写；留空则走内置模板。</p>
-    </section>
+        <details class="advanced" id="av-advanced">
+          <summary><svg><use href="#i-chevron"/></svg>高级生成参数</summary>
+          <div class="adv-body">
+            <div class="field-row">
+              <div class="field"><label>采样步数</label><input id="a-steps" class="input mono" type="number" min="2" max="40" step="1"></div>
+              <div class="field"><label>CFG</label><input id="a-cfg" class="input mono" type="number" min="1" max="10" step="0.1"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>采样器</label><select id="a-sampler" class="input"></select></div>
+              <div class="field"><label>调度器</label><select id="a-scheduler" class="input"></select></div>
+            </div>
+            <div class="field"><label>UNET 模型</label><select id="a-unet" class="input"></select></div>
+            <div class="field"><label>文本编码器</label><select id="a-clip" class="input"></select></div>
+            <div class="field-row">
+              <div class="field"><label>视频 VAE</label><select id="a-vae" class="input"></select></div>
+              <div class="field"><label>LoRA</label><select id="a-lora" class="input"></select></div>
+            </div>
+            <div class="field"><label>LoRA 强度</label><input id="a-lora-strength" class="input mono" type="number" min="0" max="1.5" step="0.05"></div>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel" id="panel-prompts">
+        <div class="panel-head"><h2>系统提示词</h2><span class="hint" id="prompt-summary">读取中</span></div>
+        <p class="panel-note">这三份是 Ref2VA 系统提示词（模式 1/2/3 走 LLM 时使用）。首尾帧锚定<b>不走这里</b>：由后端 FL2VA 模板确定性生成，可在每段的「提示词」里查看。</p>
+        <div class="av-prompt-modes" id="prompt-modes"></div>
+        <button class="btn ghost sm block hidden" id="btn-save-prompts" type="button"><svg><use href="#i-check"/></svg>保存系统提示词</button>
+        <p class="panel-note tiny" id="prompt-note">配置非空时，后端会把系统提示词交给 LLM 扩写；留空则走内置模板。</p>
+      </section>
+    </div>
+
+    <div class="av-rail-foot" id="rail-results" data-pane="results" hidden>
+      <section class="panel" id="panel-run">
+        <div class="panel-head"><h2>运行状态</h2><span class="pill" id="run-state">空闲</span></div>
+        <div class="progress-strip" id="progress-strip">
+          <div class="progress-top">
+            <span class="stage-label" id="run-stage">未开始</span>
+            <span class="stage-percent" id="run-percent">0%</span>
+          </div>
+          <div class="progress-track"><i id="progress-bar"></i></div>
+          <div class="progress-bottom">
+            <span id="run-message">等待任务</span>
+            <span class="mono" id="run-segment"></span>
+          </div>
+        </div>
+        <div class="run-log" id="run-log"><div class="av-log-empty">运行日志会显示在这里</div></div>
+      </section>
+
+      <section class="panel" id="panel-final">
+        <div class="panel-head"><h2>成片</h2><span class="hint" id="final-duration">—</span></div>
+        <div class="final-frame av-final-frame" id="final-frame">
+          <div class="final-empty"><svg><use href="#i-film"/></svg><span>合成完成后在此预览</span></div>
+        </div>
+        <div class="final-stale hidden" id="final-stale">
+          <span id="final-stale-text">分段选材已变更，成片需要重新合成</span>
+          <button class="btn primary sm" id="btn-assemble2" type="button">重新合成</button>
+        </div>
+        <div class="av-final-info hidden" id="final-info"></div>
+        <div class="inline av-final-actions">
+          <a class="btn ghost sm hidden" id="btn-download" href="#" download><svg><use href="#i-download"/></svg>下载成片</a>
+        </div>
+      </section>
+    </div>
   </aside>
 </main>
 
@@ -555,5 +656,6 @@
 <div class="busy-overlay" id="busy-overlay" hidden><div class="spinner"></div><span id="busy-text">处理中…</span></div>
 
 <script type="module" src="/avatar/static/js/avatar.js"></script>
+<script type="module" src="/avatar/static/js/avatar-polish.js"></script>
 </body>
 </html>

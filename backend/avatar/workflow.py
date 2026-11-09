@@ -42,14 +42,16 @@ def available_nodes(force: bool = False) -> dict[str, bool]:
         if not force and cached and time.time() - _available_cache["time"] < 45:
             return dict(cached)
         value = {
-            "ref2va": _node_exists("MiniMaxH3ReferenceToVideo"),
+            "selflift_fix": _node_exists("SelfLiftAvatarH3SamplerFix"),
             "selflift": _node_exists("SelfLiftAvatarH3Sampler"),
             "refiner": _node_exists("H3SigmaRefiner"),
-            "audio_decode": _node_exists("VAEDecodeAudio"),
             "preview": _node_exists("ModelPreviewOverrideKJ"),
             "attention": _node_exists("ModelAttentionBackend"),
             "lora": _node_exists("LoraLoaderModelOnly"),
-            "vhs": _node_exists("VHS_VideoCombine"),
+            "image_to_video": _node_exists("MiniMaxH3ImageToVideo"),
+            "add_guide": _node_exists("MiniMaxH3AddGuide"),
+            "image_scale": _node_exists("ImageScale"),
+            "sigma_shift": _node_exists("MiniMaxH3SigmaShift"),
         }
         _available_cache.update(time=time.time(), value=value)
         return dict(value)
@@ -321,10 +323,348 @@ def build(generation: dict[str, Any], prompt: str, refs: list[str],
     return nodes
 
 
+def anchor_mid_frames(generation: dict[str, Any], frames: int) -> list[int]:
+    """按用户配置计算中间锚点帧。默认 center，即 frames//2。"""
+    mode = str(generation.get("anchor_mid") or "center").strip().lower()
+    frames = int(frames)
+    if mode == "none":
+        return []
+    if mode == "center":
+        values = [frames // 2]
+    elif mode == "thirds":
+        values = [frames // 3, (frames * 2) // 3]
+    elif mode == "custom":
+        raw = generation.get("anchor_mid_frames") or []
+        try:
+            values = [int(value) for value in raw]
+        except (TypeError, ValueError):
+            raise ValueError("anchor_mid_frames 必须是整数数组。") from None
+    else:
+        raise ValueError("anchor_mid 必须是 none / center / thirds / custom。")
+    return sorted({value for value in values if 0 < value < frames - 1})
+
+
+def build_anchor(generation: dict[str, Any], prompt: str, ref: str, audio_file: str,
+                 frames: int, fps: int = config.FPS,
+                 available: dict[str, bool] | None = None,
+                 mid_guides: list[int] | None = None,
+                 preprocess: str = "center_crop",
+                 upscale_method: str = "lanczos",
+                 sampler_mode: str = "plain") -> dict[str, Any]:
+    """首尾帧锚定单段图（方案1）。
+
+    每段独立：first_frame 和 last_frame 都接同一张参考图；不读上一段任何状态。
+    图结构对齐用户提供的《H3数字人口播长视频（节点调用）首尾帧接续无限长API.json》：
+    I2V first/last → 分离视频 latent → 拼接锁定的本段音频 → AddGuide(frame 0)
+    → ConditioningZeroOut → BasicScheduler + SamplerCustom → VAEDecode → VHS。
+
+    preprocess:
+      center_crop（默认，实测）：ImageScale(crop=center) 到目标画幅
+      stretch                ：ImageScale(crop=disabled) 直接拉伸
+      none                   ：不预裁切，交给 I2V 原生 first 拉伸 / last 裁切
+    """
+    preprocess = str(preprocess or "center_crop").strip().lower()
+    if preprocess not in {"center_crop", "stretch", "none"}:
+        raise ValueError("anchor_preprocess 必须是 center_crop / stretch / none。")
+    upscale_method = str(upscale_method or "lanczos").strip().lower()
+    if upscale_method not in {"nearest-exact", "bilinear", "area", "bicubic", "lanczos"}:
+        raise ValueError("anchor_upscale 必须是 nearest-exact/bilinear/area/bicubic/lanczos。")
+    sampler_mode = str(sampler_mode or "plain").strip().lower()
+    if sampler_mode not in {"selflift", "plain"}:
+        raise ValueError("anchor_sampler 必须是 selflift / plain。")
+    available = available if available is not None else available_nodes()
+    if not available.get("image_to_video"):
+        raise ValueError("缺少 MiniMaxH3ImageToVideo 节点，请先升级 ComfyUI。")
+    if not available.get("add_guide"):
+        raise ValueError("缺少 MiniMaxH3AddGuide 节点，请先升级 ComfyUI。")
+    if preprocess != "none" and not available.get("image_scale"):
+        raise ValueError("缺少 ImageScale 节点，请先升级 ComfyUI。")
+    if not ref:
+        raise ValueError("首尾帧模式需要一张参考图。")
+    if not audio_file:
+        raise ValueError("首尾帧模式需要本段音频。")
+    seed = int(generation.get("anchor_seed") or 0)
+    if seed <= 0:
+        raise ValueError("首尾帧模式必须使用固定种子。")
+    if sampler_mode == "selflift":
+        if not (available.get("selflift_fix") or available.get("selflift")):
+            raise ValueError("缺少 SelfLiftAvatarH3SamplerFix / SelfLiftAvatarH3Sampler 节点。")
+        if not str(generation.get("upscaler_model") or "").strip():
+            raise ValueError("SelfLift 二采需要 upscaler_model。")
+
+    nodes: dict[str, Any] = {
+        "unet": {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": generation["unet"], "weight_dtype": "default"},
+            "_meta": {"title": "UNET 加载器"},
+        },
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": generation["clip"], "type": "minimax", "device": "default"},
+            "_meta": {"title": "CLIP 加载器"},
+        },
+        "vae_video": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": generation["vae_video"]},
+            "_meta": {"title": "视频 VAE"},
+        },
+        "vae_audio": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": generation["vae_audio"]},
+            "_meta": {"title": "音频 VAE"},
+        },
+        "res": {
+            "class_type": "ResolutionSelector",
+            "inputs": {
+                "aspect_ratio": generation.get("aspect_ratio", "9:16 (Portrait Widescreen)"),
+                "megapixels": float(generation.get("megapixels", 1.0)),
+                "multiple": int(generation.get("multiple", 32)),
+            },
+            "_meta": {"title": "分辨率"},
+        },
+        "ref": {
+            "class_type": "LoadImage",
+            "inputs": {"image": ref},
+            "_meta": {"title": "首尾锚定参考图"},
+        },
+        "i2v": {
+            "class_type": "MiniMaxH3ImageToVideo",
+            "inputs": {
+                "clip": ["clip", 0],
+                "vae": ["vae_video", 0],
+                "prompt": prompt,
+                "width": ["res", 0],
+                "height": ["res", 1],
+                "length": int(frames),
+                "first_frame": ["ref", 0],
+                "last_frame": ["ref", 0],
+            },
+            "_meta": {"title": "首尾帧锚定（同图）"},
+        },
+        "split": {
+            "class_type": "LTXVSeparateAVLatent",
+            "inputs": {"av_latent": ["i2v", 1]},
+            "_meta": {"title": "分离视频 latent"},
+        },
+        "audio": {
+            "class_type": "LoadAudio",
+            "inputs": {"audio": audio_file},
+            "_meta": {"title": "本段音频"},
+        },
+        "audio_enc": {
+            "class_type": "LTXVAudioVAEEncode",
+            "inputs": {"audio": ["audio", 0], "audio_vae": ["vae_audio", 0]},
+            "_meta": {"title": "音频编码"},
+        },
+        "audio_mask": {
+            "class_type": "SolidMask",
+            "inputs": {"value": 0, "width": 64, "height": 64},
+            "_meta": {"title": "音频锁定遮罩"},
+        },
+        "audio_noise": {
+            "class_type": "SetLatentNoiseMask",
+            "inputs": {"samples": ["audio_enc", 0], "mask": ["audio_mask", 0]},
+            "_meta": {"title": "音频 latent 锁定"},
+        },
+        "concat": {
+            "class_type": "LTXVConcatAVLatent",
+            "inputs": {"video_latent": ["split", 0], "audio_latent": ["audio_noise", 0]},
+            "_meta": {"title": "拼接 AV latent"},
+        },
+        "guide": {
+            "class_type": "MiniMaxH3AddGuide",
+            "inputs": {
+                "positive": ["i2v", 0],
+                "latent": ["i2v", 1],
+                "frame_idx": 0,
+                "audio_vae": ["vae_audio", 0],
+                "audio": ["audio", 0],
+            },
+            "_meta": {"title": "第 0 帧原声条件"},
+        },
+        "zero": {
+            "class_type": "ConditioningZeroOut",
+            "inputs": {"conditioning": ["guide", 0]},
+            "_meta": {"title": "负向条件"},
+        },
+        "sampler_select": {
+            "class_type": "KSamplerSelect",
+            "inputs": {"sampler_name": generation.get("sampler", "euler")},
+            "_meta": {"title": "采样器"},
+        },
+        "scheduler": {
+            "class_type": "BasicScheduler",
+            "inputs": {
+                "scheduler": generation.get("scheduler", "simple"),
+                "steps": int(generation.get("steps", 6)),
+                "denoise": 1,
+                "model": ["lora", 0],
+            },
+            "_meta": {"title": "调度器"},
+        },
+        OUTPUT_NODE: {
+            "class_type": "VHS_VideoCombine",
+            "inputs": {
+                "images": ["decode", 0],
+                "audio": ["audio", 0],
+                "frame_rate": int(fps),
+                "loop_count": 0,
+                "filename_prefix": str(generation.get("filename_prefix") or "h3dh_anchor"),
+                "format": "video/h264-mp4",
+                "pix_fmt": "yuv420p",
+                "crf": int(generation.get("crf", 12)),
+                "save_metadata": False,
+                "trim_to_audio": False,
+                "pingpong": False,
+                "save_output": True,
+            },
+            "_meta": {"title": "合并视频（本段原声）"},
+        },
+    }
+
+    # 参考图预处理：默认 center_crop（实测最稳）；也允许 stretch / none。
+    ref_image_ref = "ref"
+    if preprocess != "none":
+        nodes["ref_scaled"] = {
+            "class_type": "ImageScale",
+            "inputs": {
+                "image": ["ref", 0],
+                "upscale_method": upscale_method,
+                "width": ["res", 0],
+                "height": ["res", 1],
+                "crop": "center" if preprocess == "center_crop" else "disabled",
+            },
+            "_meta": {"title": "参考图预裁切（首尾同图）"},
+        }
+        ref_image_ref = "ref_scaled"
+    nodes["i2v"]["inputs"]["first_frame"] = [ref_image_ref, 0]
+    nodes["i2v"]["inputs"]["last_frame"] = [ref_image_ref, 0]
+
+    # SelfLift 会在 keyframe 边界放大跳变；与你调试好的 Fix 图一致，二采强制不加中间锚。
+    if sampler_mode == "selflift":
+        mid_guides = []
+
+    # 可选中间锚点：同一张参考图在第 N 帧再锚一次，防止中段跑出背景/切近景。
+    guide_ref = "guide"
+    for index, frame in enumerate(sorted({
+            int(value) for value in (mid_guides or [])
+            if 0 < int(value) < int(frames) - 1})):
+        node_id = f"guide_mid_{index}"
+        nodes[node_id] = {
+            "class_type": "MiniMaxH3AddGuide",
+            "inputs": {
+                "positive": [guide_ref, 0],
+                "latent": ["i2v", 1],
+                "frame_idx": int(frame),
+                "vae": ["vae_video", 0],
+                "image": [ref_image_ref, 0],
+            },
+            "_meta": {"title": f"第 {frame} 帧中间锚点"},
+        }
+        guide_ref = node_id
+    nodes["zero"]["inputs"]["conditioning"] = [guide_ref, 0]
+
+    # 统一模型链：UNET → Attention → LoRA；与你调试好的 JSON 一致。
+    model_ref = "unet"
+    attention = str(generation.get("attention") or "").strip()
+    if attention and available.get("attention", True):
+        nodes["attention"] = {
+            "class_type": "ModelAttentionBackend",
+            "inputs": {"attention": attention, "model": [model_ref, 0]},
+            "_meta": {"title": "注意力后端"},
+        }
+        model_ref = "attention"
+    lora = str(generation.get("lora") or "").strip()
+    if lora and available.get("lora", True):
+        nodes["lora"] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {
+                "lora_name": lora,
+                "strength_model": float(generation.get("lora_strength", 1.0)),
+                "model": [model_ref, 0],
+            },
+            "_meta": {"title": "LoRA"},
+        }
+        model_ref = "lora"
+    nodes["scheduler"]["inputs"]["model"] = [model_ref, 0]
+
+    if sampler_mode == "selflift":
+        selflift_class = ("SelfLiftAvatarH3SamplerFix"
+                          if available.get("selflift_fix") else "SelfLiftAvatarH3Sampler")
+        # Fix 版已兼容「无 latent 的音频 keyframe」；旧版仍必须关 tiling。
+        highres_tiling = selflift_class.endswith("Fix")
+        nodes.pop("sampler", None)
+        nodes["selflift"] = {
+            "class_type": selflift_class,
+            "inputs": {
+                "seed": seed,
+                "cfg": float(generation.get("cfg", 1.0)),
+                "transition_step": int(generation.get("transition_step", 4)),
+                "lowres_scale": float(generation.get("lowres_scale", 0.5)),
+                "rho": float(generation.get("rho", 0)),
+                "w_min": float(generation.get("w_min", 0.5)),
+                "w_max": float(generation.get("w_max", 1.0)),
+                "upscaler_model": str(generation.get("upscaler_model") or ""),
+                "highres_tiling": highres_tiling,
+                "tiling_mode": generation.get("tiling_mode", "auto"),
+                "tiling_tiles": int(generation.get("tiling_tiles", 2)),
+                "tiling_axis": generation.get("tiling_axis", "auto"),
+                "low_res_model": [model_ref, 0],
+                "positive": [guide_ref, 0],
+                "negative": ["zero", 0],
+                "vae": ["vae_video", 0],
+                "latent_image": ["concat", 0],
+                "sampler": ["sampler_select", 0],
+                "sigmas": ["scheduler", 0],
+            },
+            "_meta": {"title": f"{selflift_class}（首尾锚定）"},
+        }
+        nodes["split_out"] = {
+            "class_type": "LTXVSeparateAVLatent",
+            "inputs": {"av_latent": ["selflift", 0]},
+            "_meta": {"title": "分离输出潜空间"},
+        }
+        nodes["decode"] = {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["split_out", 0], "vae": ["vae_video", 0]},
+            "_meta": {"title": "视频解码"},
+        }
+    else:
+        nodes["sampler"] = {
+            "class_type": "SamplerCustom",
+            "inputs": {
+                "add_noise": True,
+                "noise_seed": seed,
+                "cfg": float(generation.get("cfg", 1.0)),
+                "model": [model_ref, 0],
+                "positive": [guide_ref, 0],
+                "negative": ["zero", 0],
+                "sampler": ["sampler_select", 0],
+                "sigmas": ["scheduler", 0],
+                "latent_image": ["concat", 0],
+            },
+            "_meta": {"title": "采样（首尾锚定）"},
+        }
+        nodes["decode"] = {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["sampler", 0], "vae": ["vae_video", 0]},
+            "_meta": {"title": "视频解码"},
+        }
+    return nodes
+
+
 def missing_fields(generation: dict[str, Any]) -> list[str]:
     required = {
         "unet": "UNET 模型", "clip": "CLIP 模型", "vae_video": "视频 VAE",
         "vae_audio": "音频 VAE", "upscaler_model": "潜空间放大器",
     }
+    return [label for key, label in required.items()
+            if not str(generation.get(key) or "").strip()]
+
+
+def missing_fields_anchor(generation: dict[str, Any]) -> list[str]:
+    """首尾帧模式不需要放大器；只要 I2V 必需的模型与两个 VAE。"""
+    required = {"unet": "UNET 模型", "clip": "CLIP 模型",
+                "vae_video": "视频 VAE", "vae_audio": "音频 VAE"}
     return [label for key, label in required.items()
             if not str(generation.get(key) or "").strip()]

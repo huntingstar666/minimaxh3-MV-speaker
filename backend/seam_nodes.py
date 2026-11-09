@@ -82,8 +82,13 @@ def status(root: str | None = None) -> dict[str, Any]:
             installed = (target / MARKER).read_text(encoding="utf-8").strip() == _marker_value()
         except OSError:
             installed = False
-    loaded = bool(comfy.object_info(SEAM_NODE))
-    params = "transition_step" in _node_inputs()
+    # ComfyUI 未启动时 /object_info 会直接抛连接异常；健康检查不能因此 500
+    try:
+        loaded = bool(comfy.object_info(SEAM_NODE))
+        params = "transition_step" in _node_inputs()
+    except Exception:  # noqa: BLE001
+        loaded = False
+        params = False
     return {
         "vendor": str(VENDOR_DIR),
         "vendor_ready": VENDOR_DIR.is_dir(),

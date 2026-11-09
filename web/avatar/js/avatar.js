@@ -681,6 +681,25 @@ function readGeneration() {
   pickText("#a-lora", "lora");
   pickText("#a-sampler", "sampler");
   pickText("#a-scheduler", "scheduler");
+
+  gen.stitch = $("#f-stitch")?.value || g.stitch || "hard";
+  gen.anchor_ref = "first";
+  gen.anchor_seed = gen.seed;
+  if (gen.stitch === "anchor") {
+    gen.anchor_mid = $("#f-anchor-mid")?.value || "center";
+    gen.anchor_mid_frames = String($("#f-anchor-mid-frames")?.value || "")
+      .split(",").map((value) => Number(value.trim()))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    gen.anchor_preprocess = $("#f-anchor-preprocess")?.value || "center_crop";
+    gen.anchor_sampler = $("#f-anchor-sampler")?.value || "plain";
+    if (gen.anchor_sampler === "selflift") gen.anchor_mid = "none";
+    gen.anchor_upscale = $("#f-anchor-upscale")?.value || "lanczos";
+    gen.anchor_pin_frames = ($("#f-anchor-pin")?.value || "false") === "true";
+    gen.lowres_scale = Number($("#f-anchor-lowres")?.value || 0.5);
+    const tiling = $("#f-anchor-tiling")?.value || "auto";
+    gen.tiling_mode = tiling === "auto" ? "auto" : "manual";
+    gen.tiling_tiles = tiling === "auto" ? 2 : Number(tiling);
+  }
   return gen;
 }
 
@@ -688,7 +707,7 @@ function fillGeneration(gen) {
   const g = gen || {};
   setSelectValue($("#f-aspect"), g.aspect_ratio || "9:16");
   setSelectValue($("#f-mp"), g.megapixels !== undefined && g.megapixels !== null ? String(Number(g.megapixels)) : "1");
-  $("#f-seed").value = g.seed ?? 0;
+  $("#f-seed").value = (g.stitch === "anchor" ? (g.anchor_seed ?? g.seed) : g.seed) ?? 0;
   setSelectValue($("#a-unet"), g.unet);
   setSelectValue($("#a-clip"), g.clip);
   setSelectValue($("#a-vae"), g.vae_video);
@@ -698,6 +717,135 @@ function fillGeneration(gen) {
   $("#a-steps").value = g.steps ?? "";
   $("#a-cfg").value = g.cfg ?? "";
   $("#a-lora-strength").value = g.lora_strength ?? "";
+
+  const stitch = g.stitch || "hard";
+  if ($("#f-stitch")) $("#f-stitch").value = stitch;
+  setSegmented("f-stitch-seg", stitch);
+  const mid = g.anchor_mid || "center";
+  if ($("#f-anchor-mid")) $("#f-anchor-mid").value = mid;
+  setSegmented("f-anchor-mid-seg", mid);
+  setSelectValue($("#f-anchor-preprocess"), g.anchor_preprocess || "center_crop");
+  setSelectValue($("#f-anchor-sampler"), g.anchor_sampler || "plain");
+  setSelectValue($("#f-anchor-upscale"), g.anchor_upscale || "lanczos");
+  const pin = g.anchor_pin_frames === undefined ? false : !!g.anchor_pin_frames;
+  if ($("#f-anchor-pin")) $("#f-anchor-pin").value = pin ? "true" : "false";
+  setSegmented("f-anchor-pin-seg", pin ? "true" : "false");
+  setSelectValue($("#f-anchor-lowres"), String(g.lowres_scale ?? 0.5));
+  setSelectValue($("#f-anchor-tiling"),
+    g.tiling_mode === "manual" ? String(g.tiling_tiles || 2) : "auto");
+  if ($("#f-anchor-mid-frames")) {
+    $("#f-anchor-mid-frames").value = (g.anchor_mid_frames || []).join(",");
+  }
+  syncAnchorUI();
+}
+
+function setSegmented(id, value) {
+  const root = document.getElementById(id);
+  if (!root) return;
+  root.querySelectorAll("[data-value]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.value === value);
+  });
+}
+
+function syncAnchorUI() {
+  const stitchInput = $("#f-stitch");
+  if (!stitchInput) return;
+  const mode = Number(state.mode) || 2;
+  const anchorAvailable = mode === 1;
+  if (stitchInput.value === "anchor" && !anchorAvailable) {
+    stitchInput.value = "hard";
+    setSegmented("f-stitch-seg", "hard");
+  }
+  const on = stitchInput.value === "anchor" && anchorAvailable;
+  const fields = $("#anchor-fields");
+  if (fields) fields.hidden = !on;
+  const hint = $("#anchor-hint");
+  if (hint) hint.hidden = !on;
+  const note = $("#anchor-mode-note");
+  if (note) note.textContent = anchorAvailable ? "仅模式 1 · 固定种子" : "仅模式 1 可用";
+  const seedHint = $("#f-seed")?.closest(".field")?.querySelector(".hint");
+  if (seedHint) seedHint.textContent = on ? "0 = 项目固定种子" : "0 = 每段随机";
+  const anchorBtn = document.querySelector('#f-stitch-seg [data-value="anchor"]');
+  if (anchorBtn) {
+    anchorBtn.disabled = !anchorAvailable;
+    anchorBtn.classList.toggle("is-disabled", !anchorAvailable);
+  }
+  const sampler = $("#f-anchor-sampler")?.value || "plain";
+  const selflift = sampler === "selflift";
+  if (selflift) {
+    if ($("#f-anchor-mid")) $("#f-anchor-mid").value = "none";
+    setSegmented("f-anchor-mid-seg", "none");
+  }
+  document.querySelectorAll("#f-anchor-mid-seg [data-value]").forEach((btn) => {
+    btn.disabled = selflift;
+    btn.classList.toggle("is-disabled", selflift);
+  });
+  const mid = $("#f-anchor-mid")?.value || "center";
+  const customWrap = $("#anchor-custom-wrap");
+  if (customWrap) customWrap.hidden = selflift || mid !== "custom";
+  const liftWrap = $("#anchor-selflift-wrap");
+  if (liftWrap) liftWrap.hidden = !(on && selflift);
+  const liftHint = $("#anchor-selflift-hint");
+  if (liftHint) liftHint.hidden = !(on && selflift);
+  const card = $(".av-anchor-card");
+  if (card) card.classList.toggle("is-compact", !on);
+}
+
+function bindSegmented(id, hiddenId) {
+  const root = document.getElementById(id);
+  if (!root) return;
+  root.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-value]");
+    if (!btn || btn.disabled) return;
+    const hidden = document.getElementById(hiddenId);
+    if (!hidden) return;
+    hidden.value = btn.dataset.value;
+    setSegmented(id, btn.dataset.value);
+    syncAnchorUI();
+  });
+}
+
+function initAnchorControls() {
+  bindSegmented("f-stitch-seg", "f-stitch");
+  bindSegmented("f-anchor-mid-seg", "f-anchor-mid");
+  bindSegmented("f-anchor-pin-seg", "f-anchor-pin");
+  $("#f-anchor-sampler")?.addEventListener("change", syncAnchorUI);
+  syncAnchorUI();
+}
+
+/* 右栏：参数 / 运行结果 分页 */
+const RIGHT_TAB_KEY = "h3av.rightTab";
+
+function setRightTab(name, persist = true) {
+  const params = $("#rail-params");
+  const results = $("#rail-results");
+  if (!params || !results) return;
+  const showResults = name === "results";
+  params.hidden = showResults;
+  results.hidden = !showResults;
+  $$("#rail-tabs [data-tab]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === name);
+  });
+  if (persist) {
+    try {
+      localStorage.setItem(RIGHT_TAB_KEY, name);
+    } catch {
+      /* 隐私模式忽略 */
+    }
+  }
+}
+
+function initRightTabs() {
+  $$("#rail-tabs [data-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => setRightTab(btn.dataset.tab));
+  });
+  let saved = "params";
+  try {
+    saved = localStorage.getItem(RIGHT_TAB_KEY) || "params";
+  } catch {
+    saved = "params";
+  }
+  setRightTab(saved, false);
 }
 
 function updateRangeTone() {
@@ -753,8 +901,8 @@ function fillForm(project) {
   $("#asr-enabled").checked = project.asr?.enabled !== false;
   if (project.asr?.model) setSelectValue($("#asr-model"), project.asr.model === "base" ? "base" : "small");
   if (project.asr?.language) setSelectValue($("#asr-language"), project.asr.language === "auto" ? "auto" : "zh");
-  fillGeneration(project.generation || {});
   setMode(Number(project.mode) === 1 ? 1 : Number(project.mode) === 3 ? 3 : 2, { quiet: true });
+  fillGeneration(project.generation || {});
   updateRangeLabels();
   updateScriptCount();
   renderVoice();
@@ -1432,6 +1580,7 @@ function setMode(mode, { quiet = false } = {}) {
   renderVoice();
   renderAudio();
   updateDesignChrome();
+  syncAnchorUI();
   syncButtons();
 }
 
@@ -3513,6 +3662,7 @@ function renderRun(run) {
   const segment = Number(data.segment);
   $("#run-segment").textContent = Number.isFinite(segment) && segment >= 0 ? `第 ${segment + 1} 段` : "";
   renderLogs(Array.isArray(data.logs) ? data.logs : []);
+  if (active) setRightTab("results", false);
   syncButtons();
 }
 
@@ -4586,6 +4736,8 @@ function bindEvents() {
 async function boot() {
   buildVoiceCardFields();
   bindEvents();
+  initAnchorControls();
+  initRightTabs();
   setMode(2, { quiet: true });
   renderSegments();
   renderRun(null);

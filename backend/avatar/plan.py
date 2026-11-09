@@ -571,6 +571,110 @@ def compose_prompt(project: dict[str, Any], row: dict[str, Any]) -> str:
     return "\n".join(f"{name}:\n{body}" for name, body in sections)
 
 
+def compose_anchor_prompt(project: dict[str, Any], row: dict[str, Any],
+                          duration_seconds: float | None = None) -> str:
+    """方案1：FL2VA 首尾帧锚定提示词（Base 模式，不是 Ref2VA 六段）。
+
+    规范来源（H3 口播动态图形导演技能）：
+    - `references/h3-integration.md` §1/§2/§4/§5/§8/§10/§12：
+      FL2VA 必须声明首尾对齐与 continuous bridge；Base 模式字段顺序；
+      音频驱动不写 <Audio N>；固定机位；人类表演；连续性优先级。
+    - `references/prompt-patterns.md`：固定机位、真人表演、文字稳定、VFX 稳定条款。
+    - `references/human-performance.md`：causal performance cycle、gaze/blink/mouth/breath/hands。
+    - `references/composition-timing-quality.md`：attention hierarchy、safe area、temporal stability。
+
+    关键点：
+    - 不写台词文本（模式 1 由驱动音频决定口型），否则模型会把台词画成屏幕文字；
+    - 声明 Picture 1 / Picture 2 与 0.00s / 末帧对齐，并明确是一段连续桥接；
+    - 固定机位，但人物必须保持活人表演，不能“固定机位=人物静止”；
+    - overlay 模式不生成任何文字/图形；generated 模式按节拍表追加事件。
+    """
+    if duration_seconds is None:
+        frames = int(row.get("generation_frames") or row.get("frames") or 124)
+        duration_seconds = frames / config.FPS
+    duration = max(0.04, float(duration_seconds))
+    design = design_mod.ensure_design(project)
+    graphics_mode = str(design.get("graphics_mode") or "generated")
+    chars = plan_chars(row)
+    cps = float(project.get("chars_per_second") or config.DEFAULT_CPS)
+
+    if graphics_mode == "overlay":
+        graphics = (
+            "No generated on-screen text, captions, icons, cards, diagrams or graphic "
+            "overlays; every frame stays clean for post-production overlay. Faces, mouths, "
+            "hands, products and safe areas remain protected and unobstructed."
+        )
+    else:
+        effect_clause = _beats_clause(project, row)
+        if effect_clause:
+            graphics = (
+                "Graphic events: " + effect_clause +
+                " Every graphic completes an in-clip entrance, readable hold, observable exit "
+                "and clean-frame recovery; previous groups fully clear before the next appears. "
+                "Keep graphics inside the safe area and clear of the face, mouth, eyes, hands, "
+                "microphone and product."
+            )
+        else:
+            graphics = (
+                "No added subtitles, captions, lyrics, watermarks or graphic overlays. "
+                "Faces, mouths, hands, products and safe areas remain protected and "
+                "unobstructed; any primary on-screen information holds long enough to read."
+            )
+
+    performance = (
+        "The performer uses lens-first attention with brief motivated gaze departures and "
+        "returns; the eyes lead small head turns. Blinks are isolated, non-periodic and "
+        "motivated by breath, phrase boundary, gaze shift or cognitive release. Expressions "
+        "build as onset, peak, then partial release with restrained asymmetry; mouth motion "
+        "follows actual phonemes, syllable stress and silence, with consonant closures, "
+        "rounded vowels, brief lip seals and natural jaw amplitude; lips relax when no speech "
+        "is audible. Breathing is subtle and continuous in the chest, shoulders and fabric; "
+        "posture, weight and support remain physically believable. Hands keep asymmetric "
+        "natural resting states; gestures use prepare, semantic peak, settle and rest, respect "
+        "the microphone and frame edges, and never repeat continuously. Do not stack nod, "
+        "blink, brow lift, hand wave and torso lean on every phrase; avoid constant nodding, "
+        "metronomic blinking, permanent smiling or decorative fidgeting. Face, skin texture, "
+        "teeth, tongue, eye highlights, hair, clothing, fingers, joints and prop contacts "
+        "remain continuous."
+    )
+    pace = (
+        f"Target average speech pace about {cps:g} written characters per second; this "
+        f"segment has {chars} written characters including punctuation. The supplied runtime "
+        "waveform is authoritative for actual phonemes, breaths, pauses, emphasis and gesture "
+        "timing."
+    )
+    stability = (
+        "Identity, facial features, hairstyle, clothing, hands, props, background objects, "
+        "practical lights, exposure, white balance, shadow direction and colour temperature "
+        "remain temporally stable; no flicker, drifting light, random particles, global "
+        "brightness pulse or unexplained lens flare."
+    )
+    return (
+        "How the reference pictures align with the target video — "
+        "Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; "
+        f"Picture 2 (from Shot 1) aligns with the {duration:.2f}-second mark of the target "
+        "video. The shot is one continuous bridge between these two aligned frames; no cut.\n\n"
+        "integrated_multimodal_description:\n"
+        "[Shot 1] The video begins exactly at <Picture 1> and ends exactly at <Picture 2>: "
+        "identical facial identity, hairstyle, body proportions, clothing base colours, hands, "
+        "props, scene, composition, framing, background geometry, lighting, exposure, white "
+        "balance and colour temperature. Exactly one performer is visible; no second person, "
+        "duplicate, clone, foreground silhouette, split screen, reflection or background "
+        "figure. The background remains the same environment from <Picture 1>; no change to "
+        "black or another location. The camera is locked: fixed position, focal length, horizon, "
+        "framing, exposure and depth of field; no push, pull, pan, tilt, zoom, close-up, "
+        "reframe or cut. " + performance + " " + pace + " " +
+        graphics + " " + stability + "\n\n"
+        "overall_soundscape:\n"
+        "The supplied runtime driving speech provides the final speech timeline; all visible "
+        "mouth shapes, breathing, pauses, performance and graphic timing follow that waveform "
+        "exactly. No duplicate voice, narration, music, added effects or conflicting sound "
+        "layer.\n\n"
+        "non_diegetic_music:\n"
+        "N/A"
+    )
+
+
 def plan_chars(row: dict[str, Any]) -> int:
     return int(row.get("chars") or _chars(row.get("text") or ""))
 

@@ -384,6 +384,23 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
                             project["generation"]["output_fps"] = int(generation[key])
                         except (TypeError, ValueError):
                             pass
+                for key in ("stitch", "anchor_sampler", "anchor_mid",
+                            "anchor_preprocess", "anchor_upscale"):
+                    if generation.get(key):
+                        project["generation"][key] = str(generation[key])
+                if isinstance(generation.get("anchor_mid_frames"), list):
+                    project["generation"]["anchor_mid_frames"] = [
+                        int(value) for value in generation["anchor_mid_frames"]
+                        if str(value).lstrip("-").isdigit()]
+                if "anchor_pin_frames" in generation:
+                    project["generation"]["anchor_pin_frames"] = bool(
+                        generation["anchor_pin_frames"])
+                if generation.get("anchor_seed") is not None:
+                    try:
+                        project["generation"]["anchor_seed"] = max(
+                            0, int(generation["anchor_seed"]))
+                    except (TypeError, ValueError):
+                        pass
             if parsed.get("audio_file"):
                 data = _member(zf, parsed["audio_file"], prefix)
                 project["audio"] = _install_wav(data, base / "source.wav",
@@ -640,7 +657,15 @@ def export_pack(project_id: str) -> Path:
             "aspect_ratio": (project.get("generation") or {}).get(
                 "aspect_ratio", "9:16 (Portrait Widescreen)"),
             "output_fps": int((project.get("generation") or {}).get("fps") or config.FPS),
-            "stitch": "hard",
+            "stitch": str((project.get("generation") or {}).get("stitch") or "hard"),
+            "anchor_sampler": str((project.get("generation") or {}).get("anchor_sampler") or "plain"),
+            "anchor_mid": str((project.get("generation") or {}).get("anchor_mid") or "center"),
+            "anchor_mid_frames": list((project.get("generation") or {}).get("anchor_mid_frames") or []),
+            "anchor_preprocess": str((project.get("generation") or {}).get("anchor_preprocess") or "center_crop"),
+            "anchor_upscale": str((project.get("generation") or {}).get("anchor_upscale") or "lanczos"),
+            "anchor_seed": int((project.get("generation") or {}).get("anchor_seed") or 0),
+            "anchor_pin_frames": bool((project.get("generation") or {}).get(
+                "anchor_pin_frames", False)),
         },
         "segments": manifest_segments,
         "notes": "由数字人工作台导出；导入前可再跑 avatar 包校验器。",

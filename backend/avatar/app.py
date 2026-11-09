@@ -164,6 +164,58 @@ def _mark_final_stale(project: dict[str, Any]) -> None:
         final["stale"] = True
 
 
+def _merged_generation(project: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    generation = {**(project.get("generation") or {})}
+    if isinstance(payload.get("generation"), dict):
+        generation.update(payload["generation"])
+    if "stitch" in payload:
+        generation["stitch"] = str(payload["stitch"] or "hard")
+    return generation
+
+
+def _validate_anchor(project: dict[str, Any], generation: dict[str, Any],
+                     check_nodes: bool = False) -> None:
+    stitch = str(generation.get("stitch") or "hard").strip().lower()
+    if stitch not in {"hard", "anchor"}:
+        raise HTTPException(400, "stitch 必须是 hard 或 anchor。")
+    if stitch != "anchor":
+        return
+    if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
+        raise HTTPException(400, "首尾帧模式当前仅支持模式 1（音频驱动）。")
+    sampler = str(generation.get("anchor_sampler") or "plain").strip().lower()
+    if sampler not in {"selflift", "plain"}:
+        raise HTTPException(400, "anchor_sampler 必须是 selflift 或 plain。")
+    mid = str(generation.get("anchor_mid") or "center").strip().lower()
+    if mid not in {"none", "center", "thirds", "custom"}:
+        raise HTTPException(400, "anchor_mid 必须是 none/center/thirds/custom。")
+    preprocess = str(generation.get("anchor_preprocess") or "center_crop").strip().lower()
+    if preprocess not in {"center_crop", "stretch", "none"}:
+        raise HTTPException(400, "anchor_preprocess 必须是 center_crop/stretch/none。")
+    upscale = str(generation.get("anchor_upscale") or "lanczos").strip().lower()
+    if upscale not in {"nearest-exact", "bilinear", "area", "bicubic", "lanczos"}:
+        raise HTTPException(400, "anchor_upscale 不合法。")
+    try:
+        seed = int(generation.get("anchor_seed") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "anchor_seed 必须是非负整数。") from None
+    if seed < 0:
+        raise HTTPException(400, "anchor_seed 必须是非负整数。")
+    if check_nodes:
+        if not project.get("refs"):
+            raise HTTPException(400, "首尾帧模式需要至少一张参考图。")
+        nodes = workflow.available_nodes()
+        if not nodes.get("image_to_video"):
+            raise HTTPException(400, "缺少 MiniMaxH3ImageToVideo 节点，请先升级 ComfyUI。")
+        if not nodes.get("add_guide"):
+            raise HTTPException(400, "缺少 MiniMaxH3AddGuide 节点，请先升级 ComfyUI。")
+        if preprocess != "none" and not nodes.get("image_scale"):
+            raise HTTPException(400, "缺少 ImageScale 节点，请先升级 ComfyUI。")
+        if sampler == "selflift" and not (nodes.get("selflift") or nodes.get("selflift_fix")):
+            raise HTTPException(400, "缺少 SelfLiftAvatarH3Sampler / SelfLiftAvatarH3SamplerFix 节点，请先升级 ComfyUI。")
+        if sampler == "selflift" and not str(generation.get("upscaler_model") or "").strip():
+            raise HTTPException(400, "SelfLift 二采需要设置 upscaler_model。")
+
+
 def _mark_prompt_meta_stale(row: dict[str, Any]) -> None:
     """节拍/输入变化后保留上次 lint 结果，但标记为过期（不直接删）。"""
     meta = row.get("prompt_meta")
@@ -572,6 +624,8 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             design["audio_mode"] = config.AUDIO_MODE_BY_MODE.get(value, "generated")
         if value != previous_mode:
             _reset_for_mode_switch(project, project_id, value)
+        if value != config.MODE_AUDIO_DRIVE:
+            project.setdefault("generation", {})["stitch"] = "hard"
     for key in ("name", "script", "voice_description", "language", "material_note"):
         if key in payload:
             value = str(payload[key] or "")
@@ -611,8 +665,10 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                                            5.0, 30.0)
     if "max_seconds" in payload:
         project["max_seconds"] = _float(payload["max_seconds"], config.DEFAULT_MAX_SECONDS, 5.0, 30.0)
-    if isinstance(payload.get("generation"), dict):
-        project["generation"] = {**(project.get("generation") or {}), **payload["generation"]}
+    if isinstance(payload.get("generation"), dict) or "stitch" in payload:
+        generation = _merged_generation(project, payload)
+        _validate_anchor(project, generation)
+        project["generation"] = generation
         _mark_final_stale(project)
     if isinstance(payload.get("design"), dict):
         design_mod.update_design(project, payload["design"])
@@ -1297,8 +1353,10 @@ def overlay_project(project_id: str, payload: dict[str, Any] | None = None) -> d
 def generate(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     payload = payload or {}
     project = _project(project_id)
-    if isinstance(payload.get("generation"), dict):
-        project["generation"] = {**(project.get("generation") or {}), **payload["generation"]}
+    generation = _merged_generation(project, payload)
+    _validate_anchor(project, generation, check_nodes=True)
+    if isinstance(payload.get("generation"), dict) or "stitch" in payload:
+        project["generation"] = generation
         store.save(project)
     try:
         state = job.runner.start(project_id, payload)
@@ -1311,7 +1369,9 @@ def generate(project_id: str, payload: dict[str, Any] | None = None) -> dict[str
 
 @app.post("/api/projects/{project_id}/segments/{index}/regenerate")
 def regenerate(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    _row(_project(project_id), index)
+    project = _project(project_id)
+    _row(project, index)
+    _validate_anchor(project, _merged_generation(project, payload or {}), check_nodes=True)
     try:
         state = job.runner.start(project_id, {**(payload or {}), "only": [index], "force": [index]})
     except Exception as error:  # noqa: BLE001

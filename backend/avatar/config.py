@@ -152,6 +152,21 @@ DEFAULT_GENERATION: dict = {
     "output_fps": FPS,
     "filename_prefix": "h3dh",
     "seed": 0,
+    # 方案1：首尾帧锚定
+    # stitch: hard | anchor
+    "stitch": "hard",
+    "anchor_ref": "first",
+    "anchor_seed": 0,
+    # 中间锚点：none | center | thirds | custom
+    "anchor_mid": "center",
+    "anchor_mid_frames": [],
+    # 参考图预处理：center_crop（实测默认）| stretch | none
+    "anchor_preprocess": "center_crop",
+    "anchor_upscale": "lanczos",
+    "anchor_sampler": "plain",
+    # 首尾钉帧：用参考图替换段首/段尾帧，保证拼接处完全一致；
+    # 代价是段内首尾多 1 帧突变（实测 max 3.26 → 5.69），默认关。
+    "anchor_pin_frames": False,
     # 内部参数：ref_audios 上限 3
     "max_ref_audios": 1,
 }
