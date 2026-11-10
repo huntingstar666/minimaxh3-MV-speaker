@@ -57,7 +57,11 @@ def system_stats() -> dict[str, Any]:
 def ping() -> dict[str, Any]:
     started = time.time()
     try:
-        stats = system_stats()
+        # 状态探测要快：ComfyUI 不在时不应拖住页面首屏
+        with http(1.5) as client:
+            response = client.get(_url("/system_stats"))
+            response.raise_for_status()
+            stats = response.json()
         devices = stats.get("devices") or []
         return {
             "ok": True,
@@ -77,12 +81,35 @@ def system_stats() -> dict[str, Any]:
         return response.json()
 
 
+_down_until = 0.0
+_DOWN_COOLDOWN = 8.0
+
+
+def _trip_probe() -> None:
+    """连接类失败后短暂熔断：后续 object_info 直接返回 None，不再逐个等超时。"""
+    global _down_until
+    _down_until = time.time() + _DOWN_COOLDOWN
+
+
+def _clear_probe() -> None:
+    global _down_until
+    _down_until = 0.0
+
+
 def object_info(node: str) -> dict[str, Any] | None:
-    with http(20) as client:
-        response = client.get(_url(f"/object_info/{node}"))
-        if response.status_code >= 400:
-            return None
-        data = response.json()
+    """读取节点信息。ComfyUI 掉线时快速失败并短暂熔断，避免 10+ 次串行超时。"""
+    if time.time() < _down_until:
+        return None
+    try:
+        with http(3) as client:
+            response = client.get(_url(f"/object_info/{node}"))
+            if response.status_code >= 400:
+                return None
+            data = response.json()
+    except httpx.TransportError:
+        _trip_probe()
+        return None
+    _clear_probe()
     return data.get(node)
 
 
@@ -152,6 +179,14 @@ def options(force: bool = False) -> dict[str, Any]:
         }
         if not value["attention"]:
             value["attention"] = ["comfy kitchen attention", "pytorch attention"]
+        readable = bool(value["unet"] or value["samplers"] or value["aspects"])
+        if not readable:
+            # ComfyUI 不可用：不要用空列表覆盖上一次的快照，直接沿用旧值
+            cached = _options_cache["value"] or last_options()
+            if cached:
+                _options_cache.update(time=time.time(), value=cached)
+                return cached
+            return value
         _options_cache.update(time=time.time(), value=value)
         try:
             _OPTIONS_SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)

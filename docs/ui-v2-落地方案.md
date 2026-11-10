@@ -67,6 +67,13 @@
 - 切模式仍走「会重置分段/素材」的确认框；取消后高亮回滚到作品真实模式。
 - 空状态文案与 CTA 跟着改：模式 1 无音频时按钮为「去上传音频」（打开作品设定并唤起文件选择），有音频时才是「上传并分析」；「去填写作品设定」先开弹窗再聚焦名称输入。
 
+### 进入项目的首屏加载（R25）
+
+- 现象：进入 / 刷新 /avatar/ 要等约 10 秒项目才出现。
+- 根因：`boot()` 先 `await Promise.allSettled([health, options, prompts, projects, catalog])`，之后才 `openProject(lastId)`；而 `/avatar/api/options` 串行读 10+ 个 `object_info`，每个请求 ComfyUI 0.35–0.9s → 8–10.8s，项目详情请求被压后。
+- 前端：aux 五个请求只发起不等待，`openProject` 先跑；`await aux` 后再 `fillGeneration(项目值 || 默认值)` 补齐下拉值。
+- 后端：`object_info` 超时 20s→3s，连接类异常 8s 熔断；`options()` 读到空列表时沿用内存/`options.json` 快照，不覆盖；`ping()` 1.5s 超时。
+
 ---
 
 ## 1. 范围与原则

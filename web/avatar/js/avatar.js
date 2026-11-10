@@ -4982,13 +4982,16 @@ async function boot() {
   updateRangeLabels();
 
   const lastId = localStorage.getItem(LAST_KEY);
-  await Promise.allSettled([loadHealth(), loadOptions(), loadPrompts(), loadProjects(), loadCatalogAtBoot()]);
-  if (!state.designLoadedFor) {
-    buildVoiceCardFields();
-    fillDesign(designBase(state.mode));
-  }
+  // 作品数据只依赖 /projects/{id}；health / options 等辅助请求并行跑，
+  // 不再挡住项目渲染（ComfyUI 掉线时 /options 过去要等十几秒）
+  const aux = Promise.allSettled([
+    loadHealth(),
+    loadOptions(),
+    loadPrompts(),
+    loadProjects(),
+    loadCatalogAtBoot(),
+  ]);
 
-  if (!state.project) fillGeneration(state.generationDefaults || {});
   // 启动恢复上次作品时，如果用户已经抢先新建了作品，就不要再覆盖它
   if (lastId && !state.project) await openProject(lastId);
   if (!state.project) {
@@ -4999,6 +5002,14 @@ async function boot() {
     renderTimeline();
     syncButtons();
   }
+
+  await aux;
+  if (!state.designLoadedFor) {
+    buildVoiceCardFields();
+    fillDesign(designBase(state.mode));
+  }
+  // 选项到位后补齐一次：有项目用项目值，否则用默认值
+  fillGeneration(state.project?.generation || state.generationDefaults || {});
   if (!state.backendReady) {
     toast("后端 /avatar/api 暂未就绪，功能会在后端启动后可用", "err", 9000);
   }
