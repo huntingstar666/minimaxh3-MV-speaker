@@ -750,6 +750,45 @@
     <div class="modal-body av-settings-body">
       <section class="panel av-anchor-panel">
     <div id="anchor-fields" class="av-anchor-fields">
+      <div class="av-anchor-frames" id="anchor-frames">
+        <div class="av-anchor-frame" data-slot="first">
+          <div class="av-anchor-frame-thumb" id="anchor-thumb-first"><svg><use href="#i-human"/></svg></div>
+          <div class="av-anchor-frame-body">
+            <b>首帧图</b>
+            <em id="anchor-state-first">默认：该段角色图</em>
+          </div>
+          <div class="av-anchor-frame-actions">
+            <button class="btn ghost sm" type="button" data-anchor-upload="first">上传</button>
+            <button class="btn ghost sm hidden" type="button" data-anchor-reset="first">默认</button>
+          </div>
+          <input type="file" accept="image/*" data-anchor-input="first" hidden>
+        </div>
+        <div class="av-anchor-frame" data-slot="last">
+          <div class="av-anchor-frame-thumb" id="anchor-thumb-last"><svg><use href="#i-human"/></svg></div>
+          <div class="av-anchor-frame-body">
+            <b>尾帧图</b>
+            <em id="anchor-state-last">默认：该段角色图</em>
+          </div>
+          <div class="av-anchor-frame-actions">
+            <button class="btn ghost sm" type="button" data-anchor-upload="last">上传</button>
+            <button class="btn ghost sm hidden" type="button" data-anchor-reset="last">默认</button>
+          </div>
+          <input type="file" accept="image/*" data-anchor-input="last" hidden>
+        </div>
+        <div class="av-anchor-frame" data-slot="mid">
+          <div class="av-anchor-frame-thumb" id="anchor-thumb-mid"><svg><use href="#i-human"/></svg></div>
+          <div class="av-anchor-frame-body">
+            <b>中间锚点图</b>
+            <em id="anchor-state-mid">默认：该段角色图</em>
+          </div>
+          <div class="av-anchor-frame-actions">
+            <button class="btn ghost sm" type="button" data-anchor-upload="mid">上传</button>
+            <button class="btn ghost sm hidden" type="button" data-anchor-reset="mid">默认</button>
+          </div>
+          <input type="file" accept="image/*" data-anchor-input="mid" hidden>
+        </div>
+      </div>
+      <p class="av-anchor-hint" id="anchor-frames-hint">默认三张都用该段的角色参考图，可单独替换。中间锚点图在「中间锚点 = 无」或 SelfLift 二采时不会生效。</p>
       <div class="av-anchor-row">
         <label>中间锚点</label>
         <input type="hidden" id="f-anchor-mid" value="center">

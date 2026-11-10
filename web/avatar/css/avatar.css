@@ -1119,6 +1119,34 @@
 .av-rail .panel.is-collapsed > :not(.panel-head){display:none}
 .av-rail .panel.is-collapsed .panel-head{border-bottom:0;margin-bottom:0;padding-bottom:14px}
 
+/* ---------- 首尾帧锚定：首帧 / 尾帧 / 中间锚点图 ---------- */
+.av-anchor-frames{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:10px}
+.av-anchor-frame{
+  display:grid;grid-template-columns:42px minmax(0,1fr);grid-template-rows:auto auto;
+  align-items:center;gap:5px 9px;min-width:0;
+  padding:9px 10px;border:1px solid var(--line);border-radius:10px;
+  background:color-mix(in srgb,var(--bg) 70%,transparent);
+}
+.av-anchor-frame.is-custom{border-color:var(--av-amber-line);background:var(--av-amber-soft)}
+.av-anchor-frame-thumb{
+  grid-row:1 / span 2;width:42px;height:42px;border-radius:8px;overflow:hidden;align-self:start;
+  display:grid;place-items:center;border:1px solid var(--line);
+  background:color-mix(in srgb,var(--text) 5%,transparent);color:var(--faint);
+}
+.av-anchor-frame-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.av-anchor-frame-thumb svg{width:17px;height:17px}
+.av-anchor-frame-body{grid-column:2;min-width:0;display:flex;flex-direction:column;gap:2px}
+.av-anchor-frame-body b{font-size:11.5px;font-weight:600;color:var(--text);white-space:nowrap}
+.av-anchor-frame-body em{
+  font-style:normal;font-size:9.5px;color:var(--faint);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.av-anchor-frame-actions{grid-column:2;display:flex;flex-direction:row;gap:6px;min-width:0}
+.av-anchor-frame-actions .btn{padding:2px 8px;font-size:9.5px;white-space:nowrap}
+@media (max-width:640px){
+  .av-anchor-frames{grid-template-columns:1fr}
+}
+
 /* ---------- 首尾帧锚定：Apple 风格分段控件 ---------- */
 .av-anchor-card{
   margin-top:14px;

@@ -609,6 +609,13 @@ const api = {
     }),
   patchRef: (id, index, body) => request(`${projectPath(id)}/refs/${index}`, { method: "PATCH", body }),
   deleteRef: (id, index) => request(`${projectPath(id)}/refs/${index}`, { method: "DELETE" }),
+  uploadAnchorFrame: (id, slot, file) =>
+    request(`${projectPath(id)}/anchor-frames/${slot}`, {
+      method: "POST",
+      form: formData({}, "image", file),
+    }),
+  deleteAnchorFrame: (id, slot) =>
+    request(`${projectPath(id)}/anchor-frames/${slot}`, { method: "DELETE" }),
   plan: (id, body) => request(`${projectPath(id)}/plan`, { method: "POST", body }),
   patchSegment: (id, index, body) =>
     request(`${projectPath(id)}/segments/${index}`, { method: "PATCH", body }),
@@ -925,6 +932,92 @@ function syncAnchorUI() {
   updateAnchorStepSplit();
   const card = $(".av-anchor-card");
   if (card) card.classList.toggle("is-compact", !on);
+  renderAnchorFrames();
+}
+
+/* ---------------- 首尾帧锚定：首帧 / 尾帧 / 中间锚点图 ---------------- */
+
+const ANCHOR_SLOT_LABEL = { first: "首帧图", last: "尾帧图", mid: "中间锚点图" };
+
+function renderAnchorFrames() {
+  const project = state.project;
+  const frames = project?.anchor_frames || {};
+  Object.keys(ANCHOR_SLOT_LABEL).forEach((slot) => {
+    const card = document.querySelector(`.av-anchor-frame[data-slot="${slot}"]`);
+    const thumb = document.getElementById(`anchor-thumb-${slot}`);
+    const stateEl = document.getElementById(`anchor-state-${slot}`);
+    const reset = document.querySelector(`[data-anchor-reset="${slot}"]`);
+    const entry = frames[slot] || null;
+    const custom = !!(entry && entry.filename);
+    if (card) card.classList.toggle("is-custom", custom);
+    if (reset) reset.classList.toggle("hidden", !custom);
+    if (thumb) {
+      thumb.innerHTML = custom && project
+        ? `<img src="${mediaUrl(project.id, entry.filename, entry.updated)}" alt="">`
+        : '<svg><use href="#i-human"/></svg>';
+    }
+    if (stateEl) {
+      stateEl.textContent = custom && project
+        ? `已自定义 · ${String(entry.filename).split("/").pop()}`
+        : "默认：该段角色图";
+    }
+  });
+  const hint = $("#anchor-frames-hint");
+  if (hint) {
+    const mid = $("#f-anchor-mid")?.value || "center";
+    const selflift = ($("#f-anchor-sampler")?.value || "plain") === "selflift";
+    hint.textContent = selflift || mid === "none"
+      ? "默认三张都用该段的角色参考图，可单独替换。当前未启用中间锚点，中间锚点图不会生效。"
+      : "默认三张都用该段的角色参考图，可单独替换。中间锚点图在「中间锚点 = 无」或 SelfLift 二采时不会生效。";
+  }
+}
+
+async function uploadAnchorFrame(slot, file) {
+  const project = state.project;
+  if (!project || !ANCHOR_SLOT_LABEL[slot]) return;
+  const button = document.querySelector(`[data-anchor-upload="${slot}"]`);
+  await withBusy(button, async () => {
+    const data = await api.uploadAnchorFrame(project.id, slot, file);
+    state.project = data.project;
+    renderAnchorFrames();
+    renderFinal();
+    toast(`${ANCHOR_SLOT_LABEL[slot]}已更新`, "ok");
+  }).catch((err) => toast(`上传${ANCHOR_SLOT_LABEL[slot]}失败：${err.message}`, "err", 7000));
+}
+
+async function resetAnchorFrame(slot) {
+  const project = state.project;
+  if (!project || !ANCHOR_SLOT_LABEL[slot]) return;
+  const button = document.querySelector(`[data-anchor-reset="${slot}"]`);
+  await withBusy(button, async () => {
+    const data = await api.deleteAnchorFrame(project.id, slot);
+    state.project = data.project;
+    renderAnchorFrames();
+    renderFinal();
+    toast(`${ANCHOR_SLOT_LABEL[slot]}已恢复默认`, "ok");
+  }).catch((err) => toast(`恢复默认失败：${err.message}`, "err", 7000));
+}
+
+function bindAnchorFrameControls() {
+  $$("[data-anchor-upload]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!state.project) {
+        toast("先保存作品，再上传锚定用图", "warn", 5000);
+        return;
+      }
+      document.querySelector(`[data-anchor-input="${btn.dataset.anchorUpload}"]`)?.click();
+    });
+  });
+  $$("[data-anchor-input]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      input.value = "";
+      if (file) uploadAnchorFrame(input.dataset.anchorInput, file);
+    });
+  });
+  $$("[data-anchor-reset]").forEach((btn) => {
+    btn.addEventListener("click", () => resetAnchorFrame(btn.dataset.anchorReset));
+  });
 }
 
 function bindSegmented(id, hiddenId) {
@@ -2735,6 +2828,7 @@ function clearProject({ silent = false } = {}) {
   renderProjectContext();
   renderSegments();
   renderRefs();
+  renderAnchorFrames();
   renderRun(null);
   renderFinal();
   renderTimeline();
@@ -4454,6 +4548,7 @@ function applyProject(project, { fill = false, segments = true } = {}) {
   renderVoice();
   renderAudio();
   renderRefs();
+  renderAnchorFrames();
   renderTimeline();
   if (segments) renderSegments();
   renderRun(state.run);
@@ -4720,6 +4815,7 @@ function bindEvents() {
 
   $("#btn-create").addEventListener("click", () => (state.project ? saveSettings() : createProject()));
   $("#btn-new").addEventListener("click", startNewProject);
+  bindAnchorFrameControls();
   // 数字人包（.h3avatar.zip）导入 / 导出：后端与文档已定义契约，之前页面没有入口
   $("#btn-import-pack")?.addEventListener("click", () => $("#pack-input")?.click());
   $("#pack-input")?.addEventListener("change", async (event) => {
@@ -4975,6 +5071,7 @@ async function boot() {
   renderRun(null);
   renderFinal();
   renderRefs();
+  renderAnchorFrames();
   renderProjectList();
   renderTimeline();
   syncButtons();

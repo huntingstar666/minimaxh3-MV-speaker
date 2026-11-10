@@ -396,10 +396,14 @@ def build_anchor(generation: dict[str, Any], prompt: str, ref: str, audio_file: 
                  mid_guides: list[int] | None = None,
                  preprocess: str = "center_crop",
                  upscale_method: str = "lanczos",
-                 sampler_mode: str = "plain") -> dict[str, Any]:
+                 sampler_mode: str = "plain",
+                 last_ref: str = "",
+                 mid_ref: str = "") -> dict[str, Any]:
     """首尾帧锚定单段图（方案1）。
 
-    每段独立：first_frame 和 last_frame 都接同一张参考图；不读上一段任何状态。
+    每段独立：默认 first_frame / last_frame / 中间锚点都接同一张角色图；
+    也可用 last_ref / mid_ref 单独指定尾帧与中间锚点图（为空或与 ref 相同则复用）。
+    不读上一段任何状态。
     图结构对齐用户提供的《H3数字人口播长视频（节点调用）首尾帧接续无限长API.json》：
     I2V first/last → 分离视频 latent → 拼接锁定的本段音频 → AddGuide(frame 0)
     → ConditioningZeroOut → BasicScheduler + SamplerCustom → VAEDecode → VHS。
@@ -475,7 +479,7 @@ def build_anchor(generation: dict[str, Any], prompt: str, ref: str, audio_file: 
         "ref": {
             "class_type": "LoadImage",
             "inputs": {"image": ref},
-            "_meta": {"title": "首尾锚定参考图"},
+            "_meta": {"title": "首帧图"},
         },
         "i2v": {
             "class_type": "MiniMaxH3ImageToVideo",
@@ -489,7 +493,7 @@ def build_anchor(generation: dict[str, Any], prompt: str, ref: str, audio_file: 
                 "first_frame": ["ref", 0],
                 "last_frame": ["ref", 0],
             },
-            "_meta": {"title": "首尾帧锚定（同图）"},
+            "_meta": {"title": "首尾帧锚定（首帧可独立）"},
         },
         "split": {
             "class_type": "LTXVSeparateAVLatent",
@@ -584,11 +588,44 @@ def build_anchor(generation: dict[str, Any], prompt: str, ref: str, audio_file: 
                 "height": ["res", 1],
                 "crop": "center" if preprocess == "center_crop" else "disabled",
             },
-            "_meta": {"title": "参考图预裁切（首尾同图）"},
+            "_meta": {"title": "首帧图预裁切"},
         }
         ref_image_ref = "ref_scaled"
+
+    first_name = str(ref or "")
+    last_name = str(last_ref or "").strip()
+    mid_name = str(mid_ref or "").strip()
+
+    def frame_source(node_id: str, filename: str, title: str) -> str:
+        """尾帧 / 中间锚点图：与首帧同图时直接复用，不同则单独加载并按需预裁切。"""
+        if not filename or filename == first_name:
+            return ref_image_ref
+        nodes[node_id] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": filename},
+            "_meta": {"title": title},
+        }
+        if preprocess == "none":
+            return node_id
+        scaled = f"{node_id}_scaled"
+        nodes[scaled] = {
+            "class_type": "ImageScale",
+            "inputs": {
+                "image": [node_id, 0],
+                "upscale_method": upscale_method,
+                "width": ["res", 0],
+                "height": ["res", 1],
+                "crop": "center" if preprocess == "center_crop" else "disabled",
+            },
+            "_meta": {"title": f"{title}预裁切"},
+        }
+        return scaled
+
+    last_image_ref = frame_source("ref_last", last_name, "尾帧图")
+    mid_image_ref = frame_source("ref_mid", mid_name, "中间锚点图")
+
     nodes["i2v"]["inputs"]["first_frame"] = [ref_image_ref, 0]
-    nodes["i2v"]["inputs"]["last_frame"] = [ref_image_ref, 0]
+    nodes["i2v"]["inputs"]["last_frame"] = [last_image_ref, 0]
 
     # SelfLift 会在 keyframe 边界放大跳变；与你调试好的 Fix 图一致，二采强制不加中间锚。
     if sampler_mode == "selflift":
@@ -607,7 +644,7 @@ def build_anchor(generation: dict[str, Any], prompt: str, ref: str, audio_file: 
                 "latent": ["i2v", 1],
                 "frame_idx": int(frame),
                 "vae": ["vae_video", 0],
-                "image": [ref_image_ref, 0],
+                "image": [mid_image_ref, 0],
             },
             "_meta": {"title": f"第 {frame} 帧中间锚点"},
         }

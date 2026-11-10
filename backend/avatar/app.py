@@ -829,6 +829,65 @@ def delete_ref(project_id: str, index: int) -> dict[str, Any]:
     return {"ok": True, "project": project}
 
 
+ANCHOR_FRAME_SLOTS = ("first", "last", "mid")
+
+
+@app.post("/api/projects/{project_id}/anchor-frames/{slot}")
+def upload_anchor_frame(project_id: str, slot: str,
+                        image: UploadFile = File(...)) -> dict[str, Any]:
+    """首尾帧锚定的首帧 / 尾帧 / 中间锚点图，可按槽位单独上传替换。"""
+    if slot not in ANCHOR_FRAME_SLOTS:
+        raise HTTPException(400, "slot 必须是 first / last / mid。")
+    _check_upload_size(image, MAX_IMAGE_BYTES, "锚定用图")
+    project = _project(project_id)
+    suffix = Path(image.filename or "").suffix.lower()
+    if suffix not in ALLOWED_IMAGE:
+        raise HTTPException(400, f"不支持的图片格式：{suffix or '未知'}")
+    header = image.file.read(12)
+    image.file.seek(0)
+    if not _looks_like_image(suffix, header):
+        raise HTTPException(400, "图片内容与扩展名不符，请重新导出后再上传。")
+    folder = store.project_dir(project_id) / "anchor"
+    folder.mkdir(parents=True, exist_ok=True)
+    # 同槽位只保留一张：换格式时把旧后缀的文件也清掉
+    for stale in folder.glob(f"{slot}.*"):
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+    target = folder / f"{slot}{suffix}"
+    with target.open("wb") as handle:
+        shutil.copyfileobj(image.file, handle)
+    frames = project.setdefault("anchor_frames", {})
+    frames[slot] = {"filename": f"anchor/{target.name}", "updated": time.time()}
+    _mark_final_stale(project)
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.delete("/api/projects/{project_id}/anchor-frames/{slot}")
+def delete_anchor_frame(project_id: str, slot: str) -> dict[str, Any]:
+    """删除自定义图，回退到该段的角色参考图。"""
+    if slot not in ANCHOR_FRAME_SLOTS:
+        raise HTTPException(400, "slot 必须是 first / last / mid。")
+    project = _project(project_id)
+    frames = project.get("anchor_frames") or {}
+    frames.pop(slot, None)
+    folder = store.project_dir(project_id) / "anchor"
+    for stale in folder.glob(f"{slot}.*"):
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+    if frames:
+        project["anchor_frames"] = frames
+    else:
+        project.pop("anchor_frames", None)
+    _mark_final_stale(project)
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
 @app.post("/api/projects/{project_id}/voice")
 def upload_voice(project_id: str, voice: UploadFile = File(...)) -> dict[str, Any]:
     project = _project(project_id)

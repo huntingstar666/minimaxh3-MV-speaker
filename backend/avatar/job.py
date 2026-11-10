@@ -49,6 +49,40 @@ def anchor_enabled(project: dict[str, Any], generation: dict[str, Any]) -> bool:
     return str(generation.get("stitch") or project.get("stitch") or "hard") == "anchor"
 
 
+_ANCHOR_UPLOADS: dict[str, str] = {}
+
+
+def anchor_frame_names(project_id: str, project: dict[str, Any], fallback: str) -> dict[str, str]:
+    """首/尾/中间锚点三张图在 ComfyUI 侧的文件名；未自定义的槽位回退到角色图。
+
+    同一张图只上传一次（按 project_id + slot + mtime 缓存），避免每段重复上传。
+    """
+    frames = project.get("anchor_frames") or {}
+    directory = store.project_dir(project_id)
+    names: dict[str, str] = {}
+    for slot in ("first", "last", "mid"):
+        entry = frames.get(slot) or {}
+        relative = str(entry.get("filename") or "").strip()
+        path = (directory / relative) if relative else None
+        if not path or not path.is_file():
+            continue
+        key = f"{project_id}:{slot}:{path.stat().st_mtime_ns}"
+        cached = _ANCHOR_UPLOADS.get(key)
+        if cached:
+            names[slot] = cached
+            continue
+        uploaded = comfy.upload(f"h3dh_{_safe_id(project_id)}_anchor_{slot}{path.suffix}",
+                                path.read_bytes())
+        _ANCHOR_UPLOADS[key] = uploaded
+        names[slot] = uploaded
+    first = names.get("first") or fallback
+    return {
+        "first": first,
+        "last": names.get("last") or first,
+        "mid": names.get("mid") or first,
+    }
+
+
 def anchor_seed(project_id: str, generation: dict[str, Any]) -> int:
     """0 = 项目固定种子；>0 = 用户指定。全项目所有段共用。"""
     value = int(generation.get("anchor_seed") or 0)
@@ -443,14 +477,17 @@ class AvatarRunner:
         if anchor:
             if not segment_refs:
                 raise ValueError(f"{label}：没有参考图，首尾帧模式需要至少一张。")
+            frames = anchor_frame_names(project_id, project, segment_refs[0])
             graph = workflow.build_anchor(
-                generation, prompt_text, segment_refs[0], audio_name,
+                generation, prompt_text, frames["first"], audio_name,
                 generation_frames, config.FPS,
                 available=workflow.available_nodes(),
                 mid_guides=workflow.anchor_mid_frames(generation, generation_frames),
                 preprocess=str(generation.get("anchor_preprocess") or "center_crop"),
                 upscale_method=str(generation.get("anchor_upscale") or "lanczos"),
-                sampler_mode=str(generation.get("anchor_sampler") or "plain"))
+                sampler_mode=str(generation.get("anchor_sampler") or "plain"),
+                last_ref=frames["last"],
+                mid_ref=frames["mid"])
             output_node = workflow.OUTPUT_NODE
         else:
             generation = dict(generation)

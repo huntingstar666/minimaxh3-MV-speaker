@@ -792,6 +792,9 @@ body.av-body.av-light{
 .av-body.av-light .av-settings-body .av-anchor-row > label,
 .av-body.av-light .av-settings-body .av-anchor-field > label{color:var(--dim);font-size:11.5px}
 .av-body.av-light .av-settings-body .av-anchor-field .input{background:#fff}
+.av-body.av-light .av-settings-body .av-anchor-frame{background:#fff}
+.av-body.av-light .av-settings-body .av-anchor-frame.is-custom{background:#e8f2ff;border-color:#9cc7f5}
+.av-body.av-light .av-settings-body .av-anchor-frame-thumb{background:#f4f4f7;border-color:var(--line)}
 
 /* 成片底部动作：合成与下载并排、等宽 */
 .av-body.av-light .av-workspace .av-final-actions{
