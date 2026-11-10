@@ -217,6 +217,7 @@ function initDialogs() {
   bindDialog(document.getElementById("modal-advanced"), '[data-sheet="advanced"]');
   bindDialog(document.getElementById("modal-prompts"), '[data-sheet="prompts"]');
   bindDialog(document.getElementById("modal-anchor"), '[data-sheet="anchor"]');
+  bindDialog(document.getElementById("modal-backup"), "#btn-backup");
   // 裁切弹窗由 avatar.js 打开（需要先加载图片），这里只负责关闭与 Esc
   bindDialog(document.getElementById("modal-anchor-crop"), "[data-anchor-crop]");
 }

@@ -246,6 +246,25 @@ def main() -> int:
         check("模式 2 提示词声明 <Audio 1>", "<Audio 1>" in text2)
         check("模式 2 提示词含台词块", "<d>[Chinese]" in text2)
 
+        manual = client.post(f"/avatar/api/projects/{project2_id}/backups",
+                             json={"reason": "smoke-manual"}).json()
+        check("项目备份接口", bool(manual.get("name")) and bool(manual.get("backups")),
+              str(manual.get("name")))
+        client.patch(f"/avatar/api/projects/{project2_id}", json={"name": "smoke-改名"})
+        restored = client.post(f"/avatar/api/projects/{project2_id}/restore",
+                               json={"name": manual["name"]}).json()
+        check("恢复备份", restored.get("project", {}).get("name") == "smoke-参考音色",
+              str(restored.get("project", {}).get("name")))
+        bad_restore = client.post(f"/avatar/api/projects/{project2_id}/restore",
+                                  json={"name": "../../project.json"})
+        check("非法备份名被拒绝", bad_restore.status_code == 400, str(bad_restore.status_code))
+        client.post(f"/avatar/api/projects/{project2_id}/plan",
+                    json={"script": "第一句台词。第二句台词。"})
+        backups = client.get(f"/avatar/api/projects/{project2_id}/backups").json()["backups"]
+        check("重新分段前自动备份",
+              any(item.get("reason") == "重新按台词分段" for item in backups),
+              str([item.get("reason") for item in backups]))
+
         # 6) 生成前置校验
         empty = client.post("/avatar/api/projects", data={"name": "空参考", "mode": "2",
                                                           "script": "测试一句话。"}).json()["project"]

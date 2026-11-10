@@ -173,6 +173,78 @@ def list_projects() -> list[dict[str, Any]]:
     return items
 
 
+MAX_BACKUPS = 10
+_BACKUP_RE = re.compile(r"^project-[\w.-]+\.json$")
+
+
+def backup(project_id: str, reason: str = "") -> str:
+    """把当前 project.json 复制到 backups/，返回备份文件名。
+
+    只备份元数据（project.json），不复制 take/final/refs 等大文件；
+    用于“误操作清空分段/音频”后恢复项目结构。
+    """
+    project = get(project_id)
+    directory = project_dir(project_id) / "backups"
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+    name = f"project-{stamp}-{uuid.uuid4().hex[:4]}.json"
+    payload = dict(project)
+    payload["_backup"] = {"created": time.time(), "reason": str(reason or "")[:80]}
+    path = directory / name
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(path)
+    backups = sorted(directory.glob("project-*.json"), key=lambda item: item.stat().st_mtime)
+    for stale in backups[:-MAX_BACKUPS]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+    return name
+
+
+def list_backups(project_id: str) -> list[dict[str, Any]]:
+    directory = project_dir(project_id) / "backups"
+    items: list[dict[str, Any]] = []
+    if not directory.is_dir():
+        return items
+    for path in sorted(directory.glob("project-*.json"), key=lambda item: item.stat().st_mtime,
+                       reverse=True):
+        try:
+            project = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        meta = project.get("_backup") or {}
+        items.append({
+            "name": path.name,
+            "created": float(meta.get("created") or path.stat().st_mtime),
+            "reason": str(meta.get("reason") or ""),
+            "bytes": path.stat().st_size,
+            "segments": len(project.get("segments") or []),
+            "takes": sum(len(row.get("takes") or []) for row in project.get("segments") or []),
+            "name_snapshot": project.get("name"),
+            "has_audio": bool(project.get("audio")),
+            "has_final": bool(project.get("final")),
+        })
+    return items
+
+
+def restore_backup(project_id: str, name: str) -> dict[str, Any]:
+    """把指定 backups/project-*.json 恢复为当前 project.json。"""
+    value = str(name or "")
+    if Path(value).name != value or not _BACKUP_RE.match(value):
+        raise ValueError("备份文件名不合法。")
+    path = project_dir(project_id) / "backups" / value
+    if not path.is_file():
+        raise FileNotFoundError(value)
+    project = json.loads(path.read_text(encoding="utf-8-sig"))
+    if str(project.get("id") or "") != str(project_id):
+        raise ValueError("备份不属于当前项目。")
+    project.pop("_backup", None)
+    project["updated"] = time.time()
+    return save(project)
+
+
 def delete(project_id: str) -> None:
     directory = project_dir(project_id)
     if directory.is_dir():

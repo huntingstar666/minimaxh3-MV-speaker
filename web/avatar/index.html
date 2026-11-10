@@ -102,6 +102,7 @@
       <div class="av-form-actions-row">
         <button class="btn ghost sm" id="btn-import-pack"><svg><use href="#i-plus"/></svg>导入 .h3avatar 包</button>
         <button class="btn ghost sm" id="btn-export-pack"><svg><use href="#i-film"/></svg>导出当前包</button>
+        <button class="btn ghost sm" id="btn-backup"><svg><use href="#i-layers"/></svg>备份与恢复</button>
         <input id="pack-input" type="file" accept=".zip,.h3avatar" hidden>
       </div>
       <div class="av-project-list" id="project-list">
@@ -886,6 +887,20 @@
       <button class="btn ghost" type="button" id="crop-reset">重置</button>
       <button class="btn ghost" data-close type="button">取消</button>
       <button class="btn primary" type="button" id="crop-save">保存裁切</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal av-settings-modal" id="modal-backup" hidden>
+  <div class="modal-card av-settings-card av-sheet-card">
+    <div class="modal-head"><h2>项目备份</h2><button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body av-settings-body">
+      <p class="av-backup-note">备份只保存 project.json（分段、台词、提示词、参数），不复制参考图、生成片段与成片。每个项目保留最近 10 份。</p>
+      <div class="av-form-actions-row">
+        <button class="btn primary sm" type="button" id="btn-backup-now"><svg><use href="#i-plus"/></svg>立即备份</button>
+        <button class="btn ghost sm" type="button" id="btn-backup-refresh"><svg><use href="#i-refresh"/></svg>刷新</button>
+      </div>
+      <div class="av-backup-list" id="backup-list"></div>
     </div>
   </div>
 </div>

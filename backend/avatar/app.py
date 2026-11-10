@@ -135,6 +135,14 @@ def _project(project_id: str) -> dict[str, Any]:
     return project
 
 
+def _backup(project_id: str, reason: str) -> str:
+    """破坏性操作前留一份 project.json 快照；失败则中止操作。"""
+    try:
+        return store.backup(project_id, reason)
+    except OSError as error:
+        raise HTTPException(500, f"项目备份写入失败，已取消操作：{error}") from error
+
+
 def _row(project: dict[str, Any], index: int) -> dict[str, Any]:
     try:
         return store.find_segment(project, index)
@@ -617,6 +625,43 @@ def get_project(project_id: str) -> dict[str, Any]:
     return {"ok": True, "project": _project(project_id)}
 
 
+@app.get("/api/projects/{project_id}/backups")
+def get_backups(project_id: str) -> dict[str, Any]:
+    _project(project_id)
+    return {"ok": True, "backups": store.list_backups(project_id)}
+
+
+@app.post("/api/projects/{project_id}/backups")
+def create_backup(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    _project(project_id)
+    reason = str((payload or {}).get("reason") or "手动备份")
+    name = _backup(project_id, reason)
+    return {"ok": True, "name": name, "backups": store.list_backups(project_id)}
+
+
+@app.post("/api/projects/{project_id}/restore")
+def restore_backup(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    _project(project_id)
+    run = job.runner.snapshot(project_id)
+    if str(run.get("status") or "") in {"queued", "running"}:
+        raise HTTPException(400, "生成任务进行中，请先停止再恢复备份。")
+    backups = store.list_backups(project_id)
+    if not backups:
+        raise HTTPException(404, "这个项目还没有备份。")
+    name = str((payload or {}).get("name") or backups[0]["name"])
+    try:
+        project = store.restore_backup(project_id, name)
+    except FileNotFoundError as error:
+        raise HTTPException(404, "备份不存在。") from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    run_state = {"status": "idle", "progress": 0.0, "message": "已从备份恢复", "stage": "idle",
+                 "segment": -1, "error": None, "logs": []}
+    project["run"] = run_state
+    project = store.save(project)
+    return {"ok": True, "project": project, "restored": name}
+
+
 @app.patch("/api/projects/{project_id}")
 def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     project = _project(project_id)
@@ -774,6 +819,7 @@ def delete_ref(project_id: str, index: int) -> dict[str, Any]:
     if not 0 <= index < len(refs):
         raise HTTPException(404, "参考图不存在。")
     removed = refs.pop(index)
+    _backup(project_id, "删除参考图")
     for row in project.get("segments") or []:
         raw = row.get("ref_ids")
         if isinstance(raw, list):
@@ -895,6 +941,7 @@ def delete_anchor_frame(project_id: str, slot: str) -> dict[str, Any]:
         raise HTTPException(400, "slot 必须是 first / last / mid。")
     project = _project(project_id)
     frames = project.get("anchor_frames") or {}
+    _backup(project_id, "恢复默认锚定用图")
     frames.pop(slot, None)
     folder = store.project_dir(project_id) / "anchor"
     for stale in folder.glob(f"{slot}.*"):
@@ -965,6 +1012,7 @@ def delete_voice_item(project_id: str, voice_id: str) -> dict[str, Any]:
     if target is None:
         raise HTTPException(404, "音色不存在。")
     voices.remove(target)
+    _backup(project_id, "删除音色")
     filename = str(target.get("filename") or "")
     if filename.startswith("voices/"):
         try:
@@ -1003,6 +1051,7 @@ def update_voice_sample(project_id: str, payload: dict[str, Any] | None = None) 
 @app.delete("/api/projects/{project_id}/voice")
 def delete_voice(project_id: str) -> dict[str, Any]:
     project = _project(project_id)
+    _backup(project_id, "删除全部音色")
     directory = store.project_dir(project_id) / "voice"
     for name in ("ref.wav", "source.wav"):
         try:
@@ -1027,6 +1076,7 @@ def upload_audio(project_id: str, audio: UploadFile = File(...)) -> dict[str, An
     project = _project(project_id)
     if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
         raise HTTPException(400, "只有模式 1（音频驱动）需要驱动音频。")
+    _backup(project_id, "替换驱动音频")
     project["audio"] = _save_project_audio(project_id, audio)
     project["segments"] = []
     project["analysis"] = {}
@@ -1043,6 +1093,7 @@ def delete_audio(project_id: str) -> dict[str, Any]:
     project = _project(project_id)
     if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
         raise HTTPException(400, "只有模式 1（音频驱动）有驱动音频。")
+    _backup(project_id, "删除驱动音频")
     try:
         (store.project_dir(project_id) / "source.wav").unlink()
     except OSError:
@@ -1077,6 +1128,8 @@ def put_cuts(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     cuts = payload.get("cuts")
     if not isinstance(cuts, list):
         raise HTTPException(400, "cuts 必须是秒数数组。")
+    if _project(project_id).get("segments"):
+        _backup(project_id, "调整音频切点")
     try:
         saved = audio_pipeline.apply_cuts(project_id, [float(value) for value in cuts])
     except ValueError as error:
@@ -1093,6 +1146,7 @@ def split_segment(project_id: str, index: int, payload: dict[str, Any] | None = 
         seconds = float((payload or {}).get("time"))
     except (TypeError, ValueError) as error:
         raise HTTPException(400, "time 必须是整条音频时间线上的秒数。") from error
+    _backup(project_id, "切分音频段")
     try:
         saved = audio_pipeline.split_at(project_id, seconds)
     except ValueError as error:
@@ -1105,6 +1159,7 @@ def split_segment(project_id: str, index: int, payload: dict[str, Any] | None = 
 @app.post("/api/projects/{project_id}/segments/{index}/merge")
 def merge_segment(project_id: str, index: int) -> dict[str, Any]:
     _row(_project(project_id), index)
+    _backup(project_id, "合并音频段")
     try:
         saved = audio_pipeline.merge_next(project_id, index)
     except ValueError as error:
@@ -1166,6 +1221,8 @@ def plan_project(project_id: str, payload: dict[str, Any] | None = None) -> dict
         # 模式 1 的"分段"来自驱动音频分析
         if not project.get("audio"):
             raise HTTPException(400, "请先上传驱动音频。")
+        if project.get("segments"):
+            _backup(project_id, "重新分析音频")
         try:
             saved = audio_pipeline.analyze(project_id, payload)
         except ValueError as error:
@@ -1184,6 +1241,8 @@ def plan_project(project_id: str, payload: dict[str, Any] | None = None) -> dict
         raise HTTPException(400, "台词为空，无法分段。")
     if float(project["max_seconds"]) < float(project["target_seconds"]):
         project["max_seconds"] = float(project["target_seconds"])
+    if project.get("segments"):
+        _backup(project_id, "重新按台词分段")
     segments = plan.make_segments(str(project["script"]), float(project["chars_per_second"]),
                                   float(project["target_seconds"]), float(project["max_seconds"]))
     if not segments:
@@ -1266,6 +1325,8 @@ def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[
     if structural:
         # 台词/帧数变了：旧 take 不再适用，清空并重算全部分段的时间轴
         old_takes = list(row.get("takes") or [])
+        if old_takes:
+            _backup(project_id, "修改台词/帧数")
         row.update(takes=[], selected_take=None, output=None, status="idle", error=None,
                    prompt="", prompt_source="", prompt_warnings=[])
         if text_changed and not frames_given:
@@ -1625,6 +1686,7 @@ def delete_take(project_id: str, index: int, take_id: str) -> dict[str, Any]:
         raise HTTPException(404, "片段不存在。")
     if take_id == row.get("selected_take") and len(takes) > 1:
         raise HTTPException(400, "请先选用其他片段，再删除当前使用的片段。")
+    _backup(project_id, "删除生成片段")
 
     def apply(latest: dict[str, Any]) -> None:
         target = store.find_segment(latest, index)

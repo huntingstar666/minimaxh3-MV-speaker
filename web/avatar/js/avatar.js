@@ -583,6 +583,9 @@ const api = {
   project: (id) => request(projectPath(id)),
   patchProject: (id, body) => request(projectPath(id), { method: "PATCH", body }),
   deleteProject: (id) => request(projectPath(id), { method: "DELETE" }),
+  backups: (id) => request(`${projectPath(id)}/backups`),
+  createBackup: (id, body) => request(`${projectPath(id)}/backups`, { method: "POST", body }),
+  restoreBackup: (id, body) => request(`${projectPath(id)}/restore`, { method: "POST", body }),
   uploadVoice: (id, file) =>
     request(`${projectPath(id)}/voice`, { method: "POST", form: formData({}, "voice", file) }),
   addVoice: (id, file, name = "") =>
@@ -3312,6 +3315,83 @@ async function removeProject(id, name) {
   }
 }
 
+/* ---------------- 项目备份 / 恢复 ---------------- */
+
+function renderBackups(items) {
+  const box = $("#backup-list");
+  if (!box) return;
+  if (!items.length) {
+    box.innerHTML = '<div class="av-backup-empty">还没有备份。点「立即备份」留一份项目结构快照。</div>';
+    return;
+  }
+  box.innerHTML = items.map((item) => `
+    <div class="av-backup-item">
+      <span class="meta">
+        <b>${fmtWhen(item.created)} · ${num(item.segments)} 段 · ${num(item.takes)} 条片段</b>
+        ${esc(item.reason || "手动备份")} · ${fmtBytes(item.bytes)}
+        ${item.has_audio ? " · 含驱动音频" : ""}${item.has_final ? " · 含成片记录" : ""}
+      </span>
+      <button class="btn ghost sm" type="button" data-action="restore-backup"
+        data-name="${esc(item.name)}">恢复</button>
+    </div>`).join("");
+}
+
+async function loadBackups() {
+  const project = state.project;
+  if (!project) {
+    renderBackups([]);
+    return;
+  }
+  try {
+    const data = await api.backups(project.id);
+    renderBackups(Array.isArray(data.backups) ? data.backups : []);
+  } catch (error) {
+    $("#backup-list").innerHTML =
+      `<div class="av-backup-empty">读取备份失败：${esc(error.message)}</div>`;
+  }
+}
+
+async function openBackupModal() {
+  if (!state.project) {
+    toast("请先打开一个作品再备份。", "warn");
+    return;
+  }
+  $("#modal-backup").hidden = false;
+  await loadBackups();
+}
+
+async function createProjectBackup() {
+  const project = state.project;
+  if (!project) return;
+  try {
+    const data = await api.createBackup(project.id, { reason: "手动备份" });
+    renderBackups(data.backups || []);
+    toast("已备份当前项目结构", "ok");
+  } catch (error) {
+    toast(`备份失败：${error.message}`, "err", 6000);
+  }
+}
+
+async function restoreProjectBackup(name) {
+  const project = state.project;
+  if (!project || !name) return;
+  const ok = await confirmDialog(
+    "恢复备份",
+    "会用这份备份覆盖当前的分段、台词、提示词与参数。参考图、生成片段和成片文件不会被删除。继续？",
+    "恢复"
+  );
+  if (!ok) return;
+  try {
+    const data = await api.restoreBackup(project.id, { name });
+    applyProject(data.project, { fill: true });
+    await loadBackups();
+    await loadProjects();
+    toast("已恢复项目结构", "ok");
+  } catch (error) {
+    toast(`恢复失败：${error.message}`, "err", 6000);
+  }
+}
+
 function stopAudioPlayback() {
   const el = $("#av-audio");
   if (!el) return;
@@ -5109,6 +5189,7 @@ function syncButtons() {
   setDisabled("#btn-cancel", !active);
   setDisabled("#btn-ref-upload", !hasProject);
   setDisabled("#ref-role", !hasProject);
+  setDisabled("#btn-backup", !hasProject);
 
   setDisabled("#btn-analyze", !audioReady);
   setDisabled("#btn-analyze2", !hasProject || !isMode1);
@@ -5369,6 +5450,13 @@ function bindEvents() {
       return;
     }
     window.location.href = api.exportUrl(state.project.id);
+  });
+  $("#btn-backup")?.addEventListener("click", openBackupModal);
+  $("#btn-backup-now")?.addEventListener("click", createProjectBackup);
+  $("#btn-backup-refresh")?.addEventListener("click", () => loadBackups());
+  $("#backup-list")?.addEventListener("click", (event) => {
+    const el = event.target.closest('[data-action="restore-backup"]');
+    if (el?.dataset.name) restoreProjectBackup(el.dataset.name);
   });
   $("#btn-plan").addEventListener("click", () => planSegments());
   $("#btn-plan2").addEventListener("click", () => planSegments());
