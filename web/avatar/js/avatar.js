@@ -589,6 +589,8 @@ const api = {
   backups: (id) => request(`${projectPath(id)}/backups`),
   createBackup: (id, body) => request(`${projectPath(id)}/backups`, { method: "POST", body }),
   restoreBackup: (id, body) => request(`${projectPath(id)}/restore`, { method: "POST", body }),
+  diagnose: (id) => request(`${projectPath(id)}/diagnose`),
+  repair: (id, body) => request(`${projectPath(id)}/repair`, { method: "POST", body }),
   uploadVoice: (id, file) =>
     request(`${projectPath(id)}/voice`, { method: "POST", form: formData({}, "voice", file) }),
   addVoice: (id, file, name = "") =>
@@ -3354,13 +3356,63 @@ async function loadBackups() {
   }
 }
 
+function renderRepairIssues(items) {
+  const box = $("#repair-issues");
+  if (!box) return;
+  if (!items.length) {
+    box.innerHTML = "";
+    return;
+  }
+  box.innerHTML = items.map((item) => `
+    <div class="av-backup-item">
+      <span class="meta"><b>${esc(item.label)}</b></span>
+      ${item.action ? `<button class="btn primary sm" type="button"
+        data-repair="${esc(item.action)}">${esc(item.button || "修复")}</button>` : ""}
+    </div>`).join("");
+}
+
+async function loadDiagnose() {
+  const project = state.project;
+  if (!project) {
+    renderRepairIssues([]);
+    return;
+  }
+  try {
+    const data = await api.diagnose(project.id);
+    renderRepairIssues(Array.isArray(data.issues) ? data.issues : []);
+  } catch (error) {
+    renderRepairIssues([]);
+  }
+}
+
+async function repairProject(action) {
+  const project = state.project;
+  if (!project || !action) return;
+  const ok = await confirmDialog(
+    "修复项目",
+    "从成片音轨恢复驱动音频？恢复后请点「上传并分析」重新建立分段。",
+    "恢复音频"
+  );
+  if (!ok) return;
+  try {
+    const data = await api.repair(project.id, { action });
+    applyProject(data.project, { fill: true });
+    await loadDiagnose();
+    await loadBackups();
+    await loadProjects();
+    toast("驱动音频已恢复，请重新分析分段", "ok", 6000);
+  } catch (error) {
+    toast(`修复失败：${error.message}`, "err", 6000);
+  }
+}
+
 async function openBackupModal() {
   if (!state.project) {
     toast("请先打开一个作品再备份。", "warn");
     return;
   }
   $("#modal-backup").hidden = false;
-  await loadBackups();
+  await Promise.all([loadBackups(), loadDiagnose()]);
 }
 
 async function createProjectBackup() {
@@ -5511,6 +5563,10 @@ function bindEvents() {
   $("#backup-list")?.addEventListener("click", (event) => {
     const el = event.target.closest('[data-action="restore-backup"]');
     if (el?.dataset.name) restoreProjectBackup(el.dataset.name);
+  });
+  $("#repair-issues")?.addEventListener("click", (event) => {
+    const el = event.target.closest("[data-repair]");
+    if (el?.dataset.repair) repairProject(el.dataset.repair);
   });
   $("#btn-trash")?.addEventListener("click", openTrashModal);
   $("#btn-trash-refresh")?.addEventListener("click", () => loadTrash());

@@ -662,6 +662,72 @@ def restore_backup(project_id: str, payload: dict[str, Any] | None = None) -> di
     return {"ok": True, "project": project, "restored": name}
 
 
+@app.get("/api/projects/{project_id}/diagnose")
+def diagnose_project(project_id: str) -> dict[str, Any]:
+    """检查项目里“文件还在但元数据没了/元数据在但文件没了”的常见损伤。"""
+    project = _project(project_id)
+    base = store.project_dir(project_id)
+    issues: list[dict[str, Any]] = []
+    if int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE:
+        source = base / "source.wav"
+        final_audio = base / "final" / "audio.wav"
+        if not source.is_file() and final_audio.is_file():
+            issues.append({
+                "id": "source_missing",
+                "label": "驱动音频丢失，但成片音轨还在，可一键恢复后重新分析分段",
+                "action": "restore_source",
+                "button": "从成片恢复音频",
+            })
+    take_dirs = [path for path in (base / "takes").glob("seg_*")
+                 if any(path.glob("*.mp4"))] if (base / "takes").is_dir() else []
+    segments = project.get("segments") or []
+    if not segments and take_dirs:
+        issues.append({
+            "id": "orphan_takes",
+            "label": f"分段为空，但磁盘上还有 {len(take_dirs)} 段生成片段；可先从备份恢复项目结构",
+            "action": None,
+            "button": "",
+        })
+    if not segments and store.list_backups(project_id):
+        issues.append({
+            "id": "backup_available",
+            "label": "项目当前没有分段，但存在历史备份，可从「项目备份」里恢复",
+            "action": None,
+            "button": "",
+        })
+    return {"ok": True, "issues": issues, "take_dirs": len(take_dirs),
+            "backups": len(store.list_backups(project_id))}
+
+
+@app.post("/api/projects/{project_id}/repair")
+def repair_project(project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    action = str((payload or {}).get("action") or "")
+    project = _project(project_id)
+    if action != "restore_source":
+        raise HTTPException(400, "未知的修复动作。")
+    if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
+        raise HTTPException(400, "只有模式 1 有驱动音频。")
+    base = store.project_dir(project_id)
+    source = base / "source.wav"
+    final_audio = base / "final" / "audio.wav"
+    if source.is_file():
+        raise HTTPException(400, "驱动音频已经存在，无需恢复。")
+    if not final_audio.is_file():
+        raise HTTPException(400, "成片音轨不存在，无法恢复。")
+    _backup(project_id, "从成片恢复驱动音频")
+    shutil.copy2(final_audio, source)
+    samples, sample_rate = audio.read_wav(source)
+    project["audio"] = {
+        "filename": "source.wav",
+        "duration": round(len(samples) / sample_rate, 3),
+        "sample_rate": int(sample_rate),
+        "samples": int(len(samples)),
+        "uploaded": time.time(),
+    }
+    project = store.save(project)
+    return {"ok": True, "project": project}
+
+
 @app.patch("/api/projects/{project_id}")
 def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     project = _project(project_id)

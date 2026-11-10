@@ -468,6 +468,29 @@ def main() -> int:
               str(restored_trash.status_code))
         client.delete(f"/avatar/api/projects/{project2_id}")
 
+        # 10.1) 诊断 / 从成片恢复驱动音频
+        repair_project = client.post("/avatar/api/projects", data={
+            "name": "smoke-修复", "mode": "1"}).json()["project"]
+        repair_id = repair_project["id"]
+        with wav.open("rb") as handle:
+            client.post(f"/avatar/api/projects/{repair_id}/audio",
+                        files={"audio": ("drive.wav", handle, "audio/wav")}).raise_for_status()
+        repair_base = DATA_DIR / "avatar" / "projects" / repair_id
+        (repair_base / "final").mkdir(parents=True, exist_ok=True)
+        shutil.move(str(repair_base / "source.wav"), str(repair_base / "final" / "audio.wav"))
+        diagnose = client.get(f"/avatar/api/projects/{repair_id}/diagnose").json()
+        check("诊断出驱动音频丢失",
+              any(item.get("id") == "source_missing" for item in diagnose.get("issues") or []),
+              str([item.get("id") for item in diagnose.get("issues") or []]))
+        repaired = client.post(f"/avatar/api/projects/{repair_id}/repair",
+                               json={"action": "restore_source"})
+        check("从成片恢复驱动音频",
+              repaired.status_code == 200
+              and (repair_base / "source.wav").is_file()
+              and float(repaired.json().get("project", {}).get("audio", {}).get("duration") or 0) > 0,
+              str(repaired.status_code))
+        client.delete(f"/avatar/api/projects/{repair_id}")
+
     finally:
         if client is not None:
             client.close()
