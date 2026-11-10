@@ -216,6 +216,7 @@ function initDialogs() {
   bindDialog(document.getElementById("modal-params"), '[data-sheet="params"]');
   bindDialog(document.getElementById("modal-advanced"), '[data-sheet="advanced"]');
   bindDialog(document.getElementById("modal-prompts"), '[data-sheet="prompts"]');
+  bindDialog(document.getElementById("modal-anchor"), '[data-sheet="anchor"]');
 }
 
 /* ---------------- 右栏设置行：显示当前值，不用点开才知道 ---------------- */

@@ -752,6 +752,33 @@ body.av-body.av-light{
 .av-body.av-light .av-sheet-card .av-settings-body > .panel > .panel-head{display:none}
 .av-body.av-light .av-sheet-card .av-adv-panel .adv-body{padding-top:0}
 
+/* 段间模式卡：锚定细节只留一行入口 */
+.av-body.av-light .av-anchor-card .av-anchor-entry{width:100%;margin-top:10px}
+.av-body.av-light .av-anchor-card .av-anchor-entry + .av-workflow-note{margin-top:10px}
+.av-body.av-light #workflow-note{
+  border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 12px;
+}
+.av-body.av-light #workflow-note .wf-line{font-size:11.5px}
+.av-body.av-light #workflow-note .wf-line span{font-size:10.5px;color:var(--faint)}
+.av-body.av-light #workflow-note .wf-desc{
+  margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--faint);
+}
+.av-body.av-light .av-settings-body .av-anchor-fields > *:first-child{margin-top:0}
+.av-body.av-light .av-settings-body .av-anchor-hint,
+.av-body.av-light .av-settings-body .av-anchor-note{color:var(--faint)}
+.av-body.av-light .av-settings-body .av-anchor-stack{
+  color:var(--faint);background:#f7f7fa;border-color:var(--line);
+}
+.av-body.av-light .av-settings-body .av-anchor-row > label,
+.av-body.av-light .av-settings-body .av-anchor-field > label{color:var(--dim);font-size:11.5px}
+.av-body.av-light .av-settings-body .av-anchor-field .input{background:#fff}
+
+/* 成片底部动作：合成与下载并排、等宽 */
+.av-body.av-light .av-workspace .av-final-actions{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;
+}
+.av-body.av-light .av-workspace .av-final-actions .btn{width:100%;justify-content:center}
+
 /* 弹窗不在 .av-workspace 内，表单控件要单独给浅色 */
 .av-body.av-light .av-settings-body .field label{color:var(--dim)}
 .av-body.av-light .av-settings-body .field label b{color:var(--amber)}

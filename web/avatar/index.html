@@ -84,12 +84,14 @@
     <div class="av-stage-head">
       <div class="av-stage-title">
         <h2 id="stage-name">从一句台词开始</h2>
-        <p id="stage-sub">选模式、写台词、传参考，剩下交给 H3 逐段原生生成</p>
+        <div class="av-stage-meta">
+          <p id="stage-sub">选模式、写台词、传参考，剩下交给 H3 逐段原生生成</p>
+          <span class="pill av-graphics-pill hidden" id="graphics-pill">生成式</span>
+          <span class="pill hidden" id="polish-pill">已润色 0/0</span>
+          <span class="av-overlay-note hidden" id="overlay-note" title="设计面板选择「后期叠加」后，画面文字/logo 由后期确定性叠加">文字/logo 由后期确定性叠加</span>
+        </div>
       </div>
       <div class="av-toolbar">
-        <span class="pill av-graphics-pill hidden" id="graphics-pill">生成式</span>
-        <span class="pill hidden" id="polish-pill">已润色 0/0</span>
-        <span class="av-overlay-note hidden" id="overlay-note" title="设计面板选择「后期叠加」后，画面文字/logo 由后期确定性叠加">文字/logo 由后期确定性叠加</span>
         <button class="btn ghost sm" id="btn-settings" title="创作模式、台词、驱动音频、参考图与设计">
           <svg><use href="#i-layers"/></svg>作品设定
         </button>
@@ -97,8 +99,6 @@
         <button class="btn ghost sm" id="btn-prompts-all" title="可选：为每一段润色提示词（运行不会自动润色）"><svg><use href="#i-layers"/></svg><span id="btn-prompts-all-label">一键润色（可选）</span></button>
         <button class="btn primary" id="btn-generate" title="按分段逐段生成视频（不包含提示词润色）"><svg><use href="#i-play"/></svg>开始生成</button>
         <button class="btn danger hidden" id="btn-cancel"><svg><use href="#i-stop"/></svg>停止</button>
-        <button class="btn ghost sm" id="btn-assemble" title="把每段锁定的片段拼成全片；已有成片则重新合成（只跑 ffmpeg，不重生成）"><svg><use href="#i-merge"/></svg><span id="btn-assemble-label">合成全片</span></button>
-        <a class="btn ghost sm is-disabled" id="btn-download-top" href="#" download aria-disabled="true" title="合成全片后可下载"><svg><use href="#i-download"/></svg>下载成片</a>
       </div>
     </div>
 
@@ -160,64 +160,16 @@
         <p class="av-anchor-hint" id="anchor-hint" hidden>
           每段首尾同图 + 固定种子；不跨段传递，避免劣化累积。
         </p>
+        <button class="av-setting-row av-anchor-entry" id="anchor-entry" type="button" data-sheet="anchor" hidden>
+          <span class="av-setting-icon"><svg><use href="#i-layers"/></svg></span>
+          <span class="av-setting-text"><b>锚定细节</b><em>预处理 · 采样 · 钉帧 · 缩放</em></span>
+          <svg class="av-setting-arrow"><use href="#i-chevron"/></svg>
+        </button>
         <div class="av-workflow-note" id="workflow-note">
           <div class="wf-line"><b id="wf-title">Ref 模式 · 锁定音轨</b><span id="wf-template">提示词：Ref2VA 六段</span></div>
           <div class="wf-desc" id="wf-desc">参数：驱动音频 + 参考图 + 每段随机种子 → 锁定音轨工作流（SelfLift 双采）</div>
         </div>
-        <div id="anchor-fields" hidden>
-          <div class="av-anchor-row">
-            <label>中间锚点</label>
-            <input type="hidden" id="f-anchor-mid" value="center">
-            <div class="av-seg-control sm" id="f-anchor-mid-seg" role="tablist" aria-label="中间锚点">
-              <button type="button" class="av-seg-control-item" data-value="none">无</button>
-              <button type="button" class="av-seg-control-item active" data-value="center">中间</button>
-              <button type="button" class="av-seg-control-item" data-value="thirds">三分</button>
-              <button type="button" class="av-seg-control-item" data-value="custom">自定义</button>
-            </div>
-          </div>
-          <div class="av-anchor-grid">
-            <div class="av-anchor-field">
-              <label>参考图预处理</label>
-              <select id="f-anchor-preprocess" class="input">
-                <option value="center_crop">中心裁切</option>
-                <option value="stretch">拉伸到画幅</option>
-                <option value="none">不处理（I2V 原生）</option>
-              </select>
-            </div>
-            <div class="av-anchor-field">
-              <label>采样方式</label>
-              <select id="f-anchor-sampler" class="input">
-                <option value="plain" selected>普通单采（推荐）</option>
-                <option value="selflift">SelfLift 二采（Fix + 分块）</option>
-              </select>
-            </div>
-          </div>
-          <p class="av-anchor-stack" id="anchor-stack-note">单采栈 · Cobijada hybrid + 官方 dmad@0.8 + int8 CLIP/VAE · 参考图原图直进</p>
-          <div class="av-anchor-row">
-            <label>首尾钉帧</label>
-            <input type="hidden" id="f-anchor-pin" value="false">
-            <div class="av-seg-control sm" id="f-anchor-pin-seg" role="tablist" aria-label="首尾钉帧">
-              <button type="button" class="av-seg-control-item" data-value="true">开</button>
-              <button type="button" class="av-seg-control-item active" data-value="false">关</button>
-            </div>
-          </div>
-          <p class="av-anchor-hint">开：拼接处与参考图完全一致，但段内首尾多 1 帧突变；只用参考图预处理（非「不处理」）时生效。</p>
-          <div class="av-anchor-field" id="anchor-custom-wrap" hidden>
-            <label>自定义锚点帧 <span class="hint">逗号分隔，如 31,62,93</span></label>
-            <input id="f-anchor-mid-frames" class="input mono" placeholder="31,62,93">
-          </div>
-          <div class="av-anchor-field">
-            <label>缩放缓动</label>
-            <select id="f-anchor-upscale" class="input">
-              <option value="lanczos">lanczos</option>
-              <option value="bicubic">bicubic</option>
-              <option value="bilinear">bilinear</option>
-              <option value="area">area</option>
-              <option value="nearest-exact">nearest-exact</option>
-            </select>
-          </div>
-          <p class="av-anchor-hint">SelfLift 使用 Fix + 分块，并自动关闭中间锚点；默认普通单采更平滑。双采步数分配在「高级生成参数」里。</p>
-        </div>
+
       </div>
 
       <div class="av-setting-list">
@@ -267,7 +219,8 @@
         </div>
         <div class="av-final-info hidden" id="final-info"></div>
         <div class="inline av-final-actions">
-          <a class="btn ghost sm hidden" id="btn-download" href="#" download><svg><use href="#i-download"/></svg>下载成片</a>
+          <button class="btn ghost sm" id="btn-assemble" title="把每段锁定的片段拼成全片；已有成片则重新合成（只跑 ffmpeg，不重生成）"><svg><use href="#i-merge"/></svg><span id="btn-assemble-label">合成全片</span></button>
+          <a class="btn primary sm is-disabled" id="btn-download-top" href="#" download aria-disabled="true" title="合成全片后可下载"><svg><use href="#i-download"/></svg>下载成片</a>
         </div>
       </section>
     </div>
@@ -785,6 +738,71 @@
         <div class="av-prompt-modes" id="prompt-modes"></div>
         <button class="btn ghost sm block hidden" id="btn-save-prompts" type="button"><svg><use href="#i-check"/></svg>保存系统提示词</button>
         <p class="panel-note tiny" id="prompt-note">配置非空时，后端会把系统提示词交给 LLM 扩写；留空则走内置模板。</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal av-settings-modal" id="modal-anchor" hidden>
+  <div class="modal-card av-settings-card av-sheet-card-wide">
+    <div class="modal-head"><h2>锚定细节</h2><button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body av-settings-body">
+      <section class="panel av-anchor-panel">
+    <div id="anchor-fields" class="av-anchor-fields">
+      <div class="av-anchor-row">
+        <label>中间锚点</label>
+        <input type="hidden" id="f-anchor-mid" value="center">
+        <div class="av-seg-control sm" id="f-anchor-mid-seg" role="tablist" aria-label="中间锚点">
+          <button type="button" class="av-seg-control-item" data-value="none">无</button>
+          <button type="button" class="av-seg-control-item active" data-value="center">中间</button>
+          <button type="button" class="av-seg-control-item" data-value="thirds">三分</button>
+          <button type="button" class="av-seg-control-item" data-value="custom">自定义</button>
+        </div>
+      </div>
+      <div class="av-anchor-grid">
+        <div class="av-anchor-field">
+          <label>参考图预处理</label>
+          <select id="f-anchor-preprocess" class="input">
+            <option value="center_crop">中心裁切</option>
+            <option value="stretch">拉伸到画幅</option>
+            <option value="none">不处理（I2V 原生）</option>
+          </select>
+        </div>
+        <div class="av-anchor-field">
+          <label>采样方式</label>
+          <select id="f-anchor-sampler" class="input">
+            <option value="plain" selected>普通单采（推荐）</option>
+            <option value="selflift">SelfLift 二采（Fix + 分块）</option>
+          </select>
+        </div>
+      </div>
+      <p class="av-anchor-stack" id="anchor-stack-note">单采栈 · Cobijada hybrid + 官方 dmad@0.8 + int8 CLIP/VAE · 参考图原图直进</p>
+      <div class="av-anchor-row">
+        <label>首尾钉帧</label>
+        <input type="hidden" id="f-anchor-pin" value="false">
+        <div class="av-seg-control sm" id="f-anchor-pin-seg" role="tablist" aria-label="首尾钉帧">
+          <button type="button" class="av-seg-control-item" data-value="true">开</button>
+          <button type="button" class="av-seg-control-item active" data-value="false">关</button>
+        </div>
+      </div>
+      <p class="av-anchor-hint">开：拼接处与参考图完全一致，但段内首尾多 1 帧突变；只用参考图预处理（非「不处理」）时生效。</p>
+      <div class="av-anchor-field" id="anchor-custom-wrap" hidden>
+        <label>自定义锚点帧 <span class="hint">逗号分隔，如 31,62,93</span></label>
+        <input id="f-anchor-mid-frames" class="input mono" placeholder="31,62,93">
+      </div>
+      <div class="av-anchor-field">
+        <label>缩放缓动</label>
+        <select id="f-anchor-upscale" class="input">
+          <option value="lanczos">lanczos</option>
+          <option value="bicubic">bicubic</option>
+          <option value="bilinear">bilinear</option>
+          <option value="area">area</option>
+          <option value="nearest-exact">nearest-exact</option>
+        </select>
+      </div>
+      <p class="av-anchor-hint">SelfLift 使用 Fix + 分块，并自动关闭中间锚点；默认普通单采更平滑。双采步数分配在「高级生成参数」里。</p>
+    </div>
       </section>
     </div>
   </div>

@@ -560,6 +560,9 @@
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .av-stage-title p{margin:4px 0 0;font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 标题下方一行：副标题 + 状态药丸，工具区只放按钮 */
+.av-stage-title .av-stage-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;min-width:0}
+.av-stage-title .av-stage-meta p{margin:0}
 .av-toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto;min-width:0;max-width:100%}
 .av-toolbar .btn{padding:7px 11px;font-size:11.5px}
 .av-toolbar .btn.primary{padding:8px 15px;font-size:12px}
@@ -681,7 +684,7 @@
 .av-segments{display:flex;flex-direction:column;gap:12px}
 .av-seg{
   position:relative;overflow:hidden;
-  display:grid;grid-template-columns:48px minmax(0,1fr) 112px;gap:14px;align-items:start;
+  display:grid;grid-template-columns:48px minmax(0,1fr);gap:12px 14px;align-items:start;
   border:1px solid var(--line);border-radius:var(--av-md);padding:14px 16px;
   background:var(--av-card);
   box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 4%,transparent);
@@ -709,8 +712,7 @@
 .av-seg.running .seg-num{background:color-mix(in srgb,var(--amber) 18%,transparent);box-shadow:0 0 16px var(--av-amber-glow)}
 .av-seg.completed .seg-num{color:var(--ok);background:var(--av-ok-soft);border-color:color-mix(in srgb,var(--ok) 24%,transparent)}
 .av-seg.failed .seg-num{color:var(--danger);background:var(--av-danger-soft);border-color:color-mix(in srgb,var(--danger) 28%,transparent)}
-.av-seg-time{font-family:var(--mono);font-size:9.5px;color:var(--faint);text-align:center;line-height:1.5;white-space:nowrap;font-variant-numeric:tabular-nums}
-.av-seg-time-range{font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.01em;font-variant-numeric:tabular-nums}
+.av-seg-meta{font-family:var(--mono);font-size:10px;color:var(--faint);font-variant-numeric:tabular-nums;letter-spacing:.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .av-seg-main{min-width:0;display:flex;flex-direction:column;gap:8px}
 .av-seg-tabs{display:flex;align-items:center;gap:2px;margin:1px 0 -2px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .av-seg-tab{position:relative;padding:5px 9px 6px;border:0;border-radius:7px 7px 0 0;background:transparent;font-size:10px;color:var(--dim);letter-spacing:.01em;transition:color var(--av-dur) var(--av-ease),background var(--av-dur) var(--av-ease)}
@@ -863,8 +865,11 @@
 .av-take.pending span{font-size:8px;margin-top:2px}
 .av-takes-empty{font-size:10px;color:var(--faint);border:1px dashed var(--line);border-radius:7px;padding:4px 9px;line-height:1.5}
 .av-takes-hint{font-size:9.5px;color:var(--faint);margin:0}
-.av-seg-actions{display:flex;flex-direction:column;gap:6px}
-.av-seg-actions .btn{width:100%;justify-content:center;padding:6px 4px;font-size:10.5px;gap:5px}
+.av-seg-actions{
+  grid-column:1 / -1;display:flex;flex-direction:row;flex-wrap:wrap;gap:6px;
+  margin-top:2px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--line) 80%,transparent);
+}
+.av-seg-actions .btn{width:auto;justify-content:flex-start;padding:5px 10px;font-size:10.5px;gap:5px}
 .av-seg-actions .btn svg{width:12px;height:12px}
 
 /* ---------- 13. 右栏：运行状态 ---------- */

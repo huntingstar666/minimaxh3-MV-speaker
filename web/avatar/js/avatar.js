@@ -840,6 +840,9 @@ function syncAnchorUI() {
   const on = stitchInput.value === "anchor" && anchorAvailable;
   const fields = $("#anchor-fields");
   if (fields) fields.hidden = !on;
+  // 锚定细节收进弹窗后，右栏只留一行入口，锚定模式才出现
+  const entry = $("#anchor-entry");
+  if (entry) entry.hidden = !on;
   const hint = $("#anchor-hint");
   if (hint) hint.hidden = !on;
   const note = $("#anchor-mode-note");
@@ -861,6 +864,7 @@ function syncAnchorUI() {
     wfDesc.textContent = on
       ? "参数：参考图（首尾同图）+ 段音频 + 固定种子 → FL2VA 工作流"
       : "参数：驱动音频 + 参考图 + 每段随机种子 → 锁定音轨工作流（SelfLift 双采）";
+    wfDesc.title = wfDesc.textContent;
   }
   const allLabel = $("#btn-prompts-all-label");
   if (allLabel) allLabel.textContent = on ? "一键填模板（可选）" : "一键润色（可选）";
@@ -3501,15 +3505,18 @@ async function suggestBeats(index) {
 
 /* ---------------- 分段渲染 ---------------- */
 
-function segTimeHtml(seg) {
-  const frames = seg.frames !== undefined && seg.frames !== null ? `${num(seg.frames)} 帧` : "— 帧";
-  return `约 ${num(segSeconds(seg)).toFixed(1)}s<br>${frames}`;
-}
-
 function segRangeLabel(project, seg) {
   const start = segmentStart(project, seg.index);
   const end = start + segSeconds(seg);
   return `${fmtClock(start)} – ${fmtClock(end)} · ${segSeconds(seg).toFixed(1)}s`;
+}
+
+// 段头的一行元信息：时刻 / 时长 / 帧 / 字数，避免多个 pill 挤成一条
+function segMetaLabel(project, seg) {
+  const chars = Number(seg.chars) > 0 ? ` · ${num(seg.chars)} 字` : "";
+  if (Number(project.mode) === 1) return `${segRangeLabel(project, seg)}${chars}`;
+  const frames = seg.frames === undefined || seg.frames === null ? "" : ` · ${num(seg.frames)} 帧`;
+  return `约 ${segSeconds(seg).toFixed(1)}s${frames}${chars}`;
 }
 
 function takesHtml(project, seg) {
@@ -3599,14 +3606,12 @@ function segCardHtml(project, seg) {
   return `<article class="av-seg ${esc(status)}" data-index="${seg.index}">
     <div class="av-seg-index">
       <span class="seg-num">${pad(seg.index + 1)}</span>
-      <span class="av-seg-time">${isMode1 ? segmentTimeCell(seg) : segTimeHtml(seg)}</span>
     </div>
     <div class="av-seg-main">
       <div class="av-seg-top">
         <h3>第 ${seg.index + 1} 段</h3>
         <span class="pill seg-status ${statusClass}">${statusText}</span>
-        ${isMode1 ? `<span class="pill av-seg-time-range">${esc(segRangeLabel(project, seg))}</span>` : ""}
-        <span class="pill">${num(seg.chars)} 字</span>
+        <span class="av-seg-meta">${esc(segMetaLabel(project, seg))}</span>
         ${overlayPill}
         ${seg.prompt ? `<span class="pill vocal">${promptKind(seg) === "polished" ? "已润色" : promptKind(seg) === "manual" ? "已手改" : "已备提示词"}</span>` : ""}
       </div>
@@ -3623,7 +3628,7 @@ function segCardHtml(project, seg) {
           <span class="av-takes-label">取片</span>
           ${takesHtml(project, seg)}
         </div>
-        <p class="av-takes-hint">点卡片锁定为合成对象 · 点 ▶ 放大播放</p>
+        <p class="av-takes-hint"${takes.length ? "" : " hidden"}>点卡片锁定为合成对象 · 点 ▶ 放大播放</p>
       </div>
       <div class="av-seg-pane" data-pane="prompt" ${activeTab === "prompt" ? "" : "hidden"}>
         ${segmentNoteHtml(seg)}
@@ -3658,10 +3663,6 @@ function segCardHtml(project, seg) {
       </button>` : ""}
     </div>
   </article>`;
-}
-
-function segmentTimeCell(seg) {
-  return `${segSeconds(seg).toFixed(1)}s<br>${num(seg.frames)} 帧`;
 }
 
 function activateSegmentTab(index, tab) {
@@ -3913,8 +3914,8 @@ function renderFinal() {
     duration.textContent = fmtClock(final.duration);
   }
   const download = api.downloadUrl(p.id);
-  $("#btn-download").href = download;
-  $("#btn-download-top").href = download;
+  const downloadBtn = $("#btn-download-top");
+  if (downloadBtn) downloadBtn.href = download;
   const assembleLabel = $("#btn-assemble-label");
   if (assembleLabel) assembleLabel.textContent = "重新合成全片";
   stale.classList.toggle("hidden", !final.stale);
@@ -4507,11 +4508,8 @@ function syncButtons() {
   // 已有作品时始终给一个明确的新建入口，避免主按钮变成「保存设定」后找不到新建
   $("#btn-new")?.classList.toggle("hidden", !hasProject);
 
-  const download = $("#btn-download");
   const downloadTop = $("#btn-download-top");
-  if (download) download.classList.toggle("hidden", !hasFinal);
   if (downloadTop) {
-    downloadTop.classList.remove("hidden");
     downloadTop.classList.toggle("is-disabled", !hasFinal);
     downloadTop.setAttribute("aria-disabled", String(!hasFinal));
     downloadTop.title = hasFinal ? "下载成片 MP4" : "合成全片后可下载";
