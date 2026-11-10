@@ -1190,9 +1190,25 @@ async function useRecommendedAspect() {
 /* ---------------- 可视化裁切：固定视频画幅比例 ---------------- */
 
 const cropState = {
-  slot: null, source: "", existing: null, aspect: { w: 9, h: 16 },
+  slot: null, source: "", filename: "", existing: null, aspect: { w: 9, h: 16 },
   frame: null, baseScale: 1, scale: 1, dx: 0, dy: 0, drag: null,
 };
+
+// 某个槽位当前实际会用哪张图（自定义优先，否则每段第一张参考图）
+function anchorEffectivePath(slot) {
+  const project = state.project;
+  if (!project) return "";
+  const entry = (project.anchor_frames || {})[slot];
+  if (entry && entry.filename) return entry.filename;
+  const ref = (project.refs || [])[0];
+  return ref ? `refs/${ref.filename}` : "";
+}
+
+// 共用同一张源图的槽位：裁一次就同步一次，避免三处裁切产生误差
+function anchorSlotsSharing(path) {
+  if (!path) return [];
+  return Object.keys(ANCHOR_SLOT_LABEL).filter((slot) => anchorEffectivePath(slot) === path);
+}
 
 function cropTarget(slot) {
   const project = state.project;
@@ -1203,15 +1219,18 @@ function cropTarget(slot) {
       src: mediaUrl(project.id, entry.filename, entry.updated),
       entry,
       source: "",
+      filename: entry.filename,
     };
   }
   const ref = (project.refs || [])[0];
   if (!ref) return null;
+  const filename = `refs/${ref.filename}`;
   return {
-    src: mediaUrl(project.id, `refs/${ref.filename}`, ref.added),
+    src: mediaUrl(project.id, filename, ref.added),
     entry: null,
     // 默认继承的参考图：保存裁切时把它提升成该槽位的自定义图
-    source: `refs/${ref.filename}`,
+    source: filename,
+    filename,
   };
 }
 
@@ -1225,6 +1244,7 @@ function openAnchorCrop(slot) {
   }
   cropState.slot = slot;
   cropState.source = target.source;
+  cropState.filename = target.filename;
   cropState.existing = (target.entry && target.entry.crop) || null;
   cropState.aspect = currentAspect();
   $("#crop-title").textContent = `裁切${ANCHOR_SLOT_LABEL[slot]}`;
@@ -1340,16 +1360,27 @@ async function saveAnchorCrop() {
   const y = Math.min(0.999, Math.max(0, (frame.y - cropState.dy) / dh));
   const w = Math.min(1 - x, Math.max(0.01, frame.w / dw));
   const h = Math.min(1 - y, Math.max(0.01, frame.h / dh));
-  const body = { crop: { x, y, w, h } };
-  if (cropState.source) body.source = cropState.source;
+  const crop = { x, y, w, h };
   const slot = cropState.slot;
+  const filename = cropState.filename;
+  // 同一张源图（首/尾/中间共用）只裁一次，一起写入，避免三次裁切各自偏移
+  const shared = anchorSlotsSharing(filename);
+  const targets = shared.length ? shared : [slot];
   await withBusy($("#crop-save"), async () => {
-    const data = await api.patchAnchorFrame(project.id, slot, body);
-    state.project = data.project;
+    let data = null;
+    for (const target of targets) {
+      const entry = (state.project.anchor_frames || {})[target];
+      const body = { crop };
+      if (!entry) body.source = filename;
+      data = await api.patchAnchorFrame(project.id, target, body);
+    }
+    if (data) state.project = data.project;
     $("#modal-anchor-crop").hidden = true;
     renderAnchorFrames();
     renderFinal();
-    toast(`${ANCHOR_SLOT_LABEL[slot]}已按当前画幅裁切`, "ok");
+    toast(targets.length > 1
+      ? `已按当前画幅裁切，并同步到 ${targets.length} 个共用这张图的锚点`
+      : `${ANCHOR_SLOT_LABEL[slot]}已按当前画幅裁切`, "ok", 5000);
   }).catch((err) => toast(`保存裁切失败：${err.message}`, "err", 7000));
 }
 

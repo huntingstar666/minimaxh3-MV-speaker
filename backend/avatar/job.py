@@ -72,7 +72,7 @@ def _image_size(path: Path) -> tuple[int, int]:
     return width, height
 
 
-def _crop_anchor_frame(project_id: str, slot: str, source: Path,
+def _crop_anchor_frame(project_id: str, source: Path,
                        crop: dict[str, Any], aspect: float = 0.0) -> Path:
     """按归一化裁切框裁出实际送进模型的图（ffmpeg，结果按 源图 + 裁切框 + 画幅 缓存）。
 
@@ -94,7 +94,8 @@ def _crop_anchor_frame(project_id: str, slot: str, source: Path,
     ).hexdigest()[:12]
     cache_dir = store.project_dir(project_id) / "anchor" / ".cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    target = cache_dir / f"{slot}-{key}.png"
+    # 文件名不带 slot：同一张源图 + 同一裁切框只裁一次，三个槽位共用结果
+    target = cache_dir / f"crop-{key}.png"
     if target.is_file() and target.stat().st_size > 0:
         return target
 
@@ -127,11 +128,13 @@ def anchor_frame_names(project_id: str, project: dict[str, Any], fallback: str,
     """首/尾/中间锚点三张图在 ComfyUI 侧的文件名；未自定义的槽位回退到角色图。
 
     自定义图若带 crop，会先按裁切框裁成实际取景，再上传 ComfyUI。
+    同一张源图只裁一次：多个槽位指向同一文件时，共用第一个非空 crop，
+    避免用户分别裁三次把误差带进视频。
     同一张图只上传一次（按 project_id + slot + mtime 缓存），避免每段重复上传。
     """
     frames = project.get("anchor_frames") or {}
     directory = store.project_dir(project_id)
-    names: dict[str, str] = {}
+    resolved: dict[str, dict[str, Any]] = {}
     for slot in ("first", "last", "mid"):
         entry = frames.get(slot) or {}
         relative = str(entry.get("filename") or "").strip()
@@ -139,12 +142,36 @@ def anchor_frame_names(project_id: str, project: dict[str, Any], fallback: str,
         if not path or not path.is_file():
             continue
         crop = entry.get("crop")
-        if isinstance(crop, dict) and crop:
+        resolved[slot] = {
+            "relative": relative,
+            "path": path,
+            "crop": crop if isinstance(crop, dict) and crop else None,
+        }
+    # 同源图共用一次裁切（按 first → last → mid 顺序取第一个非空 crop）
+    shared_crop: dict[str, dict[str, Any] | None] = {}
+    for slot in ("first", "last", "mid"):
+        info = resolved.get(slot)
+        if not info:
+            continue
+        key = info["relative"]
+        if key not in shared_crop:
+            shared_crop[key] = info["crop"]
+        elif shared_crop[key] is None and info["crop"]:
+            shared_crop[key] = info["crop"]
+
+    names: dict[str, str] = {}
+    for slot in ("first", "last", "mid"):
+        info = resolved.get(slot)
+        if not info:
+            continue
+        path = info["path"]
+        crop = shared_crop.get(info["relative"])
+        if crop:
             try:
-                path = _crop_anchor_frame(project_id, slot, path, crop, aspect)
+                path = _crop_anchor_frame(project_id, path, crop, aspect)
             except Exception:  # noqa: BLE001 裁切失败时退回原图，不阻断生成
                 pass
-        key = f"{project_id}:{slot}:{path.stat().st_mtime_ns}"
+        key = f"{project_id}:{path.name}:{path.stat().st_mtime_ns}"
         cached = _ANCHOR_UPLOADS.get(key)
         if cached:
             names[slot] = cached
