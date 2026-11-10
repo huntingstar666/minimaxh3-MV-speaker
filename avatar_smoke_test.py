@@ -156,6 +156,9 @@ def main() -> int:
         project = created["project"]
         project_id = project["id"]
         check("创建模式 3 项目", bool(project_id) and project.get("mode") == 3, project_id)
+        check("生成默认值不再带未使用的 max_ref_audios",
+              "max_ref_audios" not in (project.get("generation") or {}),
+              str(sorted((project.get("generation") or {}).keys())))
 
         planned = client.post(f"/avatar/api/projects/{project_id}/plan", json={}).json()["project"]
         segments = planned.get("segments") or []

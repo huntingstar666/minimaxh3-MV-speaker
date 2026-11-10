@@ -172,8 +172,6 @@ DEFAULT_GENERATION: dict = {
     # 首尾钉帧：用参考图替换段首/段尾帧，保证拼接处完全一致；
     # 代价是段内首尾多 1 帧突变（实测 max 3.26 → 5.69），默认关。
     "anchor_pin_frames": False,
-    # 内部参数：ref_audios 上限 3
-    "max_ref_audios": 1,
 }
 
 
