@@ -676,10 +676,9 @@ def build_anchor(generation: dict[str, Any], prompt: str, ref: str, audio_file: 
     if sampler_mode == "selflift":
         selflift_class = ("SelfLiftAvatarH3SamplerFix"
                           if available.get("selflift_fix") else "SelfLiftAvatarH3Sampler")
-        # Fix 版已兼容「无 latent 的音频 keyframe」；旧版仍必须关 tiling。
-        highres_tiling = selflift_class.endswith("Fix")
-        if "highres_tiling" in generation:
-            highres_tiling = bool(generation.get("highres_tiling"))
+        # Fix 版已兼容「无 latent 的音频 keyframe」；旧版节点处理不了该场景，必须关分块。
+        fix_node = selflift_class.endswith("Fix")
+        highres_tiling = fix_node and bool(generation.get("highres_tiling", True))
         nodes.pop("sampler", None)
         nodes["selflift"] = {
             "class_type": selflift_class,
