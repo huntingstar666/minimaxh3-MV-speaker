@@ -668,6 +668,26 @@ body.av-body.av-light{
   box-shadow:0 1px 2px rgba(0,0,0,.05);
 }
 
+/* 创作模式常驻左栏：三行紧凑选项，默认音频驱动 */
+.av-body.av-light .av-rail-left #panel-mode{padding-bottom:10px}
+.av-body.av-light .av-rail-left #panel-mode .mode-cards{gap:3px}
+.av-body.av-light .av-rail-left #panel-mode .mode-card{
+  grid-template-columns:26px minmax(0,1fr) 16px;gap:9px;padding:7px 8px;border-radius:8px;
+}
+.av-body.av-light .av-rail-left #panel-mode .mode-icon{width:26px;height:26px;border-radius:7px}
+.av-body.av-light .av-rail-left #panel-mode .mode-icon svg{width:14px;height:14px}
+.av-body.av-light .av-rail-left #panel-mode .mode-body strong{font-size:12px;font-weight:600}
+.av-body.av-light .av-rail-left #panel-mode .mode-body em{
+  font-size:10px;line-height:1.4;-webkit-line-clamp:1;
+}
+.av-body.av-light .av-rail-left #panel-mode .mode-check{width:16px;height:16px}
+.av-body.av-light .av-rail-left #panel-mode .mode-check svg{width:10px;height:10px}
+.av-body.av-light .av-rail-left #panel-mode .panel-note.tiny{
+  display:none;
+}
+/* 264px 栏宽放不下「数字人的驱动方式」，标题右侧留空更干净 */
+.av-body.av-light .av-rail-left #panel-mode .panel-head .hint{display:none}
+
 @media (max-width:1200px){
   .av-body.av-light .av-script-meta{grid-template-columns:1fr 1fr}
 }

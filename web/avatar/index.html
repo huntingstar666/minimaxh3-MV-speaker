@@ -67,6 +67,36 @@
 
 
 
+    <section class="panel" id="panel-mode">
+      <div class="panel-head"><h2>创作模式</h2><span class="hint">数字人的驱动方式</span></div>
+      <div class="mode-cards">
+        <button class="mode-card" type="button" data-mode-card="1">
+          <span class="mode-icon"><svg><use href="#i-wave"/></svg></span>
+          <span class="mode-body">
+            <strong>音频驱动</strong>
+            <em>已有音频 · 按波形分段 · 保留原音对口型</em>
+          </span>
+          <span class="mode-check"><svg><use href="#i-check"/></svg></span>
+        </button>
+        <button class="mode-card" type="button" data-mode-card="2">
+          <span class="mode-icon"><svg><use href="#i-mic"/></svg></span>
+          <span class="mode-body">
+            <strong>参考音色</strong>
+            <em>2–15s 参考音频，逐段生成该音色说出台词</em>
+          </span>
+          <span class="mode-check"><svg><use href="#i-check"/></svg></span>
+        </button>
+        <button class="mode-card" type="button" data-mode-card="3">
+          <span class="mode-icon"><svg><use href="#i-human"/></svg></span>
+          <span class="mode-body">
+            <strong>无音频参考</strong>
+            <em>只给台词与音色描述，按约 5 字/秒规划时长</em>
+          </span>
+          <span class="mode-check"><svg><use href="#i-check"/></svg></span>
+        </button>
+      </div>
+      <p class="panel-note tiny" id="mode-hint">模式 2 / 3 的成片视频自带生成音频；模式 1 保留上传音频原声。</p>
+    </section>
     <section class="panel" id="panel-projects">
       <div class="panel-head"><h2>最近作品</h2><span class="hint" id="project-count">0 个</span></div>
       <div class="av-form-actions-row">
@@ -275,36 +305,6 @@
       <button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button>
     </div>
     <div class="modal-body av-settings-body" id="settings-body">
-    <section class="panel" id="panel-mode">
-      <div class="panel-head"><h2>创作模式</h2><span class="hint">数字人的驱动方式</span></div>
-      <div class="mode-cards">
-        <button class="mode-card" type="button" data-mode-card="1">
-          <span class="mode-icon"><svg><use href="#i-wave"/></svg></span>
-          <span class="mode-body">
-            <strong>音频驱动</strong>
-            <em>已有音频 · 按波形分段 · 保留原音对口型</em>
-          </span>
-          <span class="mode-check"><svg><use href="#i-check"/></svg></span>
-        </button>
-        <button class="mode-card" type="button" data-mode-card="2">
-          <span class="mode-icon"><svg><use href="#i-mic"/></svg></span>
-          <span class="mode-body">
-            <strong>参考音色</strong>
-            <em>2–15s 参考音频，逐段生成该音色说出台词</em>
-          </span>
-          <span class="mode-check"><svg><use href="#i-check"/></svg></span>
-        </button>
-        <button class="mode-card" type="button" data-mode-card="3">
-          <span class="mode-icon"><svg><use href="#i-human"/></svg></span>
-          <span class="mode-body">
-            <strong>无音频参考</strong>
-            <em>只给台词与音色描述，按约 5 字/秒规划时长</em>
-          </span>
-          <span class="mode-check"><svg><use href="#i-check"/></svg></span>
-        </button>
-      </div>
-      <p class="panel-note tiny" id="mode-hint">模式 2 / 3 的成片视频自带生成音频；模式 1 保留上传音频原声。</p>
-    </section>
     <section class="av-card" id="panel-content">
       <div class="av-card-head">
         <div class="av-card-heading">

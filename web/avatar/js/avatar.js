@@ -179,7 +179,7 @@ const state = {
   projects: [],
   project: null,
   run: null,
-  mode: 2,
+  mode: 1,
   pendingVoice: null,
   pendingAudio: null,
   pollTimer: null,
@@ -831,7 +831,7 @@ function updateAnchorStepSplit() {
 function syncAnchorUI() {
   const stitchInput = $("#f-stitch");
   if (!stitchInput) return;
-  const mode = Number(state.mode) || 2;
+  const mode = Number(state.mode) || 1;
   const anchorAvailable = mode === 1;
   if (stitchInput.value === "anchor" && !anchorAvailable) {
     stitchInput.value = "hard";
@@ -1644,7 +1644,7 @@ function modeHintText(mode) {
 }
 
 async function switchMode(mode) {
-  const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 2;
+  const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 1;
   const project = state.project;
   if (!project || Number(project.mode) === value) {
     setMode(value);
@@ -1689,7 +1689,7 @@ async function switchMode(mode) {
 }
 
 function setMode(mode, { quiet = false } = {}) {
-  const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 2;
+  const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 1;
   state.mode = value;
   // 切模式时清掉不属于当前模式的待上传素材，避免“模式三高亮但表单还挂着参考音频”
   if (value !== 2 && state.pendingVoice) {
@@ -2634,7 +2634,7 @@ function renderProjectList() {
     .map((item) => {
       const active = state.project?.id === item.id;
       const count = Array.isArray(item.segments) ? item.segments.length : num(item.segments);
-      const mode = clamp(Number(item.mode) || 2, 1, 3);
+      const mode = clamp(Number(item.mode) || 1, 1, 3);
       return `<div class="av-project ${active ? "active" : ""}" role="button" tabindex="0"
         data-action="open-project" data-id="${esc(item.id)}" title="打开作品">
         <span class="av-project-main">
@@ -3743,12 +3743,14 @@ function showEmpty(kind) {
         <h3>音频还没有分段</h3>
         <p>模式 1 以音频波形为时间轴：上传音频并分析后，会按目标段长自动切分，之后可以拖动切点、按播放头切分或合并下段。</p>
         <ol>
-          <li><b>01</b>${hasAudio ? "音频已就绪，点「上传并分析」。" : "在左栏「音频驱动」表单拖入音频 / 视频。"}</li>
+          <li><b>01</b>${hasAudio ? "音频已就绪，点「上传并分析」。" : "在「作品设定」里拖入音频 / 视频。"}</li>
           <li><b>02</b>按需要开启「语音识别辅助切分」，选模型与语言。</li>
           <li><b>03</b>分析完成后在波形时间线上微调切点，再逐段生成。</li>
         </ol>
         <div class="inline" style="justify-content:center">
-          <button class="btn primary" type="button" data-action="analyze-audio"><svg><use href="#i-wave"/></svg>上传并分析</button>
+          ${hasAudio
+            ? '<button class="btn primary" type="button" data-action="analyze-audio"><svg><use href="#i-wave"/></svg>上传并分析</button>'
+            : '<button class="btn primary" type="button" data-action="focus-audio"><svg><use href="#i-plus"/></svg>去上传音频</button>'}
         </div>`;
       return;
     }
@@ -3766,8 +3768,8 @@ function showEmpty(kind) {
     <h3>先创建一个数字人作品</h3>
     <p>模式 1 用现成音频对口型，按波形分段；模式 2 用参考音频定音色，模式 3 用文字描述音色；台词会按标点与语速自动分段。</p>
     <ol>
-      <li><b>01</b>在左栏选模式，填作品名称与台词。</li>
-      <li><b>02</b>模式 1 上传音频；模式 2 上传 2–15 秒参考音频；模式 3 填写音色描述。</li>
+      <li><b>01</b>在左栏选模式，打开「作品设定」填作品名称与台词。</li>
+      <li><b>02</b>模式 1 上传音频；模式 2 上传 2–15 秒参考音频；模式 3 填写音色描述（都在「作品设定」里）。</li>
       <li><b>03</b>点「新建作品」，模式 1 再点「上传并分析」，模式 2/3 点「按台词分段」。</li>
     </ol>
     <div class="inline" style="justify-content:center">
@@ -3780,7 +3782,7 @@ function renderProjectContext() {
   const segments = p?.segments || [];
   $("#stage-name").textContent = p ? p.name || "未命名作品" : "从一句台词开始";
   if (p) {
-    const mode = clamp(Number(p.mode) || 2, 1, 3);
+    const mode = clamp(Number(p.mode) || 1, 1, 3);
     const design = p.design || {};
     const density = DENSITY_LABEL[design.effect_density] || "中";
     const gmode = GRAPHICS_MODE_LABEL[state.designGraphicsMode] || "生成式";
@@ -4470,7 +4472,7 @@ function syncButtons() {
   const hasSegments = segments.length > 0;
   const active = isRunActive(state.run);
   const hasFinal = !!p?.final;
-  const mode = clamp(Number(p?.mode ?? state.mode) || 2, 1, 3);
+  const mode = clamp(Number(p?.mode ?? state.mode) || 1, 1, 3);
   const isMode1 = mode === 1;
   const audioReady = !!(state.pendingAudio || p?.audio);
 
@@ -4850,8 +4852,17 @@ function bindEvents() {
     const action = el.dataset.action;
     const index = el.dataset.index !== undefined ? Number(el.dataset.index) : null;
     if (action === "focus-create") {
-      $("#f-name").focus();
-      $("#f-name").scrollIntoView({ behavior: "smooth", block: "center" });
+      // 表单已收进「作品设定」弹窗：先打开弹窗再聚焦，否则 focus 落在隐藏节点上
+      const modal = document.getElementById("modal-settings");
+      if (modal) modal.hidden = false;
+      const name = $("#f-name");
+      if (name) name.focus();
+      return;
+    }
+    if (action === "focus-audio") {
+      const modal = document.getElementById("modal-settings");
+      if (modal) modal.hidden = false;
+      $("#audio-input")?.click();
       return;
     }
     if (action === "seg-tab") {
@@ -4959,7 +4970,7 @@ async function boot() {
   bindEvents();
   initAnchorControls();
   initRightTabs();
-  setMode(2, { quiet: true });
+  setMode(1, { quiet: true });
   renderSegments();
   renderRun(null);
   renderFinal();
