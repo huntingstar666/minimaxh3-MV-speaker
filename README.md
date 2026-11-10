@@ -516,13 +516,85 @@ VAEDecode（视频） + VAEDecodeAudio（生成音轨） → VHS_VideoCombine
 - **产物**：`final/final.mp4`（`+faststart`）、`final/cover.jpg`、`final/audio.wav`（A = 原音拷贝，B/C = 拼接后的生成音轨），并在 `final.take_signature` 记录选片签名；换选片段后前端显示「需要重新合成」。
 - **跨段策略**：三种模式都**逐段独立生成，不传上一段尾帧**。锚定不是跨段续接，只是让每段首尾都贴近同一张参考图，避免误差累积；段与段之间始终是硬剪切点。
 
-### 11.6 前后端职责
+### 11.6 前后端职责与项目结构
 
 - 前端：表单 / 裁切 / 波形时间线 / 预览 / 挑片 / 轮询 `/run`，不直接访问 ComfyUI。
 - `backend/avatar/app.py`：路由、校验、落盘（`store.py` 原子读写 `project.json`）。
 - `backend/avatar/job.py`：GPU 串行、素材上传、构图、等待、take 管理、拼接；同一项目同时只允许一个 run，失败/取消会把卡住的段收尾。
 - `backend/avatar/workflow.py`：三种模式的节点图与模型栈；`backend/workflow.py`：模式 1 硬切用的锁定音轨图；`backend/comfy.py`：ComfyUI HTTP/WS 客户端；`backend/media.py`：ffmpeg 归一化 / 拼接 / 封面。
 - 项目数据：`data/avatar/projects/<id>/{project.json, source.wav, refs/, anchor/, voice/, voices/, takes/, final/, state/}`。
+
+**运行时结构**
+
+```text
+浏览器 /avatar/
+├─ index.html
+│  ├─ avatar.js          state.project 快照 / REST / 渲染 / 裁切 / 轮询
+│  ├─ waveform.js        canvas 波形、切点拖拽、播放头
+│  └─ avatar-polish.js   作品设定四分页、右栏摘要、弹窗
+│
+│  fetch /avatar/api/*（JSON / multipart）
+▼
+FastAPI  backend/avatar/app.py
+├─ 路由 / 校验           plan.py 分段·提示词      design.py 设计层
+├─ store.py ◄──► data/avatar/projects/<id>/project.json（唯一真源）
+└─ audio_pipeline.py 解码 / 切片     pack.py .h3avatar 导入导出
+│
+│  job.AvatarRunner.start()（GPU_LOCK，与 MV 共用）
+▼
+backend/avatar/job.py（逐段循环）
+├─ 1. 上传素材    comfy.upload（参考图 / 音色 / 本段 wav）
+├─ 2. 构图        workflow.py（mode1 硬切另走 backend/workflow.py）
+├─ 3. 提交        comfy.queue(/prompt) → comfy.wait(/history) → comfy.view
+├─ 4. 落盘        takes/seg_xxxx/t_000N.mp4 + .jpg + take 元数据
+└─ 5. 合成        assemble → media.py（normalize / concat / 封面）
+│
+├─ HTTP 8188 ──► ComfyUI（模型 + 节点）
+└─ ffmpeg ─────► final/final.mp4 + cover.jpg + audio.wav
+```
+
+**三种模式的数据流**
+
+```text
+A 音频驱动   source.wav ─分析/切点─► 每段 wav ─┐
+                                              ├─► 锁定音轨工作流 ─► take ─┐
+               参考图 ───────────────────────┘                           ├─► final = 拼视频 + 原音
+                                                                         │
+B 参考音色   台词 ─分段─► 音色 ref_audios ─► Ref2VA 生成（自带音轨）─► take ─┐
+               参考图 ──────────────────────┘                              ├─► final = 拼视频 + 拼音轨
+                                                                           │
+C 无音频     台词 + 音色描述 ─分段─► 参考图 ─► Ref2VA（台词驱动，自带音轨）─► take ─┘
+```
+
+**目录结构**
+
+```text
+h3-workbench/
+├─ backend/avatar/
+│  ├─ app.py             路由与校验（/avatar/api/*）
+│  ├─ job.py             AvatarRunner：GPU 串行、逐段生成、take、拼接
+│  ├─ workflow.py        mode2/3 与锚定的 ComfyUI 节点图 / 模型栈
+│  ├─ plan.py            台词分段、帧数换算、提示词模板与 lint
+│  ├─ store.py           project.json 原子读写
+│  ├─ audio_pipeline.py  音频解码与按段切片
+│  ├─ design.py          设计层（密度 / 风格 / 安全区 / 图形预算）
+│  ├─ overlay.py         overlay 模式 ffmpeg 合成
+│  ├─ pack.py            .h3avatar 包导入 / 导出
+│  ├─ effect_catalog.py / llm_client.py / lint.py / config.py
+│  └─ （复用）../workflow.py   模式 1 硬切的锁定音轨节点图
+├─ web/avatar/
+│  ├─ index.html
+│  ├─ css/avatar.css · avatar-light.css
+│  └─ js/avatar.js · waveform.js · avatar-polish.js
+└─ data/avatar/projects/<id>/
+   ├─ project.json       唯一真源（mode / segments / generation / design / final…）
+   ├─ source.wav         模式 1 驱动音频
+   ├─ refs/              参考图
+   ├─ anchor/            首 / 尾 / 中间锚点图（含 .cache 裁切缓存）
+   ├─ voice/ voices/     模式 2 音色样本与音色库
+   ├─ takes/seg_xxxx/    t_000N.mp4 + 缩略图 + 每段 audio.wav
+   └─ final/             final.mp4 / cover.jpg / audio.wav
+```
 
 ### 11.7 常见报错定位
 
