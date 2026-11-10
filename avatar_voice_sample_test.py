@@ -123,11 +123,24 @@ def main() -> int:
                              json={"start_seconds": 20, "length_seconds": 12})
         check("改样本起点 20s", sampled.status_code == 200
               and abs(float(sampled.json()["voice"]["sample_start"]) - 20) < 0.05)
+        sampled_voice = (sampled.json().get("project", {}).get("voices") or [{}])[0]
+        check("样本编辑同步 voices[]",
+              abs(float(sampled_voice.get("sample_start") or 0) - 20) < 0.05
+              and str(sampled_voice.get("filename") or "").startswith("voices/"),
+              f"{sampled_voice.get('sample_start')} / {sampled_voice.get('filename')}")
+        sample_media = client.get(
+            f"/api/projects/{project['id']}/media/{sampled_voice.get('filename')}")
+        check("样本文件已写入 voices/", sample_media.status_code == 200
+              and len(sample_media.content) > 1000, str(sample_media.status_code))
         clamped = client.post(f"/api/projects/{project['id']}/voice/sample",
                               json={"start_seconds": 999, "length_seconds": 12})
         check("起点超出自动夹取", clamped.status_code == 200
               and abs(float(clamped.json()["voice"]["sample_start"]) - 53.0) < 0.05,
               str(clamped.json().get("voice", {}).get("sample_start")))
+        clamped_voice = (clamped.json().get("project", {}).get("voices") or [{}])[0]
+        check("夹取后 voices[] 同步",
+              abs(float(clamped_voice.get("sample_start") or 0) - 53.0) < 0.05,
+              str(clamped_voice.get("sample_start")))
         media = client.get(f"/api/projects/{project['id']}/media/voice/ref.wav")
         check("样本可试听（media 200）", media.status_code == 200 and len(media.content) > 1000,
               str(media.status_code))

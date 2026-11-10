@@ -1129,7 +1129,24 @@ def update_voice_sample(project_id: str, payload: dict[str, Any] | None = None) 
                                    current.get("sample_length") or config.VOICE_SAMPLE_SECONDS))
     except (TypeError, ValueError) as error:
         raise HTTPException(400, "起点/长度必须是数字。") from error
-    project["voice"] = _make_voice_sample(project_id, start, length)
+    sample = _make_voice_sample(project_id, start, length)
+    voices = [item for item in (project.get("voices") or []) if isinstance(item, dict)]
+    primary = next((item for item in voices
+                    if str(item.get("id") or "") == str(current.get("id") or "")),
+                   voices[0] if voices else None)
+    if primary is not None:
+        # 真正的生成源是 voices[]；样本编辑必须同步到主音色的文件与元数据，
+        # 否则界面显示改了 10–18s，送进模型的还是原来的 0–12s。
+        directory = store.project_dir(project_id) / "voices"
+        directory.mkdir(parents=True, exist_ok=True)
+        voice_id = str(primary.get("id") or f"v{uuid.uuid4().hex[:8]}")
+        target = directory / f"{voice_id}.wav"
+        shutil.copy2(store.project_dir(project_id) / "voice" / "ref.wav", target)
+        primary.update({**sample, "id": voice_id, "filename": f"voices/{voice_id}.wav"})
+        project["voices"] = voices
+        project["voice"] = dict(primary)
+    else:
+        project["voice"] = sample
     _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project, "voice": project["voice"]}
