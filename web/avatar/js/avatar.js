@@ -2665,7 +2665,13 @@ async function deleteAudio() {
   }
   const p = state.project;
   if (!p?.audio) return;
-  const ok = await confirmDialog("删除音频", "删除后模式 1 需要重新上传音频并分析才能生成。继续？", "删除");
+  const count = (p.segments || []).length;
+  const ok = await confirmDialog(
+    "删除音频",
+    `删除后会清空 ${count} 段分段与成片记录（操作前会自动备份 project.json）。`
+    + "之后需要重新上传音频并分析才能生成。继续？",
+    "删除"
+  );
   if (!ok) return;
   await withBusy($("#btn-audio-del"), async () => {
     const data = await api.deleteAudio(p.id);
@@ -2691,6 +2697,19 @@ async function ensureProject() {
 
 async function analyzeAudioFlow() {
   const button = $("#btn-analyze");
+  const current = state.project;
+  const segmentCount = (current?.segments || []).length;
+  if (segmentCount) {
+    const replacing = !!state.pendingAudio;
+    const ok = await confirmDialog(
+      replacing ? "替换驱动音频" : "重新分析音频",
+      `当前有 ${segmentCount} 段分段。${replacing
+        ? "替换音频会清空全部分段与成片记录"
+        : "重新分析可能改变切点并清理旧片段"}；操作前会自动备份 project.json。继续？`,
+      replacing ? "替换并分析" : "重新分析"
+    );
+    if (!ok) return;
+  }
   showBusy("正在上传/分析音频（语音识别可能需要几十秒）…");
   try {
     await withBusy(button, async () => {
