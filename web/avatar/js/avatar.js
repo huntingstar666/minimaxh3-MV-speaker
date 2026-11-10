@@ -942,33 +942,58 @@ const ANCHOR_SLOT_LABEL = { first: "首帧图", last: "尾帧图", mid: "中间�
 function renderAnchorFrames() {
   const project = state.project;
   const frames = project?.anchor_frames || {};
+  const refs = Array.isArray(project?.refs) ? project.refs : [];
+  // 后端默认取「该段的第一张参考图」；没有逐段勾选时就是参考图 1。
+  const fallback = refs[0] || null;
+  const fallbackSrc = fallback && project
+    ? mediaUrl(project.id, `refs/${fallback.filename}`, fallback.added)
+    : "";
+  const fallbackLabel = fallback
+    ? `默认 · 参考图 1${fallback.role === "performer" ? "（角色）" : ""}`
+    : "还没有参考图";
   Object.keys(ANCHOR_SLOT_LABEL).forEach((slot) => {
     const card = document.querySelector(`.av-anchor-frame[data-slot="${slot}"]`);
     const thumb = document.getElementById(`anchor-thumb-${slot}`);
     const stateEl = document.getElementById(`anchor-state-${slot}`);
     const reset = document.querySelector(`[data-anchor-reset="${slot}"]`);
+    const upload = document.querySelector(`[data-anchor-upload="${slot}"]`);
     const entry = frames[slot] || null;
     const custom = !!(entry && entry.filename);
     if (card) card.classList.toggle("is-custom", custom);
     if (reset) reset.classList.toggle("hidden", !custom);
+    if (upload) upload.textContent = custom ? "替换" : "上传";
     if (thumb) {
-      thumb.innerHTML = custom && project
-        ? `<img src="${mediaUrl(project.id, entry.filename, entry.updated)}" alt="">`
-        : '<svg><use href="#i-human"/></svg>';
+      thumb.innerHTML = "";
+      thumb.onclick = null;
+      if (custom && project) {
+        const src = mediaUrl(project.id, entry.filename, entry.updated);
+        thumb.innerHTML = `<img src="${src}" alt="">`;
+        thumb.onclick = () => openImagePreview(src, `${ANCHOR_SLOT_LABEL[slot]}（已自定义）`);
+      } else if (fallbackSrc) {
+        thumb.innerHTML = `<img class="is-default" src="${fallbackSrc}" alt="">
+          <span class="av-anchor-frame-tag">默认</span>`;
+        thumb.onclick = () => openImagePreview(fallbackSrc, `${ANCHOR_SLOT_LABEL[slot]}（默认参考图 1）`);
+      } else {
+        thumb.innerHTML = '<svg><use href="#i-human"/></svg>';
+      }
     }
     if (stateEl) {
       stateEl.textContent = custom && project
         ? `已自定义 · ${String(entry.filename).split("/").pop()}`
-        : "默认：该段角色图";
+        : fallbackLabel;
     }
   });
   const hint = $("#anchor-frames-hint");
   if (hint) {
     const mid = $("#f-anchor-mid")?.value || "center";
     const selflift = ($("#f-anchor-sampler")?.value || "plain") === "selflift";
-    hint.textContent = selflift || mid === "none"
-      ? "默认三张都用该段的角色参考图，可单独替换。当前未启用中间锚点，中间锚点图不会生效。"
-      : "默认三张都用该段的角色参考图，可单独替换。中间锚点图在「中间锚点 = 无」或 SelfLift 二采时不会生效。";
+    const tail = selflift || mid === "none"
+      ? "当前未启用中间锚点，中间锚点图不会生效。"
+      : "中间锚点图在「中间锚点 = 无」或 SelfLift 二采时不会生效。";
+    hint.textContent = (fallback
+      ? "未单独上传时，首帧 / 尾帧 / 中间锚点都用每段的第一张参考图；点缩略图可预览。"
+      : "这个作品还没有参考图：先到「作品设定」上传角色图，或在这里单独上传锚定用图。")
+      + tail;
   }
 }
 
