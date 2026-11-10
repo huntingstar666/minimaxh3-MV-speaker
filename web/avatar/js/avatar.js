@@ -870,7 +870,11 @@ function syncAnchorUI() {
     if (textNode) textNode.textContent = on ? "锚定种子 " : "随机种子 ";
   }
   const seedHint = seedField?.querySelector(".hint");
-  if (seedHint) seedHint.textContent = on ? "0 = 项目固定种子" : "0 = 每段随机";
+  if (seedHint) {
+    seedHint.textContent = on
+      ? "0 = 项目固定种子 · 非 0 = 指定种子"
+      : "0 = 每段随机 · 非 0 = 每段固定用该种子";
+  }
   const wfTitle = $("#wf-title");
   const wfTemplate = $("#wf-template");
   const wfDesc = $("#wf-desc");
@@ -942,6 +946,8 @@ function syncAnchorUI() {
   const card = $(".av-anchor-card");
   if (card) card.classList.toggle("is-compact", !on);
   renderAnchorFrames();
+  // 右栏「生成参数」摘要要跟着切首尾帧/硬切（种子的语义不同）
+  document.dispatchEvent(new CustomEvent("avatar:stitch", { detail: { anchor: on } }));
 }
 
 /* ---------------- 首尾帧锚定：首帧 / 尾帧 / 中间锚点图 ---------------- */
@@ -2748,6 +2754,40 @@ function syncAudioSource(project) {
   }
 }
 
+// 点音轨 → 高亮并滚到下面这一段的分段卡（已在可视区就不动，避免每次点击都跳）
+function focusSegmentAt(seconds) {
+  const project = state.project;
+  const segments = project?.segments || [];
+  if (!segments.length) return;
+  const time = Number(seconds) || 0;
+  let index = segments.findIndex((_, i) =>
+    time >= segmentStart(project, i) - 0.02 && time < segmentEnd(project, i) - 0.02);
+  if (index < 0) index = time >= segmentEnd(project, segments.length - 1) - 0.02
+    ? segments.length - 1
+    : 0;
+  const card = document.querySelector(`#seg-list .av-seg[data-index="${index}"]`);
+  if (!card) return;
+  $$("#seg-list .av-seg.is-focus").forEach((el) => el.classList.remove("is-focus"));
+  card.classList.add("is-focus");
+  const stage = document.querySelector(".av-stage");
+  if (!stage) {
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+  const stageRect = stage.getBoundingClientRect();
+  const cardRect = card.getBoundingClientRect();
+  // 吸顶的标题栏 / 音轨会盖住滚动容器顶部，先把它们叠起来的高度让出来
+  let reserved = 0;
+  [$(".av-stage-head"), $("#timeline")].forEach((el) => {
+    if (!el || el.classList.contains("hidden")) return;
+    if (el.getBoundingClientRect().top <= stageRect.top + reserved + 2) reserved += el.offsetHeight;
+  });
+  const top = stageRect.top + reserved + 12;
+  const bottom = stageRect.bottom - 12;
+  if (cardRect.top >= top && cardRect.bottom <= bottom) return;
+  stage.scrollTo({ top: stage.scrollTop + (cardRect.top - top), behavior: "smooth" });
+}
+
 function ensureWaveform() {
   if (waveform) return waveform;
   const canvas = $("#wave-canvas");
@@ -2762,6 +2802,7 @@ function ensureWaveform() {
     if (audio && audio.dataset.src && audio.readyState >= 1) {
       try { audio.currentTime = state.playhead; } catch { /* ignore */ }
     }
+    focusSegmentAt(seconds);
   };
   waveform.onBoundary = async (cuts) => {
     const project = state.project;

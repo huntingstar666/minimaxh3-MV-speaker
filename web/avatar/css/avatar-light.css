@@ -349,6 +349,10 @@ body.av-body.av-light{
 .av-body.av-light .av-seg.running{
   box-shadow:0 1px 2px rgba(0,0,0,.03),0 0 0 3px rgba(0,113,227,.08);
 }
+.av-body.av-light .av-seg.is-focus{
+  border-color:rgba(0,113,227,.34);
+  box-shadow:0 1px 2px rgba(0,0,0,.03),0 0 0 3px rgba(0,113,227,.09);
+}
 .av-body.av-light .av-seg.running .seg-num{box-shadow:none}
 .av-body.av-light .av-seg-tab.active{font-weight:600}
 .av-body.av-light .av-seg-tab i{background:#f0f0f3;color:var(--faint)}

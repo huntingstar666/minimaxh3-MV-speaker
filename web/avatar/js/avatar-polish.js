@@ -230,17 +230,24 @@ function initSettingSummary() {
   const aspect = document.getElementById("f-aspect");
   const mp = document.getElementById("f-mp");
   const seed = document.getElementById("f-seed");
+  const stitch = document.getElementById("f-stitch");
   const paramsOut = document.getElementById("sum-params");
 
   const syncParams = () => {
     if (!paramsOut) return;
     const parts = [];
-    if (aspect && aspect.value.trim()) parts.push(aspect.value.trim());
+    if (aspect && aspect.value.trim()) parts.push(aspect.value.trim().split("(")[0].trim());
     const mpText = readSelect(mp);
     if (mpText) parts.push(mpText.split("·")[0].trim());
     const seedValue = seed ? seed.value.trim() : "";
-    parts.push(seedValue && Number(seedValue) !== 0 ? `种子 ${seedValue}` : "种子随机");
+    // 首尾帧锚定：0 = 项目固定种子（后端按项目 ID 派生，永远同一条）；硬切：0 = 每段随机
+    const anchorMode = (stitch?.value || "") === "anchor";
+    if (seedValue && Number(seedValue) !== 0) parts.push(`种子 ${seedValue}`);
+    else parts.push(anchorMode ? "种子固定" : "种子随机");
     paramsOut.textContent = parts.join(" · ");
+    paramsOut.title = anchorMode
+      ? "首尾帧模式用锚定种子：0 = 项目固定种子（同项目每次生成都一样）"
+      : "硬切模式用随机种子：0 = 每段随机";
   };
 
   if (paramsOut) {
@@ -249,6 +256,8 @@ function initSettingSummary() {
       el.addEventListener("change", syncParams);
       el.addEventListener("input", syncParams);
     });
+    document.addEventListener("avatar:stitch", syncParams);
+    stitch?.addEventListener("change", syncParams);
     if (aspect) new MutationObserver(syncParams).observe(aspect, { childList: true });
     syncParams();
     document.querySelector('[data-sheet="params"]')?.addEventListener("click", syncParams);
