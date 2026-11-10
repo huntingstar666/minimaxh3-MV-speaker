@@ -832,9 +832,34 @@ def delete_ref(project_id: str, index: int) -> dict[str, Any]:
 ANCHOR_FRAME_SLOTS = ("first", "last", "mid")
 
 
+def _parse_crop(raw: Any) -> dict[str, float] | None:
+    """归一化裁切框（0–1，相对原图左上角）。空值表示不裁切。"""
+    if raw in (None, "", {}, []):
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raise HTTPException(400, "crop 不是合法 JSON。") from None
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "crop 必须是 {x,y,w,h} 对象。")
+    try:
+        x = float(raw["x"])
+        y = float(raw["y"])
+        w = float(raw["w"])
+        h = float(raw["h"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(400, "crop 需要 x / y / w / h 四个数字。") from None
+    if not (0 <= x < 1 and 0 <= y < 1 and 0 < w <= 1 and 0 < h <= 1
+            and x + w <= 1.001 and y + h <= 1.001):
+        raise HTTPException(400, "crop 必须在 0–1 范围内且不越界。")
+    return {"x": round(x, 6), "y": round(y, 6), "w": round(w, 6), "h": round(h, 6)}
+
+
 @app.post("/api/projects/{project_id}/anchor-frames/{slot}")
 def upload_anchor_frame(project_id: str, slot: str,
-                        image: UploadFile = File(...)) -> dict[str, Any]:
+                        image: UploadFile = File(...),
+                        crop: str = Form("")) -> dict[str, Any]:
     """首尾帧锚定的首帧 / 尾帧 / 中间锚点图，可按槽位单独上传替换。"""
     if slot not in ANCHOR_FRAME_SLOTS:
         raise HTTPException(400, "slot 必须是 first / last / mid。")
@@ -859,7 +884,44 @@ def upload_anchor_frame(project_id: str, slot: str,
     with target.open("wb") as handle:
         shutil.copyfileobj(image.file, handle)
     frames = project.setdefault("anchor_frames", {})
-    frames[slot] = {"filename": f"anchor/{target.name}", "updated": time.time()}
+    entry: dict[str, Any] = {"filename": f"anchor/{target.name}", "updated": time.time()}
+    parsed = _parse_crop(crop)
+    if parsed:
+        entry["crop"] = parsed
+    frames[slot] = entry
+    _mark_final_stale(project)
+    store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.patch("/api/projects/{project_id}/anchor-frames/{slot}")
+def patch_anchor_frame(project_id: str, slot: str,
+                       payload: dict[str, Any]) -> dict[str, Any]:
+    """只改某张锚定图的裁切框（可视化裁切保存），不重传图片。
+
+    槽位还没有自定义图时，可用 `source` 指向项目内已有图片（例如参考图），
+    把「默认继承的那张参考图」提升成可裁切的自定义图。
+    """
+    if slot not in ANCHOR_FRAME_SLOTS:
+        raise HTTPException(400, "slot 必须是 first / last / mid。")
+    project = _project(project_id)
+    frames = project.setdefault("anchor_frames", {})
+    entry = frames.get(slot)
+    source = str(payload.get("source") or "").strip()
+    if not entry:
+        if not source:
+            raise HTTPException(404, "这个槽位还没有自定义图。")
+        base = store.project_dir(project_id).resolve()
+        target = (base / source).resolve()
+        if base not in target.parents or not target.is_file():
+            raise HTTPException(400, "source 必须是项目内已存在的图片。")
+        entry = {"filename": source, "updated": time.time()}
+        frames[slot] = entry
+    parsed = _parse_crop(payload.get("crop"))
+    if parsed:
+        entry["crop"] = parsed
+    else:
+        entry.pop("crop", None)
     _mark_final_stale(project)
     store.save(project)
     return {"ok": True, "project": project}

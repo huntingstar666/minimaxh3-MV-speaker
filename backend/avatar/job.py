@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import re
 import shutil
 import threading
 import time
@@ -52,9 +53,80 @@ def anchor_enabled(project: dict[str, Any], generation: dict[str, Any]) -> bool:
 _ANCHOR_UPLOADS: dict[str, str] = {}
 
 
-def anchor_frame_names(project_id: str, project: dict[str, Any], fallback: str) -> dict[str, str]:
+def _aspect_ratio(value: Any) -> float:
+    """把 "9:16 (Portrait Widescreen)" 解析成 0.5625；解析失败返回 0。"""
+    match = re.match(r"\s*(\d+(?:\.\d+)?)\s*[:x×]\s*(\d+(?:\.\d+)?)", str(value or ""))
+    if not match:
+        return 0.0
+    w = float(match.group(1))
+    h = float(match.group(2))
+    return (w / h) if w > 0 and h > 0 else 0.0
+
+
+def _image_size(path: Path) -> tuple[int, int]:
+    out = audio_utils.command([
+        audio_utils.ffprobe(), "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=width,height", "-of", "csv=p=0", str(path),
+    ], timeout=30)
+    width, height = [int(value) for value in out.strip().split(",")[:2]]
+    return width, height
+
+
+def _crop_anchor_frame(project_id: str, slot: str, source: Path,
+                       crop: dict[str, Any], aspect: float = 0.0) -> Path:
+    """按归一化裁切框裁出实际送进模型的图（ffmpeg，结果按 源图 + 裁切框 + 画幅 缓存）。
+
+    aspect > 0 时把裁切框微调成精确的视频画幅比例（像素取整后仍可能差 1px），
+    避免后续等比缩放时出现轻微拉伸。
+    """
+    try:
+        x = float(crop["x"])
+        y = float(crop["y"])
+        w = float(crop["w"])
+        h = float(crop["h"])
+    except (KeyError, TypeError, ValueError):
+        return source
+    if not (0 <= x < 1 and 0 <= y < 1 and 0 < w <= 1 and 0 < h <= 1):
+        return source
+    key = hashlib.sha1(
+        f"{source.name}|{source.stat().st_mtime_ns}|"
+        f"{x:.6f},{y:.6f},{w:.6f},{h:.6f}|{aspect:.6f}".encode()
+    ).hexdigest()[:12]
+    cache_dir = store.project_dir(project_id) / "anchor" / ".cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    target = cache_dir / f"{slot}-{key}.png"
+    if target.is_file() and target.stat().st_size > 0:
+        return target
+
+    width, height = _image_size(source)
+    left = x * width
+    top = y * height
+    box_w = max(2, int(round(w * width)))
+    box_h = max(2, int(round(h * height)))
+    if aspect > 0:
+        if box_w / box_h > aspect:
+            new_w = max(2, int(round(box_h * aspect)))
+            left += (box_w - new_w) / 2
+            box_w = new_w
+        else:
+            new_h = max(2, int(round(box_w / aspect)))
+            top += (box_h - new_h) / 2
+            box_h = new_h
+    left = max(0, min(width - box_w, left))
+    top = max(0, min(height - box_h, top))
+    audio_utils.command([
+        audio_utils.ffmpeg(), "-y", "-i", str(source),
+        "-vf", f"crop={box_w}:{box_h}:{int(round(left))}:{int(round(top))}",
+        "-frames:v", "1", str(target),
+    ], timeout=120)
+    return target
+
+
+def anchor_frame_names(project_id: str, project: dict[str, Any], fallback: str,
+                       aspect: float = 0.0) -> dict[str, str]:
     """首/尾/中间锚点三张图在 ComfyUI 侧的文件名；未自定义的槽位回退到角色图。
 
+    自定义图若带 crop，会先按裁切框裁成实际取景，再上传 ComfyUI。
     同一张图只上传一次（按 project_id + slot + mtime 缓存），避免每段重复上传。
     """
     frames = project.get("anchor_frames") or {}
@@ -66,6 +138,12 @@ def anchor_frame_names(project_id: str, project: dict[str, Any], fallback: str) 
         path = (directory / relative) if relative else None
         if not path or not path.is_file():
             continue
+        crop = entry.get("crop")
+        if isinstance(crop, dict) and crop:
+            try:
+                path = _crop_anchor_frame(project_id, slot, path, crop, aspect)
+            except Exception:  # noqa: BLE001 裁切失败时退回原图，不阻断生成
+                pass
         key = f"{project_id}:{slot}:{path.stat().st_mtime_ns}"
         cached = _ANCHOR_UPLOADS.get(key)
         if cached:
@@ -477,13 +555,23 @@ class AvatarRunner:
         if anchor:
             if not segment_refs:
                 raise ValueError(f"{label}：没有参考图，首尾帧模式需要至少一张。")
-            frames = anchor_frame_names(project_id, project, segment_refs[0])
+            frames = anchor_frame_names(project_id, project, segment_refs[0],
+                                        _aspect_ratio(generation.get("aspect_ratio")))
+            frame_cfg = project.get("anchor_frames") or {}
+            cropped = any(isinstance((frame_cfg.get(slot) or {}).get("crop"), dict)
+                          for slot in ("first", "last", "mid"))
+            if "anchor_resize" in generation:
+                # 新语义：用户可选是否把参考图缩放到视频分辨率
+                resize = bool(generation.get("anchor_resize"))
+                preprocess = ("stretch" if cropped else "center_crop") if resize else "none"
+            else:
+                preprocess = str(generation.get("anchor_preprocess") or "center_crop")
             graph = workflow.build_anchor(
                 generation, prompt_text, frames["first"], audio_name,
                 generation_frames, config.FPS,
                 available=workflow.available_nodes(),
                 mid_guides=workflow.anchor_mid_frames(generation, generation_frames),
-                preprocess=str(generation.get("anchor_preprocess") or "center_crop"),
+                preprocess=preprocess,
                 upscale_method=str(generation.get("anchor_upscale") or "lanczos"),
                 sampler_mode=str(generation.get("anchor_sampler") or "plain"),
                 last_ref=frames["last"],

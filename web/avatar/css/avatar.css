@@ -1122,14 +1122,15 @@
 /* ---------- 首尾帧锚定：首帧 / 尾帧 / 中间锚点图 ---------- */
 .av-anchor-frames{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:10px}
 .av-anchor-frame{
-  display:grid;grid-template-columns:42px minmax(0,1fr);grid-template-rows:auto auto;
-  align-items:center;gap:5px 9px;min-width:0;
+  display:grid;grid-template-columns:42px minmax(0,1fr);
+  grid-template-areas:"thumb body" "actions actions";
+  align-items:center;gap:6px 9px;min-width:0;
   padding:9px 10px;border:1px solid var(--line);border-radius:10px;
   background:color-mix(in srgb,var(--bg) 70%,transparent);
 }
 .av-anchor-frame.is-custom{border-color:var(--av-amber-line);background:var(--av-amber-soft)}
 .av-anchor-frame-thumb{
-  position:relative;grid-row:1 / span 2;width:42px;height:42px;border-radius:8px;overflow:hidden;align-self:start;
+  position:relative;grid-area:thumb;width:42px;height:42px;border-radius:8px;overflow:hidden;align-self:start;
   display:grid;place-items:center;border:1px solid var(--line);
   background:color-mix(in srgb,var(--text) 5%,transparent);color:var(--faint);
 }
@@ -1141,17 +1142,62 @@
   pointer-events:none;
 }
 .av-anchor-frame-thumb svg{width:17px;height:17px}
-.av-anchor-frame-body{grid-column:2;min-width:0;display:flex;flex-direction:column;gap:2px}
+.av-anchor-frame-body{grid-area:body;min-width:0;display:flex;flex-direction:column;gap:2px}
 .av-anchor-frame-body b{font-size:11.5px;font-weight:600;color:var(--text);white-space:nowrap}
 .av-anchor-frame-body em{
   font-style:normal;font-size:9.5px;color:var(--faint);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.av-anchor-frame-actions{grid-column:2;display:flex;flex-direction:row;gap:6px;min-width:0}
+.av-anchor-frame-actions{grid-area:actions;display:flex;flex-direction:row;gap:6px;min-width:0;flex-wrap:wrap}
 .av-anchor-frame-actions .btn{padding:2px 8px;font-size:9.5px;white-space:nowrap}
+/* .btn 自带 display，会压过通用 .hidden，这里显式兜住 */
+.av-anchor-frame-actions .btn.hidden{display:none!important}
 @media (max-width:640px){
   .av-anchor-frames{grid-template-columns:1fr}
 }
+
+/* 画幅建议：参考图比例与视频不一致时出现 */
+.av-anchor-aspect-tip{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin:0 0 10px;padding:9px 11px;border-radius:10px;
+  border:1px solid var(--av-amber-line);background:var(--av-amber-soft);
+}
+.av-anchor-aspect-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.av-anchor-aspect-text b{font-size:11.5px;color:var(--text)}
+.av-anchor-aspect-text em{font-style:normal;font-size:10px;color:var(--dim);line-height:1.5}
+.av-anchor-aspect-actions{display:flex;gap:6px;flex:none}
+
+/* 参考图缩放：开关 + 算法 */
+.av-anchor-scale{display:flex;align-items:center;gap:8px;min-width:0}
+.av-anchor-scale .av-switch{flex:none}
+.av-anchor-scale .input{flex:1;min-width:0}
+
+/* 可视化裁切（固定视频画幅比例框，图片可拖可缩） */
+.av-crop-stage{
+  position:relative;width:100%;height:min(46vh,420px);overflow:hidden;
+  border-radius:12px;background:#111;user-select:none;touch-action:none;cursor:grab;
+}
+.av-crop-stage:active{cursor:grabbing}
+.av-crop-stage img{
+  position:absolute;left:0;top:0;transform-origin:0 0;
+  max-width:none;pointer-events:none;
+}
+.av-crop-frame{
+  position:absolute;pointer-events:none;border:1px solid rgba(255,255,255,.95);
+  box-shadow:0 0 0 9999px rgba(0,0,0,.55);
+}
+.av-crop-frame::before{
+  content:"";position:absolute;inset:0;
+  background:
+    linear-gradient(to right,transparent calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% + .5px),transparent calc(33.33% + .5px)),
+    linear-gradient(to right,transparent calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% + .5px),transparent calc(66.66% + .5px)),
+    linear-gradient(to bottom,transparent calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% + .5px),transparent calc(33.33% + .5px)),
+    linear-gradient(to bottom,transparent calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% + .5px),transparent calc(66.66% + .5px));
+}
+.av-crop-controls{display:flex;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap}
+.av-crop-zoom{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dim);flex:1;min-width:180px}
+.av-crop-zoom input[type=range]{flex:1}
+.av-crop-aspect{font-family:var(--mono);font-size:10px;color:var(--faint)}
 
 /* ---------- 首尾帧锚定：Apple 风格分段控件 ---------- */
 .av-anchor-card{

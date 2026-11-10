@@ -616,6 +616,8 @@ const api = {
     }),
   deleteAnchorFrame: (id, slot) =>
     request(`${projectPath(id)}/anchor-frames/${slot}`, { method: "DELETE" }),
+  patchAnchorFrame: (id, slot, body) =>
+    request(`${projectPath(id)}/anchor-frames/${slot}`, { method: "PATCH", body }),
   plan: (id, body) => request(`${projectPath(id)}/plan`, { method: "POST", body }),
   patchSegment: (id, index, body) =>
     request(`${projectPath(id)}/segments/${index}`, { method: "PATCH", body }),
@@ -706,7 +708,8 @@ function readGeneration() {
     gen.anchor_mid_frames = String($("#f-anchor-mid-frames")?.value || "")
       .split(",").map((value) => Number(value.trim()))
       .filter((value) => Number.isFinite(value) && value > 0);
-    gen.anchor_preprocess = $("#f-anchor-preprocess")?.value || "center_crop";
+    gen.anchor_resize = $("#f-anchor-resize")?.checked !== false;
+    gen.anchor_preprocess = gen.anchor_resize ? "stretch" : "none";
     gen.anchor_sampler = $("#f-anchor-sampler")?.value || "plain";
     if (gen.anchor_sampler === "selflift") gen.anchor_mid = "none";
     gen.anchor_upscale = $("#f-anchor-upscale")?.value || "lanczos";
@@ -748,6 +751,12 @@ function fillGeneration(gen) {
   if ($("#f-anchor-mid")) $("#f-anchor-mid").value = mid;
   setSegmented("f-anchor-mid-seg", mid);
   setSelectValue($("#f-anchor-preprocess"), g.anchor_preprocess || "center_crop");
+  const resizeBox = $("#f-anchor-resize");
+  if (resizeBox) {
+    resizeBox.checked = g.anchor_resize !== undefined
+      ? g.anchor_resize !== false
+      : String(g.anchor_preprocess || "center_crop") !== "none";
+  }
   setSelectValue($("#f-anchor-sampler"), g.anchor_sampler || "plain");
   setSelectValue($("#f-anchor-upscale"), g.anchor_upscale || "lanczos");
   const pin = g.anchor_pin_frames === undefined ? false : !!g.anchor_pin_frames;
@@ -978,11 +987,13 @@ function renderAnchorFrames() {
       }
     }
     if (stateEl) {
+      const cropped = custom && entry.crop;
       stateEl.textContent = custom && project
-        ? `已自定义 · ${String(entry.filename).split("/").pop()}`
+        ? `已自定义${cropped ? " · 已裁切" : ""} · ${String(entry.filename).split("/").pop()}`
         : fallbackLabel;
     }
   });
+  updateAspectTip();
   const hint = $("#anchor-frames-hint");
   if (hint) {
     const mid = $("#f-anchor-mid")?.value || "center";
@@ -1043,6 +1054,341 @@ function bindAnchorFrameControls() {
   $$("[data-anchor-reset]").forEach((btn) => {
     btn.addEventListener("click", () => resetAnchorFrame(btn.dataset.anchorReset));
   });
+  $$("[data-anchor-crop]").forEach((btn) => {
+    btn.addEventListener("click", () => openAnchorCrop(btn.dataset.anchorCrop));
+  });
+  $("#btn-anchor-use-aspect")?.addEventListener("click", useRecommendedAspect);
+  $("#btn-anchor-keep-aspect")?.addEventListener("click", () => {
+    hideAspectTip();
+    toast("保持当前画幅：可用「裁切」调整参考图取景", "info", 5000);
+  });
+  const persistAnchorGen = async () => {
+    const project = state.project;
+    if (!project) return;
+    try {
+      const data = await api.patchProject(project.id, { generation: readGeneration() });
+      state.project = data.project;
+      renderAnchorFrames();
+    } catch (err) {
+      toast(`保存失败：${err.message}`, "err", 6000);
+    }
+  };
+  $("#f-anchor-resize")?.addEventListener("change", persistAnchorGen);
+  $("#f-anchor-upscale")?.addEventListener("change", persistAnchorGen);
+  bindCropControls();
+}
+
+/* ---------------- 画幅建议：参考图比例 vs 视频画幅 ---------------- */
+
+const refSizeCache = new Map();
+const aspectTipState = { value: "", ratio: null };
+
+function parseAspectValue(value) {
+  const match = String(value || "").match(/(\d+(?:\.\d+)?)\s*[:x×]\s*(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  const w = Number(match[1]);
+  const h = Number(match[2]);
+  return w > 0 && h > 0 ? { w, h } : null;
+}
+
+function currentAspect() {
+  return parseAspectValue($("#f-aspect")?.value) || { w: 9, h: 16 };
+}
+
+function aspectText(aspect) {
+  return aspect ? `${+Number(aspect.w).toFixed(2)}:${+Number(aspect.h).toFixed(2)}` : "—";
+}
+
+function refSize(project, ref) {
+  const key = `${project.id}:${ref.filename}:${ref.added || ""}`;
+  if (refSizeCache.has(key)) return Promise.resolve(refSizeCache.get(key));
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = { w: img.naturalWidth, h: img.naturalHeight };
+      if (size.w && size.h) refSizeCache.set(key, size);
+      resolve(size.w && size.h ? size : null);
+    };
+    img.onerror = () => resolve(null);
+    img.src = mediaUrl(project.id, `refs/${ref.filename}`, ref.added);
+  });
+}
+
+function hideAspectTip() {
+  $("#anchor-aspect-tip")?.classList.add("hidden");
+}
+
+function recommendAspectFor(imageRatio) {
+  const select = $("#f-aspect");
+  if (!select) return null;
+  const portrait = imageRatio < 1;
+  const scored = [...select.options]
+    .map((option) => ({ value: option.value, ratio: parseAspectValue(option.value) }))
+    .filter((option) => option.ratio)
+    .map((option) => {
+      const ratio = option.ratio.w / option.ratio.h;
+      return {
+        ...option,
+        diff: Math.abs(ratio - imageRatio) / imageRatio,
+        sameDirection: (ratio < 1) === portrait,
+      };
+    });
+  scored.sort((a, b) => (Number(b.sameDirection) - Number(a.sameDirection)) || (a.diff - b.diff));
+  return scored[0] || null;
+}
+
+async function updateAspectTip() {
+  const project = state.project;
+  const tip = $("#anchor-aspect-tip");
+  if (!tip) return;
+  const refs = Array.isArray(project?.refs) ? project.refs : [];
+  if (!project || !refs.length) {
+    hideAspectTip();
+    return;
+  }
+  const size = await refSize(project, refs[0]);
+  if (!size) {
+    hideAspectTip();
+    return;
+  }
+  const imageRatio = size.w / size.h;
+  const video = currentAspect();
+  const videoRatio = video.w / video.h;
+  if (Math.abs(imageRatio - videoRatio) / videoRatio <= 0.06) {
+    hideAspectTip();
+    return;
+  }
+  const best = recommendAspectFor(imageRatio);
+  if (!best) {
+    hideAspectTip();
+    return;
+  }
+  aspectTipState.value = best.value;
+  aspectTipState.ratio = best.ratio;
+  $("#anchor-aspect-title").textContent = "参考图画幅与视频不一致";
+  $("#anchor-aspect-desc").textContent =
+    `参考图 ${size.w}×${size.h}（${imageRatio.toFixed(2)}:1），当前视频 ${aspectText(video)}；`
+    + `改用 ${aspectText(best.ratio)} 能少裁掉画面，分辨率仍按视频清晰度选。`;
+  $("#btn-anchor-use-aspect").textContent = `用 ${aspectText(best.ratio)}`;
+  tip.classList.remove("hidden");
+}
+
+async function useRecommendedAspect() {
+  const project = state.project;
+  if (!project || !aspectTipState.value) return;
+  setSelectValue($("#f-aspect"), aspectTipState.value);
+  await withBusy($("#btn-anchor-use-aspect"), async () => {
+    const data = await api.patchProject(project.id, { generation: readGeneration() });
+    state.project = data.project;
+    const label = aspectText(aspectTipState.ratio);
+    hideAspectTip();
+    updateAspectTip();
+    toast(`已改用 ${label} 画幅；分辨率可在「生成参数」里调整`, "ok", 6000);
+  }).catch((err) => toast(`切换画幅失败：${err.message}`, "err", 7000));
+}
+
+/* ---------------- 可视化裁切：固定视频画幅比例 ---------------- */
+
+const cropState = {
+  slot: null, source: "", existing: null, aspect: { w: 9, h: 16 },
+  frame: null, baseScale: 1, scale: 1, dx: 0, dy: 0, drag: null,
+};
+
+function cropTarget(slot) {
+  const project = state.project;
+  if (!project) return null;
+  const entry = (project.anchor_frames || {})[slot];
+  if (entry && entry.filename) {
+    return {
+      src: mediaUrl(project.id, entry.filename, entry.updated),
+      entry,
+      source: "",
+    };
+  }
+  const ref = (project.refs || [])[0];
+  if (!ref) return null;
+  return {
+    src: mediaUrl(project.id, `refs/${ref.filename}`, ref.added),
+    entry: null,
+    // 默认继承的参考图：保存裁切时把它提升成该槽位的自定义图
+    source: `refs/${ref.filename}`,
+  };
+}
+
+function openAnchorCrop(slot) {
+  const project = state.project;
+  if (!project || !ANCHOR_SLOT_LABEL[slot]) return;
+  const target = cropTarget(slot);
+  if (!target) {
+    toast("这个作品还没有参考图，请先在「作品设定」上传", "warn", 5000);
+    return;
+  }
+  cropState.slot = slot;
+  cropState.source = target.source;
+  cropState.existing = (target.entry && target.entry.crop) || null;
+  cropState.aspect = currentAspect();
+  $("#crop-title").textContent = `裁切${ANCHOR_SLOT_LABEL[slot]}`;
+  $("#crop-aspect").textContent = `画幅 ${aspectText(cropState.aspect)}`;
+  $("#modal-anchor-crop").hidden = false;
+  const img = $("#crop-image");
+  img.onload = () => layoutCrop();
+  img.src = target.src;
+}
+
+function layoutCrop() {
+  const stage = $("#crop-stage");
+  const img = $("#crop-image");
+  if (!stage || !img || !img.naturalWidth) return;
+  const W = stage.clientWidth;
+  const H = stage.clientHeight;
+  if (!W || !H) return;
+  const pad = 22;
+  const ratio = (cropState.aspect.w || 9) / (cropState.aspect.h || 16);
+  let fw = Math.max(40, W - pad * 2);
+  let fh = fw / ratio;
+  if (fh > H - pad * 2) {
+    fh = Math.max(40, H - pad * 2);
+    fw = fh * ratio;
+  }
+  const fx = (W - fw) / 2;
+  const fy = (H - fh) / 2;
+  cropState.frame = { x: fx, y: fy, w: fw, h: fh };
+  const frameEl = $("#crop-frame");
+  if (frameEl) {
+    frameEl.style.left = `${fx}px`;
+    frameEl.style.top = `${fy}px`;
+    frameEl.style.width = `${fw}px`;
+    frameEl.style.height = `${fh}px`;
+  }
+  cropState.baseScale = Math.max(fw / img.naturalWidth, fh / img.naturalHeight);
+  cropState.scale = 1;
+  cropState.dx = fx + (fw - img.naturalWidth * cropState.baseScale) / 2;
+  cropState.dy = fy + (fh - img.naturalHeight * cropState.baseScale) / 2;
+  const zoom = $("#crop-zoom");
+  if (zoom) zoom.value = "1";
+  if (cropState.existing) applyExistingCrop();
+  else {
+    clampCrop();
+    drawCropImage();
+  }
+}
+
+function applyExistingCrop() {
+  const crop = cropState.existing;
+  const img = $("#crop-image");
+  const frame = cropState.frame;
+  if (!crop || !frame || !img.naturalWidth) return;
+  const baseW = img.naturalWidth * cropState.baseScale;
+  const zoom = Math.min(4, Math.max(1, frame.w / Math.max(1, crop.w * baseW)));
+  cropState.scale = zoom;
+  const scale = cropState.baseScale * zoom;
+  cropState.dx = frame.x - crop.x * img.naturalWidth * scale;
+  cropState.dy = frame.y - crop.y * img.naturalHeight * scale;
+  const zoomEl = $("#crop-zoom");
+  if (zoomEl) zoomEl.value = String(zoom);
+  clampCrop();
+  drawCropImage();
+}
+
+function clampCrop() {
+  const img = $("#crop-image");
+  const frame = cropState.frame;
+  if (!img || !frame) return;
+  const scale = cropState.baseScale * cropState.scale;
+  const dw = img.naturalWidth * scale;
+  const dh = img.naturalHeight * scale;
+  cropState.dx = Math.min(frame.x, Math.max(frame.x + frame.w - dw, cropState.dx));
+  cropState.dy = Math.min(frame.y, Math.max(frame.y + frame.h - dh, cropState.dy));
+}
+
+function drawCropImage() {
+  const img = $("#crop-image");
+  if (!img || !img.naturalWidth) return;
+  const scale = cropState.baseScale * cropState.scale;
+  img.style.width = `${img.naturalWidth * scale}px`;
+  img.style.height = `${img.naturalHeight * scale}px`;
+  img.style.transform = `translate(${cropState.dx}px, ${cropState.dy}px)`;
+}
+
+function setCropZoom(value) {
+  const img = $("#crop-image");
+  const frame = cropState.frame;
+  if (!img || !frame) return;
+  const next = Math.min(4, Math.max(1, value));
+  const oldScale = cropState.baseScale * cropState.scale;
+  const newScale = cropState.baseScale * next;
+  const cx = frame.x + frame.w / 2;
+  const cy = frame.y + frame.h / 2;
+  const ix = (cx - cropState.dx) / oldScale;
+  const iy = (cy - cropState.dy) / oldScale;
+  cropState.scale = next;
+  cropState.dx = cx - ix * newScale;
+  cropState.dy = cy - iy * newScale;
+  clampCrop();
+  drawCropImage();
+}
+
+async function saveAnchorCrop() {
+  const project = state.project;
+  const img = $("#crop-image");
+  const frame = cropState.frame;
+  if (!project || !cropState.slot || !frame || !img?.naturalWidth) return;
+  const scale = cropState.baseScale * cropState.scale;
+  const dw = img.naturalWidth * scale;
+  const dh = img.naturalHeight * scale;
+  const x = Math.min(0.999, Math.max(0, (frame.x - cropState.dx) / dw));
+  const y = Math.min(0.999, Math.max(0, (frame.y - cropState.dy) / dh));
+  const w = Math.min(1 - x, Math.max(0.01, frame.w / dw));
+  const h = Math.min(1 - y, Math.max(0.01, frame.h / dh));
+  const body = { crop: { x, y, w, h } };
+  if (cropState.source) body.source = cropState.source;
+  const slot = cropState.slot;
+  await withBusy($("#crop-save"), async () => {
+    const data = await api.patchAnchorFrame(project.id, slot, body);
+    state.project = data.project;
+    $("#modal-anchor-crop").hidden = true;
+    renderAnchorFrames();
+    renderFinal();
+    toast(`${ANCHOR_SLOT_LABEL[slot]}已按当前画幅裁切`, "ok");
+  }).catch((err) => toast(`保存裁切失败：${err.message}`, "err", 7000));
+}
+
+function bindCropControls() {
+  const stage = $("#crop-stage");
+  const zoom = $("#crop-zoom");
+  if (!stage || !zoom) return;
+  stage.addEventListener("pointerdown", (event) => {
+    if (!cropState.frame) return;
+    stage.setPointerCapture(event.pointerId);
+    cropState.drag = { x: event.clientX, y: event.clientY, dx: cropState.dx, dy: cropState.dy };
+  });
+  stage.addEventListener("pointermove", (event) => {
+    if (!cropState.drag) return;
+    cropState.dx = cropState.drag.dx + (event.clientX - cropState.drag.x);
+    cropState.dy = cropState.drag.dy + (event.clientY - cropState.drag.y);
+    clampCrop();
+    drawCropImage();
+  });
+  const end = () => { cropState.drag = null; };
+  stage.addEventListener("pointerup", end);
+  stage.addEventListener("pointercancel", end);
+  stage.addEventListener("wheel", (event) => {
+    if (!cropState.frame) return;
+    event.preventDefault();
+    const next = Math.min(4, Math.max(1,
+      cropState.scale * (event.deltaY < 0 ? 1.06 : 1 / 1.06)));
+    zoom.value = String(next);
+    setCropZoom(next);
+  }, { passive: false });
+  zoom.addEventListener("input", () => setCropZoom(Number(zoom.value) || 1));
+  $("#crop-reset")?.addEventListener("click", () => {
+    cropState.existing = null;
+    if ($("#crop-image")?.naturalWidth) layoutCrop();
+  });
+  $("#crop-save")?.addEventListener("click", saveAnchorCrop);
+  window.addEventListener("resize", () => {
+    if ($("#modal-anchor-crop")?.hidden === false) layoutCrop();
+  }, { passive: true });
 }
 
 function bindSegmented(id, hiddenId) {

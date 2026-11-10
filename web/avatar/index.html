@@ -759,6 +759,7 @@
           </div>
           <div class="av-anchor-frame-actions">
             <button class="btn ghost sm" type="button" data-anchor-upload="first">上传</button>
+            <button class="btn ghost sm" type="button" data-anchor-crop="first">裁切</button>
             <button class="btn ghost sm hidden" type="button" data-anchor-reset="first">默认</button>
           </div>
           <input type="file" accept="image/*" data-anchor-input="first" hidden>
@@ -771,6 +772,7 @@
           </div>
           <div class="av-anchor-frame-actions">
             <button class="btn ghost sm" type="button" data-anchor-upload="last">上传</button>
+            <button class="btn ghost sm" type="button" data-anchor-crop="last">裁切</button>
             <button class="btn ghost sm hidden" type="button" data-anchor-reset="last">默认</button>
           </div>
           <input type="file" accept="image/*" data-anchor-input="last" hidden>
@@ -783,9 +785,20 @@
           </div>
           <div class="av-anchor-frame-actions">
             <button class="btn ghost sm" type="button" data-anchor-upload="mid">上传</button>
+            <button class="btn ghost sm" type="button" data-anchor-crop="mid">裁切</button>
             <button class="btn ghost sm hidden" type="button" data-anchor-reset="mid">默认</button>
           </div>
           <input type="file" accept="image/*" data-anchor-input="mid" hidden>
+        </div>
+      </div>
+      <div class="av-anchor-aspect-tip hidden" id="anchor-aspect-tip">
+        <div class="av-anchor-aspect-text">
+          <b id="anchor-aspect-title">参考图画幅与视频不一致</b>
+          <em id="anchor-aspect-desc">—</em>
+        </div>
+        <div class="av-anchor-aspect-actions">
+          <button class="btn primary sm" type="button" id="btn-anchor-use-aspect">用推荐画幅</button>
+          <button class="btn ghost sm" type="button" id="btn-anchor-keep-aspect">保持当前</button>
         </div>
       </div>
       <p class="av-anchor-hint" id="anchor-frames-hint">未单独上传时，首帧 / 尾帧 / 中间锚点都用每段的第一张参考图；点缩略图可预览。中间锚点图在「中间锚点 = 无」或 SelfLift 二采时不会生效。</p>
@@ -801,12 +814,19 @@
       </div>
       <div class="av-anchor-grid">
         <div class="av-anchor-field">
-          <label>参考图预处理</label>
-          <select id="f-anchor-preprocess" class="input">
-            <option value="center_crop">中心裁切</option>
-            <option value="stretch">拉伸到画幅</option>
-            <option value="none">不处理（I2V 原生）</option>
-          </select>
+          <label>参考图缩放 <span class="hint">按视频分辨率等比缩放</span></label>
+          <div class="av-anchor-scale">
+            <label class="av-switch" title="关闭后直接把裁切好的参考图送进模型，不做缩放">
+              <input type="checkbox" id="f-anchor-resize" checked><i></i><span>启用</span>
+            </label>
+            <select id="f-anchor-upscale" class="input" title="缩放算法">
+              <option value="lanczos">lanczos</option>
+              <option value="bicubic">bicubic</option>
+              <option value="bilinear">bilinear</option>
+              <option value="area">area</option>
+              <option value="nearest-exact">nearest-exact</option>
+            </select>
+          </div>
         </div>
         <div class="av-anchor-field">
           <label>采样方式</label>
@@ -816,6 +836,12 @@
           </select>
         </div>
       </div>
+      <!-- 旧字段：兼容历史项目，界面不再直接编辑 -->
+      <select id="f-anchor-preprocess" class="input" hidden>
+        <option value="center_crop">中心裁切</option>
+        <option value="stretch">拉伸到画幅</option>
+        <option value="none">不处理（I2V 原生）</option>
+      </select>
       <p class="av-anchor-stack" id="anchor-stack-note">单采栈 · Cobijada hybrid + 官方 dmad@0.8 + int8 CLIP/VAE · 参考图原图直进</p>
       <div class="av-anchor-row">
         <label>首尾钉帧</label>
@@ -830,19 +856,36 @@
         <label>自定义锚点帧 <span class="hint">逗号分隔，如 31,62,93</span></label>
         <input id="f-anchor-mid-frames" class="input mono" placeholder="31,62,93">
       </div>
-      <div class="av-anchor-field">
-        <label>缩放缓动</label>
-        <select id="f-anchor-upscale" class="input">
-          <option value="lanczos">lanczos</option>
-          <option value="bicubic">bicubic</option>
-          <option value="bilinear">bilinear</option>
-          <option value="area">area</option>
-          <option value="nearest-exact">nearest-exact</option>
-        </select>
-      </div>
       <p class="av-anchor-hint">SelfLift 使用 Fix + 分块，并自动关闭中间锚点；默认普通单采更平滑。双采步数分配在「高级生成参数」里。</p>
     </div>
       </section>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-anchor-crop" hidden>
+  <div class="modal-card av-settings-card av-sheet-card-wide">
+    <div class="modal-head">
+      <h2 id="crop-title">裁切参考图</h2>
+      <button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="modal-body av-settings-body">
+      <div class="av-crop-stage" id="crop-stage">
+        <img id="crop-image" alt="" draggable="false">
+        <div class="av-crop-frame" id="crop-frame"></div>
+      </div>
+      <div class="av-crop-controls">
+        <label class="av-crop-zoom">缩放
+          <input type="range" id="crop-zoom" min="1" max="4" step="0.01" value="1">
+        </label>
+        <span class="av-crop-aspect" id="crop-aspect">画幅 9:16</span>
+      </div>
+      <p class="av-anchor-hint">拖动图片调整取景，滚轮或滑块缩放；裁剪框比例固定为当前视频画幅，保存后按此裁切送进模型。</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" type="button" id="crop-reset">重置</button>
+      <button class="btn ghost" data-close type="button">取消</button>
+      <button class="btn primary" type="button" id="crop-save">保存裁切</button>
     </div>
   </div>
 </div>
