@@ -29,6 +29,9 @@ VOICE_SOURCE_MAX_SECONDS = 600.0
 VOICE_SAMPLE_SECONDS = 12.0
 VOICE_SAMPLE_MIN = 2.0
 VOICE_SAMPLE_MAX = 15.0
+# ComfyUI MiniMaxH3ReferenceToVideo.ref_audios 的 autogrow max=3；
+# 前端、后端与提示词都必须以这个上限为准，避免第 4 个音色静默失效。
+MAX_VOICES = 3
 
 # 台词规划默认：约 5 字/秒
 DEFAULT_CPS = 5.0

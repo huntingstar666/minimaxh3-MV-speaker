@@ -829,7 +829,7 @@ class AvatarRunner:
             if isinstance(legacy, dict) and legacy.get("filename"):
                 voices = [{"id": "v1", "name": "默认音色", **legacy}]
         names: list[str] = []
-        for index, voice in enumerate(voices[:4]):
+        for index, voice in enumerate(voices[:config.MAX_VOICES]):
             filename = str(voice.get("filename") or "")
             path = store.project_dir(project_id) / filename
             if not path.is_file():

@@ -18,6 +18,8 @@ const RUN_TERMINAL = new Set(["completed", "failed", "cancelled"]);
 let waveform = null;
 
 const MODE_LABEL = { 1: "音频驱动", 2: "参考音色", 3: "无音频参考" };
+// 与后端/ComfyUI ref_audios 上限保持一致（MiniMaxH3ReferenceToVideo max=3）
+const MAX_VOICES = 3;
 const RUN_LABEL = {
   idle: "空闲",
   queued: "排队中",
@@ -2380,7 +2382,10 @@ function renderVoiceList() {
       duration: state.pendingVoice._probeDuration || 0, pending: true }, primary: true }];
   }
   box.classList.toggle("hidden", !items.length);
-  box.innerHTML = items.map(({ voice, primary }) => {
+  const limitNote = items.length > MAX_VOICES
+    ? `<p class="hint" style="margin:0 0 6px">ComfyUI 最多使用前 ${MAX_VOICES} 个音色，后面的不会送进模型。</p>`
+    : "";
+  box.innerHTML = limitNote + items.map(({ voice, primary }) => {
     const duration = num(voice.sample_length) || num(voice.duration);
     return `<div class="av-voice-item ${primary ? "active" : ""}" data-voice-id="${esc(String(voice.id || ""))}">
       <input class="input av-voice-name" data-voice-name value="${esc(String(voice.name || voice.filename || "音色"))}"
@@ -2596,6 +2601,11 @@ async function handleVoiceFile(file) {
   }
   const duration = await probeAudioDuration(file);
   if (state.project) {
+    const count = (state.project.voices || []).length;
+    if (count >= MAX_VOICES) {
+      toast(`最多 ${MAX_VOICES} 个音色（ComfyUI 参考音频上限），请先删除不用的音色`, "warn", 6000);
+      return;
+    }
     await withBusy($("#btn-voice-replace"), async () => {
       const data = await api.addVoice(state.project.id, file, "");
       state.pendingVoice = null;

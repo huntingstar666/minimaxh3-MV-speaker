@@ -378,7 +378,7 @@ def _save_voice(project_id: str, upload: UploadFile) -> dict[str, Any]:
 
 
 VOICE_NAME_MAX = 40
-MAX_VOICES = 6
+MAX_VOICES = config.MAX_VOICES
 
 
 def _install_voice(project_id: str, saved: dict[str, Any], name: str) -> dict[str, Any]:

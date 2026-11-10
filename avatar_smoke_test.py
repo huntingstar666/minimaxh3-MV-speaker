@@ -264,6 +264,18 @@ def main() -> int:
         check("重新分段前自动备份",
               any(item.get("reason") == "重新按台词分段" for item in backups),
               str([item.get("reason") for item in backups]))
+        for _ in range(2):
+            with wav.open("rb") as handle:
+                client.post(f"/avatar/api/projects/{project2_id}/voices",
+                            files={"voice": ("voice.wav", handle, "audio/wav")},
+                            data={"name": "附加音色"}).raise_for_status()
+        with wav.open("rb") as handle:
+            fourth_voice = client.post(f"/avatar/api/projects/{project2_id}/voices",
+                                       files={"voice": ("voice.wav", handle, "audio/wav")},
+                                       data={"name": "第四个"})
+        check("音色上限 3 与 ComfyUI 一致",
+              fourth_voice.status_code == 400 and "最多 3 个音色" in fourth_voice.text,
+              str(fourth_voice.status_code))
 
         # 6) 生成前置校验
         empty = client.post("/avatar/api/projects", data={"name": "空参考", "mode": "2",

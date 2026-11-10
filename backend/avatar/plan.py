@@ -659,7 +659,7 @@ def mode_audio_materials(project: dict[str, Any], mode: int) -> list[dict[str, A
     if int(mode or 0) != config.MODE_VOICE_REF:
         return []
     materials: list[dict[str, Any]] = []
-    for index, voice in enumerate(project.get("voices") or []):
+    for index, voice in enumerate((project.get("voices") or [])[:config.MAX_VOICES]):
         if isinstance(voice, dict) and voice.get("filename"):
             materials.append({"index": index + 1,
                               "name": str(voice.get("name") or f"音色 {index + 1}"),
