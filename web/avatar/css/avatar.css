@@ -858,6 +858,10 @@
 .av-take .take-del{position:absolute;right:5px;top:4px;width:15px;height:15px;border-radius:5px;border:none;background:color-mix(in srgb,var(--bg) 76%,transparent);color:color-mix(in srgb,var(--danger) 80%,var(--text));display:grid;place-items:center;opacity:0;transition:opacity var(--av-dur) var(--av-ease)}
 .av-take:hover .take-del,.av-take:focus-within .take-del{opacity:1}
 .av-take .take-del svg{width:9px;height:9px}
+.av-take .take-star{position:absolute;left:20px;top:4px;width:15px;height:15px;border-radius:5px;border:none;background:color-mix(in srgb,var(--bg) 76%,transparent);color:var(--faint);display:grid;place-items:center;opacity:0;transition:opacity var(--av-dur) var(--av-ease)}
+.av-take:hover .take-star,.av-take:focus-within .take-star{opacity:1}
+.av-take .take-star.on{opacity:1;color:var(--amber)}
+.av-take .take-star svg{width:9px;height:9px}
 .av-take .av-take-fallback{width:100%;height:56px;display:grid;place-items:center;color:var(--faint);border-radius:5px;background:color-mix(in srgb,var(--bg) 40%,transparent)}
 .av-take .av-take-fallback svg{width:15px;height:15px;opacity:.55}
 .av-take .take-overlay{position:absolute;left:6px;bottom:22px;font-size:8px;line-height:1.2;padding:1px 3px;border-radius:3px;background:color-mix(in srgb,var(--bg) 78%,transparent);color:var(--mint);border:1px solid color-mix(in srgb,var(--mint) 32%,transparent)}

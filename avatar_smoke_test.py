@@ -448,6 +448,25 @@ def main() -> int:
                 check("下载成片", download.status_code == 200 and download.content[:4] not in
                       (b"",), f"{len(download.content)} bytes")
 
+                starred = client.patch(
+                    f"/avatar/api/projects/{project_id}/segments/0/takes/t_0001",
+                    json={"starred": True})
+                star_row = ((starred.json() or {}).get("project", {})
+                            .get("segments") or [{}])[0]
+                star_take = next((item for item in star_row.get("takes") or []
+                                  if item.get("take_id") == "t_0001"), {})
+                check("片段可星标", starred.status_code == 200
+                      and star_take.get("starred") is True, str(starred.status_code))
+                unstarred = client.patch(
+                    f"/avatar/api/projects/{project_id}/segments/0/takes/t_0001",
+                    json={"starred": False})
+                unstar_row = ((unstarred.json() or {}).get("project", {})
+                              .get("segments") or [{}])[0]
+                unstar_take = next((item for item in unstar_row.get("takes") or []
+                                    if item.get("take_id") == "t_0001"), {})
+                check("片段可取消星标", unstar_take.get("starred") is False,
+                      str(unstar_take.get("starred")))
+
         # 10) 设计层 / 效果目录 / 节拍表 / lint / prompt_meta
         catalog = client.get("/avatar/api/effect-catalog").json()
         check("效果目录接口", all(key in catalog for key in (

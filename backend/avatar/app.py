@@ -1817,6 +1817,25 @@ def select_take(project_id: str, index: int, take_id: str) -> dict[str, Any]:
     return {"ok": True, "project": store.mutate(project_id, apply)}
 
 
+@app.patch("/api/projects/{project_id}/segments/{index}/takes/{take_id}")
+def update_take(project_id: str, index: int, take_id: str,
+                payload: dict[str, Any]) -> dict[str, Any]:
+    """星标片段：每段超过 10 条时只清理未星标的旧片段。"""
+    project = _project(project_id)
+    row = _row(project, index)
+    if not any(str(item.get("take_id")) == take_id for item in row.get("takes") or []):
+        raise HTTPException(404, "片段不存在。")
+    starred = bool((payload or {}).get("starred"))
+
+    def apply(latest: dict[str, Any]) -> None:
+        target = store.find_segment(latest, index)
+        for item in target.get("takes") or []:
+            if str(item.get("take_id")) == take_id:
+                item["starred"] = starred
+
+    return {"ok": True, "project": store.mutate(project_id, apply)}
+
+
 @app.delete("/api/projects/{project_id}/segments/{index}/takes/{take_id}")
 def delete_take(project_id: str, index: int, take_id: str) -> dict[str, Any]:
     project = _project(project_id)

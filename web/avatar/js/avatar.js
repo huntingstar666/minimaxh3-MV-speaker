@@ -658,6 +658,9 @@ const api = {
     }),
   deleteTake: (id, index, takeId) =>
     request(`${projectPath(id)}/segments/${index}/takes/${encodeURIComponent(takeId)}`, { method: "DELETE" }),
+  starTake: (id, index, takeId, starred) =>
+    request(`${projectPath(id)}/segments/${index}/takes/${encodeURIComponent(takeId)}`,
+      { method: "PATCH", body: { starred } }),
   assemble: (id) => request(`${projectPath(id)}/assemble`, { method: "POST", body: {} }),
   downloadUrl: (id) => `${projectPath(id)}/download`,
   exportUrl: (id) => `${projectPath(id)}/export`,
@@ -4422,6 +4425,7 @@ function takesHtml(project, seg) {
   return takes
     .map((take, takeIndex) => {
       const active = take.take_id === seg.selected_take;
+      const starred = !!take.starred;
       const thumb = take.thumb ? mediaUrl(project.id, take.thumb, take.created) : "";
       const fallback = `<div class="av-take-fallback"><svg><use href="#i-film"/></svg></div>`;
       const overlayFlag = typeof take.overlay === "boolean" ? take.overlay : null;
@@ -4437,6 +4441,11 @@ function takesHtml(project, seg) {
           <svg><use href="#i-play"/></svg>
         </button>
         <span class="take-no">${takeIndex + 1}</span>
+        <button class="take-star ${starred ? "on" : ""}" type="button" data-action="take-star"
+          data-index="${seg.index}" data-take="${esc(take.take_id)}" data-starred="${starred ? "1" : "0"}"
+          title="${starred ? "取消星标" : "星标保留：片段超过 10 条时不会自动清理这条"}">
+          <svg><use href="#i-star"/></svg>
+        </button>
         ${overlayBadge}
         ${active ? '<span class="take-picked">✓</span>' : ""}
         ${active ? "" : `<button class="take-del" type="button" data-action="take-del" data-index="${seg.index}" data-take="${esc(take.take_id)}" title="删除这个片段"><svg><use href="#i-close"/></svg></button>`}
@@ -4522,7 +4531,7 @@ function segCardHtml(project, seg) {
           <span class="av-takes-label">取片</span>
           ${takesHtml(project, seg)}
         </div>
-        <p class="av-takes-hint"${takes.length ? "" : " hidden"}>点卡片锁定为合成对象 · 点 ▶ 放大播放</p>
+        <p class="av-takes-hint"${takes.length ? "" : " hidden"}>点卡片锁定为合成对象 · 点 ▶ 放大播放 · 星标片段不会被「每段 10 条」上限清理</p>
       </div>
       <div class="av-seg-pane" data-pane="prompt" ${activeTab === "prompt" ? "" : "hidden"}>
         ${segmentNoteHtml(seg)}
@@ -5240,6 +5249,18 @@ async function deleteTake(index, takeId) {
   }
 }
 
+async function toggleTakeStar(index, takeId, starred) {
+  const p = state.project;
+  if (!p) return;
+  try {
+    const data = await api.starTake(p.id, index, takeId, starred);
+    applyProject(data.project, { fill: false });
+    toast(starred ? "已星标：超过 10 条时不会清理这条片段" : "已取消星标", "ok", 3200);
+  } catch (err) {
+    toast(`星标失败：${err.message}`, "err");
+  }
+}
+
 async function assembleFilm() {
   const p = state.project;
   if (!p) return;
@@ -5875,6 +5896,9 @@ function bindEvents() {
     } else if (action === "take-del") {
       const takeId = el.dataset.take;
       if (takeId) deleteTake(index, takeId);
+    } else if (action === "take-star") {
+      const takeId = el.dataset.take;
+      if (takeId) toggleTakeStar(index, takeId, el.dataset.starred !== "1");
     }
   });
 
