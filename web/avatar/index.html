@@ -103,6 +103,7 @@
         <button class="btn ghost sm" id="btn-import-pack"><svg><use href="#i-plus"/></svg>导入 .h3avatar 包</button>
         <button class="btn ghost sm" id="btn-export-pack"><svg><use href="#i-film"/></svg>导出当前包</button>
         <button class="btn ghost sm" id="btn-backup"><svg><use href="#i-layers"/></svg>备份与恢复</button>
+        <button class="btn ghost sm" id="btn-trash"><svg><use href="#i-trash"/></svg>回收站</button>
         <input id="pack-input" type="file" accept=".zip,.h3avatar" hidden>
       </div>
       <div class="av-project-list" id="project-list">
@@ -901,6 +902,19 @@
         <button class="btn ghost sm" type="button" id="btn-backup-refresh"><svg><use href="#i-refresh"/></svg>刷新</button>
       </div>
       <div class="av-backup-list" id="backup-list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal av-settings-modal" id="modal-trash" hidden>
+  <div class="modal-card av-settings-card av-sheet-card">
+    <div class="modal-head"><h2>回收站</h2><button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body av-settings-body">
+      <p class="av-backup-note">删除作品时会先移到回收站，可在这里恢复。恢复后参考图、分段、生成片段与成片都会回到原项目。</p>
+      <div class="av-form-actions-row">
+        <button class="btn ghost sm" type="button" id="btn-trash-refresh"><svg><use href="#i-refresh"/></svg>刷新</button>
+      </div>
+      <div class="av-backup-list" id="trash-list"></div>
     </div>
   </div>
 </div>

@@ -454,8 +454,19 @@ def main() -> int:
         check("项目列表", len(listing) >= 3, str(len(listing)))
         deleted = client.delete(f"/avatar/api/projects/{project2_id}")
         check("删除项目", deleted.status_code == 200)
+        trash_name = str((deleted.json() or {}).get("trash") or "")
+        check("删除进回收站", bool(trash_name), trash_name)
         check("删除后列表减少",
               len(client.get("/avatar/api/projects").json()["projects"]) == len(listing) - 1)
+        trash_items = client.get("/avatar/api/trash").json()["items"]
+        check("回收站列表", any(item.get("name") == trash_name for item in trash_items),
+              str([item.get("name") for item in trash_items]))
+        restored_trash = client.post(f"/avatar/api/trash/{trash_name}/restore")
+        check("回收站恢复",
+              restored_trash.status_code == 200
+              and restored_trash.json().get("project", {}).get("id") == project2_id,
+              str(restored_trash.status_code))
+        client.delete(f"/avatar/api/projects/{project2_id}")
 
     finally:
         if client is not None:

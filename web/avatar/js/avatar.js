@@ -578,6 +578,9 @@ const api = {
   effectCatalog: () => request(`${API}/effect-catalog`),
   designDefaults: () => request(`${API}/design-defaults`),
   projects: () => request(`${API}/projects`),
+  trash: () => request(`${API}/trash`),
+  restoreTrash: (name) =>
+    request(`${API}/trash/${encodeURIComponent(name)}/restore`, { method: "POST" }),
   createProject: (fields, file) =>
     request(`${API}/projects`, { method: "POST", form: formData(fields, "voice", file) }),
   project: (id) => request(projectPath(id)),
@@ -3302,14 +3305,14 @@ async function openProject(id) {
 }
 
 async function removeProject(id, name) {
-  const ok = await confirmDialog("删除作品", `确定删除「${name || id}」？参考图、分段与成片会一起删除，无法恢复。`, "删除");
+  const ok = await confirmDialog("删除作品", `确定删除「${name || id}」？会先移到回收站，可在「回收站」恢复。`, "删除");
   if (!ok) return;
   try {
     await api.deleteProject(id);
     state.projects = state.projects.filter((item) => item.id !== id);
     renderProjectList();
     if (state.project?.id === id) clearProject({ silent: true });
-    toast("作品已删除", "ok");
+    toast("已移到回收站", "ok");
   } catch (err) {
     toast(`删除失败：${err.message}`, "err");
   }
@@ -3387,6 +3390,57 @@ async function restoreProjectBackup(name) {
     await loadBackups();
     await loadProjects();
     toast("已恢复项目结构", "ok");
+  } catch (error) {
+    toast(`恢复失败：${error.message}`, "err", 6000);
+  }
+}
+
+/* ---------------- 回收站 ---------------- */
+
+function renderTrash(items) {
+  const box = $("#trash-list");
+  if (!box) return;
+  if (!items.length) {
+    box.innerHTML = '<div class="av-backup-empty">回收站是空的。</div>';
+    return;
+  }
+  box.innerHTML = items.map((item) => `
+    <div class="av-backup-item">
+      <span class="meta">
+        <b>${esc(item.title || item.id)}</b>
+        ${MODE_LABEL[Number(item.mode)] || `模式 ${item.mode}`} · ${num(item.segments)} 段 ·
+        删除于 ${fmtWhen(item.deleted)}
+      </span>
+      <button class="btn ghost sm" type="button" data-action="restore-trash"
+        data-name="${esc(item.name)}">恢复</button>
+    </div>`).join("");
+}
+
+async function loadTrash() {
+  try {
+    const data = await api.trash();
+    renderTrash(Array.isArray(data.items) ? data.items : []);
+  } catch (error) {
+    $("#trash-list").innerHTML =
+      `<div class="av-backup-empty">读取回收站失败：${esc(error.message)}</div>`;
+  }
+}
+
+async function openTrashModal() {
+  $("#modal-trash").hidden = false;
+  await loadTrash();
+}
+
+async function restoreTrashProject(name) {
+  if (!name) return;
+  const ok = await confirmDialog("恢复作品", "把这份作品从回收站恢复到最近作品？", "恢复");
+  if (!ok) return;
+  try {
+    const data = await api.restoreTrash(name);
+    await loadProjects();
+    await loadTrash();
+    if (data.project?.id) await openProject(data.project.id);
+    toast("作品已恢复", "ok");
   } catch (error) {
     toast(`恢复失败：${error.message}`, "err", 6000);
   }
@@ -5457,6 +5511,12 @@ function bindEvents() {
   $("#backup-list")?.addEventListener("click", (event) => {
     const el = event.target.closest('[data-action="restore-backup"]');
     if (el?.dataset.name) restoreProjectBackup(el.dataset.name);
+  });
+  $("#btn-trash")?.addEventListener("click", openTrashModal);
+  $("#btn-trash-refresh")?.addEventListener("click", () => loadTrash());
+  $("#trash-list")?.addEventListener("click", (event) => {
+    const el = event.target.closest('[data-action="restore-trash"]');
+    if (el?.dataset.name) restoreTrashProject(el.dataset.name);
   });
   $("#btn-plan").addEventListener("click", () => planSegments());
   $("#btn-plan2").addEventListener("click", () => planSegments());

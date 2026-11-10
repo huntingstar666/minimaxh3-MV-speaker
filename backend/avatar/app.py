@@ -739,9 +739,26 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 def delete_project(project_id: str) -> dict[str, Any]:
     _project(project_id)
     job.runner.cancel(project_id)
-    job.runner.wait(project_id, 20)
-    store.delete(project_id)
-    return {"ok": True}
+    if not job.runner.wait(project_id, 20):
+        raise HTTPException(400, "任务仍在收尾，请稍后再删除。")
+    name = store.trash(project_id)
+    return {"ok": True, "trash": name}
+
+
+@app.get("/api/trash")
+def list_trash() -> dict[str, Any]:
+    return {"ok": True, "items": store.list_trash()}
+
+
+@app.post("/api/trash/{name}/restore")
+def restore_trash(name: str) -> dict[str, Any]:
+    try:
+        project = store.restore_trash(name)
+    except FileNotFoundError as error:
+        raise HTTPException(404, "回收站里没有这个项目。") from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return {"ok": True, "project": project}
 
 
 # ------------------------------- 参考图 / 参考音频 -------------------------------

@@ -253,6 +253,69 @@ def delete(project_id: str) -> None:
         _locks.pop(str(project_id), None)
 
 
+TRASH_DIR = AVATAR_DIR / "trash"
+_TRASH_RE = re.compile(r"^([0-9a-f]{6,32})-(\d{6,})(?:-[0-9a-f]{4})?$")
+
+
+def trash(project_id: str) -> str:
+    """删除项目时先移到回收站，返回回收站目录名。"""
+    directory = project_dir(project_id)
+    if not directory.is_dir():
+        raise FileNotFoundError(project_id)
+    TRASH_DIR.mkdir(parents=True, exist_ok=True)
+    name = f"{_validate_id(project_id)}-{int(time.time())}"
+    target = TRASH_DIR / name
+    if target.exists():
+        target = TRASH_DIR / f"{name}-{uuid.uuid4().hex[:4]}"
+    shutil.move(str(directory), str(target))
+    with _guard:
+        _locks.pop(str(project_id), None)
+    return target.name
+
+
+def list_trash() -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    if not TRASH_DIR.is_dir():
+        return items
+    for directory in sorted(TRASH_DIR.iterdir(), key=lambda item: item.stat().st_mtime,
+                            reverse=True):
+        if not directory.is_dir():
+            continue
+        state = directory / "project.json"
+        if not state.is_file():
+            continue
+        try:
+            project = json.loads(state.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        items.append({
+            "name": directory.name,
+            "id": project.get("id"),
+            "title": project.get("name") or "未命名作品",
+            "mode": project.get("mode"),
+            "segments": len(project.get("segments") or []),
+            "deleted": directory.stat().st_mtime,
+        })
+    return items
+
+
+def restore_trash(name: str) -> dict[str, Any]:
+    """把回收站里的项目移回 projects/<id>。"""
+    value = str(name or "")
+    match = _TRASH_RE.match(value)
+    if Path(value).name != value or not match:
+        raise ValueError("回收站项目名不合法。")
+    source = TRASH_DIR / value
+    if not source.is_dir():
+        raise FileNotFoundError(value)
+    project_id = match.group(1)
+    target = PROJECTS_DIR / project_id
+    if target.exists():
+        raise ValueError("同名项目已存在，请先处理再恢复。")
+    shutil.move(str(source), str(target))
+    return get(project_id)
+
+
 def state_file(project_id: str, name: str) -> Path:
     return project_dir(project_id) / "state" / name
 
