@@ -197,6 +197,8 @@ const state = {
   designGraphicsMode: "generated",
   designDirty: false,
   designLoadedFor: "",
+  formDirty: false,
+  formBaseline: null,
   playhead: 0,
   draggingPlayhead: false,
   cuts: [],
@@ -1614,6 +1616,56 @@ function clampRanges(changed) {
   updateRangeLabels();
 }
 
+/* 作品设定脏标记：用表单快照对比，程序化回填不会误判成修改 */
+function formSignature() {
+  let generation = {};
+  try {
+    generation = readGeneration();
+  } catch {
+    generation = {};
+  }
+  return JSON.stringify([
+    $("#f-name").value,
+    $("#f-script").value,
+    $("#f-cps").value,
+    $("#f-target").value,
+    $("#f-max").value,
+    $("#f-voice-desc").value,
+    $("#f-material-note")?.value || "",
+    $("#asr-enabled").checked,
+    $("#asr-model")?.value || "",
+    $("#asr-language")?.value || "",
+    Number(state.mode) || 0,
+    generation,
+  ]);
+}
+
+function resetFormDirty() {
+  state.formBaseline = formSignature();
+  state.formDirty = false;
+}
+
+function hasUnsavedChanges() {
+  return state.formDirty || state.designDirty;
+}
+
+function markFormDirty() {
+  if (!state.project) return;
+  const dirty = state.formBaseline !== null && formSignature() !== state.formBaseline;
+  if (dirty === state.formDirty) return;
+  state.formDirty = dirty;
+  renderProjectContext();
+}
+
+async function confirmDiscardChanges(actionLabel) {
+  if (!hasUnsavedChanges()) return true;
+  return confirmDialog(
+    "有未保存的修改",
+    `当前作品的设定或设计还没保存，${actionLabel}后会丢失这些修改。继续？`,
+    actionLabel
+  );
+}
+
 function fillForm(project) {
   $("#f-name").value = project.name || "";
   $("#f-script").value = project.script || "";
@@ -1631,6 +1683,7 @@ function fillForm(project) {
   updateScriptCount();
   renderVoice();
   renderAudio();
+  resetFormDirty();
 }
 
 function resetForm() {
@@ -1650,6 +1703,8 @@ function resetForm() {
   updateScriptCount();
   renderVoice();
   renderAudio();
+  state.formDirty = false;
+  state.formBaseline = null;
 }
 
 /* ---------------- 设计层：数据结构 / 目录 ---------------- */
@@ -3308,6 +3363,8 @@ async function loadProjects() {
 
 async function openProject(id) {
   if (!id) return;
+  if (state.project && state.project.id !== id
+      && !(await confirmDiscardChanges("切换作品"))) return;
   try {
     const data = await api.project(id);
     state.finalKey = "";
@@ -3580,7 +3637,9 @@ async function startNewProject() {
   }
   const ok = await confirmDialog(
     "新建空白作品",
-    "会新建一个空白作品。当前作品可在「最近作品」随时打开；表单里未保存的修改会丢弃。",
+    hasUnsavedChanges()
+      ? "当前作品的设定或设计还没保存，新建后会丢弃这些修改。当前作品仍可在「最近作品」打开。继续？"
+      : "会新建一个空白作品。当前作品可在「最近作品」随时打开。",
     "新建空白作品"
   );
   if (!ok) return;
@@ -4626,7 +4685,9 @@ function renderProjectContext() {
   } else {
     $("#stage-sub").textContent = "选模式、写台词、传参考，剩下交给 H3 逐段原生生成";
   }
-  $("#project-state").textContent = p ? `已保存 · ${segments.length} 段` : "未创建";
+  $("#project-state").textContent = p
+    ? (state.formDirty ? `未保存修改 · ${segments.length} 段` : `已保存 · ${segments.length} 段`)
+    : "未创建";
   const isMode1 = (p?.mode ?? state.mode) === 1;
   if (p) {
     $("#form-hint").textContent = isMode1
@@ -5524,6 +5585,17 @@ function bindEvents() {
   });
 
   $("#f-script").addEventListener("input", updateScriptCount);
+  // 设定表单改动 → 脏标记（保存/打开作品时清零）
+  const settingsBody = $("#settings-body");
+  if (settingsBody) {
+    settingsBody.addEventListener("input", markFormDirty);
+    settingsBody.addEventListener("change", markFormDirty);
+  }
+  window.addEventListener("beforeunload", (event) => {
+    if (!hasUnsavedChanges()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
   $(".av-stage").addEventListener("input", (event) => {
     const area = event.target.closest("[data-note-index]");
     if (!area) return;
