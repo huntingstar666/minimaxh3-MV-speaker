@@ -689,6 +689,18 @@ body.av-body.av-light{
 .av-body.av-light .av-rail-left #panel-mode .panel-note.tiny{
   display:none;
 }
+/* 模式绑定项目：非当前模式的卡变灰不可选；新建前提示要先选 */
+.av-body.av-light .av-rail-left #panel-mode .panel-note.tiny.is-visible{display:block;margin-top:7px}
+.av-body.av-light .av-rail-left #panel-mode .mode-card.is-locked{opacity:.4;cursor:not-allowed}
+.av-body.av-light .av-rail-left #panel-mode .mode-card.is-locked:hover{background:transparent;border-color:var(--line)}
+.av-body.av-light .av-rail-left #panel-mode .mode-card.is-locked:active{transform:none}
+.av-body.av-light .av-rail-left #panel-mode.needs-pick .mode-cards{
+  border-radius:10px;animation:avModePulse 1.15s var(--av-ease) 2;
+}
+@keyframes avModePulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(0,113,227,0)}
+  50%{box-shadow:0 0 0 3px rgba(0,113,227,.16)}
+}
 /* 264px 栏宽放不下「数字人的驱动方式」，标题右侧留空更干净 */
 .av-body.av-light .av-rail-left #panel-mode .panel-head .hint{display:none}
 

@@ -180,6 +180,7 @@ const state = {
   project: null,
   run: null,
   mode: 1,
+  modePicked: true,
   pendingVoice: null,
   pendingAudio: null,
   pollTimer: null,
@@ -1595,7 +1596,7 @@ function fillForm(project) {
   $("#asr-enabled").checked = project.asr?.enabled !== false;
   if (project.asr?.model) setChoice("asr-model-seg", "asr-model", project.asr.model === "base" ? "base" : "small");
   if (project.asr?.language) setChoice("asr-language-seg", "asr-language", project.asr.language === "auto" ? "auto" : "zh");
-  setMode(Number(project.mode) === 1 ? 1 : Number(project.mode) === 3 ? 3 : 2, { quiet: true });
+  setMode(Number(project.mode) === 1 ? 1 : Number(project.mode) === 3 ? 3 : 2);
   fillGeneration(project.generation || {});
   updateRangeLabels();
   updateScriptCount();
@@ -2199,52 +2200,22 @@ function modeHintText(mode) {
   return "无音频参考：只用台词与音色描述，按约 5 字/秒规划每段时长，视频自带生成音频。";
 }
 
-async function switchMode(mode) {
+function switchMode(mode) {
   const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 1;
   const project = state.project;
-  if (!project || Number(project.mode) === value) {
-    setMode(value);
+  if (project) {
+    // 模式随项目在创建时固定：项目内只提示，不切换、不写回后端
+    const locked = [1, 2, 3].includes(Number(project.mode)) ? Number(project.mode) : 1;
+    setMode(locked);
+    toast(`创作模式在新建项目时确定，当前作品固定为「${MODE_LABEL[locked]}」；要换模式请点「新建空白作品」重新选择`, "info", 6500);
     return;
   }
-  const ok = await confirmDialog(
-    "切换创作模式",
-    `当前作品是「${MODE_LABEL[Number(project.mode)]}」，切换为「${MODE_LABEL[value]}」`
-      + "会重置分段、素材与生成结果（项目名和设定保留）。是否切换？",
-    "切换模式"
-  );
-  if (!ok) {
-    // 用户取消：把高亮还原成作品真实模式，避免“看着是模式 2、实际还是模式 1”
-    setMode(Number(project.mode), { quiet: true });
-    return;
-  }
-  // 模式 1 的台词来自音频识别（project.script 可能为空）：切到 2/3 前把分段台词抄进台词框，
-  // 切换后就能直接按台词重建分段，不会出现“切完什么都没有”。
-  const oldScript = String(project.script || "").trim();
-  const derivedScript = (project.segments || []).map((row) => String(row.text || "").trim())
-    .filter(Boolean).join("");
-  const payload = { mode: value };
-  if (value !== 1 && !oldScript && derivedScript) payload.script = derivedScript;
-  await withBusy(document.querySelector(`[data-mode-card="${value}"]`), async () => {
-    const data = await api.patchProject(project.id, payload);
-    state.pendingVoice = null;
-    state.pendingAudio = null;
-    applyProject(data.project, { fill: true });
-    setMode(value, { quiet: true });
-    await loadProjects();
-    // 模式 2/3 没有音频时间轴：切过来后按现有台词自动重建分段，避免“分段没了”
-    if (value !== 1 && String(data.project.script || "").trim()
-        && !(data.project.segments || []).length) {
-      toast("正在按台词重建分段…", "info", 4000);
-      await planSegments({ silent: true });
-    }
-    toast(`已切换为「${MODE_LABEL[value]}」并保存到当前作品`, "ok");
-  }).catch((err) => {
-    toast(`切换模式失败：${err.message}`, "err", 7000);
-    setMode(Number(project.mode), { quiet: true });
-  });
+  state.modePicked = true;
+  $("#panel-mode")?.classList.remove("needs-pick");
+  setMode(value);
 }
 
-function setMode(mode, { quiet = false } = {}) {
+function setMode(mode) {
   const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 1;
   state.mode = value;
   // 切模式时清掉不属于当前模式的待上传素材，避免“模式三高亮但表单还挂着参考音频”
@@ -2263,8 +2234,6 @@ function setMode(mode, { quiet = false } = {}) {
   $("#mode-form-3").classList.toggle("hidden", value !== 3);
   // 音频驱动时把音轨提到台词之前：波形是主工作区，不该被设定卡压到第二屏
   document.body.dataset.avatarMode = String(value);
-  const hint = $("#mode-hint");
-  if (hint) hint.textContent = modeHintText(value);
   const scriptRequired = $("#script-required");
   if (scriptRequired) {
     scriptRequired.textContent = value === 1 ? "模式 1 可选 · 不阻塞生成" : "模式 2/3 必填";
@@ -2274,14 +2243,37 @@ function setMode(mode, { quiet = false } = {}) {
     $("#btn-plan").classList.toggle("hidden", value === 1);
     planRow.classList.toggle("single", value === 1);
   }
-  if (state.project && state.project.mode !== value && !quiet) {
-    toast(`已切换为「${MODE_LABEL[value]}」，点「保存设定」生效`, "info");
-  }
+  syncModeLock();
   renderVoice();
   renderAudio();
   updateDesignChrome();
   syncAnchorUI();
   syncButtons();
+}
+
+// 模式绑定项目：有作品时只高亮作品真实模式，其余卡变灰并给出说明
+function syncModeLock() {
+  const project = state.project;
+  const locked = !!project;
+  $$("[data-mode-card]").forEach((btn) => {
+    const active = Number(btn.dataset.modeCard) === Number(state.mode);
+    btn.classList.toggle("is-locked", locked && !active);
+    btn.setAttribute("aria-disabled", locked && !active ? "true" : "false");
+  });
+  const panel = $("#panel-mode");
+  if (panel) {
+    panel.classList.toggle("is-locked", locked);
+    panel.classList.toggle("needs-pick", !locked && !state.modePicked);
+  }
+  const headHint = $("#panel-mode .panel-head .hint");
+  if (headHint) headHint.textContent = locked ? "新建时确定" : "先选模式";
+  const hint = $("#mode-hint");
+  if (hint) {
+    hint.textContent = locked
+      ? "模式在新建时确定，项目内不可更改；换模式请新建作品。"
+      : state.modePicked ? modeHintText(Number(state.mode)) : "先选创作模式，再新建作品。";
+    hint.classList.toggle("is-visible", locked || !state.modePicked);
+  }
 }
 
 function currentVoice() {
@@ -3321,6 +3313,7 @@ function clearProject({ silent = false } = {}) {
   state.beatsDraft = {};
   state.lintOverride = {};
   state.designLoadedFor = "";
+  state.modePicked = false;
   stopAudioPlayback();
   localStorage.removeItem(LAST_KEY);
   resetForm();
@@ -3334,6 +3327,7 @@ function clearProject({ silent = false } = {}) {
   renderTimeline();
   renderProjectList();
   syncButtons();
+  syncModeLock();
   if (!silent) toast("已清空当前选择，可新建作品", "info");
 }
 
@@ -3355,10 +3349,19 @@ async function startNewProject() {
   );
   if (!ok) return;
   clearProject({ silent: true });
-  await createProject();
+  // 模式绑定项目：新建前必须重新选，避免沿用上一个作品的模式
+  toast("先在左栏选创作模式，再点「新建作品」创建", "info", 6500);
 }
 
 async function createProject() {
+  if (!state.modePicked) {
+    const panel = $("#panel-mode");
+    panel?.classList.add("needs-pick");
+    panel?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => panel?.classList.remove("needs-pick"), 1800);
+    toast("先选创作模式：一个项目只能有一个模式，创建后不可更改", "warn", 6000);
+    return;
+  }
   const form = readForm();
   form.name = form.name || fmtTodayName();
   const generation = readGeneration();
@@ -5571,7 +5574,7 @@ async function boot() {
   initAnchorControls();
   initRightTabs();
   initSettingsTabs();
-  setMode(1, { quiet: true });
+  setMode(1);
   renderSegments();
   renderRun(null);
   renderFinal();

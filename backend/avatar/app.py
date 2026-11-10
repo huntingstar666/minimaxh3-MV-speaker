@@ -617,36 +617,6 @@ def get_project(project_id: str) -> dict[str, Any]:
     return {"ok": True, "project": _project(project_id)}
 
 
-def _reset_for_mode_switch(project: dict[str, Any], project_id: str, mode: int) -> None:
-    """切模式时清掉旧模式专属状态。
-
-    以前只改 mode/label/workflow，mode1 分析出来的 segments 会留着；那些段的
-    `frames` 是音频切点差（任意整数），切到 mode2/3 后会被当成 H3 的 length
-    提交（H3 只接受 5+17k），既可能出片失败也可能出错误长度。
-    """
-    project["segments"] = []
-    project["analysis"] = {}
-    project["beats"] = {}
-    project["run"] = {"status": "idle", "progress": 0.0, "message": "",
-                      "stage": "idle", "segment": -1, "error": None, "logs": []}
-    base = store.project_dir(project_id)
-    if mode != config.MODE_AUDIO_DRIVE:
-        for name in ("source.wav",):
-            try:
-                (base / name).unlink()
-            except OSError:
-                pass
-        project["audio"] = None
-    if mode != config.MODE_VOICE_REF:
-        for name in ("ref.wav", "source.wav"):
-            try:
-                (base / "voice" / name).unlink()
-            except OSError:
-                pass
-        project["voice"] = None
-    _mark_final_stale(project)
-
-
 @app.patch("/api/projects/{project_id}")
 def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     project = _project(project_id)
@@ -658,18 +628,9 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             raise HTTPException(400, "mode 必须是 1、2 或 3。") from None
         if value not in (config.MODE_AUDIO_DRIVE, config.MODE_VOICE_REF, config.MODE_TEXT_ONLY):
             raise HTTPException(400, "mode 必须是 1、2 或 3。")
-        project["mode"] = value
-        project["mode_label"] = config.MODE_LABELS.get(value, "")
-        project["workflow"] = config.WORKFLOW_BY_MODE.get(value, "ref_native")
-        design = design_mod.ensure_design(project)
-        if isinstance(payload.get("design"), dict) and "audio_mode" in payload["design"]:
-            pass
-        else:
-            design["audio_mode"] = config.AUDIO_MODE_BY_MODE.get(value, "generated")
+        # 创作模式随项目在创建时固定：前端已锁定，这里再挡一次，防止旧页面/脚本改坏
         if value != previous_mode:
-            _reset_for_mode_switch(project, project_id, value)
-        if value != config.MODE_AUDIO_DRIVE:
-            project.setdefault("generation", {})["stitch"] = "hard"
+            raise HTTPException(400, "创作模式在新建项目时确定，项目内不可更改；请新建作品。")
     for key in ("name", "script", "voice_description", "language", "material_note"):
         if key in payload:
             value = str(payload[key] or "")
