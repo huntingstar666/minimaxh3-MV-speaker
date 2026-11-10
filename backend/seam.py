@@ -72,6 +72,77 @@ def plan_windows(rows: list[dict[str, Any]], fps: int, total_target: int,
     return windows
 
 
+def group_chains(rows: list[dict[str, Any]]) -> list[list[int]]:
+    """按行级 ``stitch`` 把分段切成链：只有 hard 边界开新链。
+
+    - ``row["stitch"]`` 表示「本段与上一段之间」的接续方式；
+    - 第 1 段没有上一段，无论取值如何都视为链首；
+    - 缺省、空值、非法值一律按 hard 处理（保守：宁可多切一条链，
+      也不把两段误当成 seam 强行接上）。
+    """
+    if not rows:
+        return []
+    chains: list[list[int]] = []
+    current = [0]
+    for index in range(1, len(rows)):
+        stitch = str(rows[index].get("stitch") or "hard").strip().lower()
+        if stitch == "seam":
+            current.append(index)
+        else:
+            chains.append(current)
+            current = [index]
+    chains.append(current)
+    return chains
+
+
+def plan_chain_windows(rows: list[dict[str, Any]], fps: int,
+                       overlap: int = DEFAULT_OVERLAP) -> list[dict[str, Any]]:
+    """混合模式的链级窗口规划：先按 ``stitch`` 切链，再对每条链复用 ``plan_windows``。
+
+    返回每条链的规划，窗口坐标是**链内 0 基**：
+
+    - ``id``：链序号；
+    - ``rows``：该链包含的分段下标；
+    - ``start`` / ``end``：该链在成片时间线上的绝对帧区间（``end - start == target``）；
+    - ``target``：该链的交付帧数 = ``Σ round(edit_frames × fps / 24)``；
+    - ``visible_end``：链内最后一窗的 ``endFrame``（= ``target + overshoot``）；
+    - ``overshoot``：链尾多生成的帧数，``0 ≤ overshoot < 17``，装配时裁掉；
+    - ``windows``：链内窗口，``start/end/length`` 都是链内坐标，装配时加 ``start``。
+    """
+    fps = int(fps)
+    if fps <= 0:
+        raise ValueError("fps 必须为正整数")
+    overlap = int(overlap)
+    # 可见长度一定是 17 的倍数（两个 5+17k 格点之差），而窗口长度 = 可见长度 + overlap
+    # 也必须落在 5+17k 上，所以 overlap 只能是 5+17k。guide=1 是首尾帧 pin 专用，
+    # 用在这里会让窗口长度变成 17m+1，直接非法。
+    if overlap < 5 or (overlap - 5) % 17 != 0:
+        raise ValueError(
+            f"overlap 必须是 5+17k 的 guide 帧数（如 5/22/39），收到 {overlap}")
+
+    plans: list[dict[str, Any]] = []
+    absolute_start = 0
+    for chain_id, row_indexes in enumerate(group_chains(rows)):
+        chain_rows = [rows[index] for index in row_indexes]
+        # total_target=0 时 plan_windows 的“补最后一窗”分支不会触发；
+        # 链目标由各窗的 target_visible 求和得到，避免复制 base 公式。
+        windows = plan_windows(chain_rows, fps, 0, overlap)
+        target = sum(int(window["target_visible"]) for window in windows)
+        visible_end = int(windows[-1]["end"]) if windows else 0
+        plans.append({
+            "id": chain_id,
+            "rows": list(row_indexes),
+            "start": int(absolute_start),
+            "end": int(absolute_start + target),
+            "target": int(target),
+            "visible_end": visible_end,
+            "overshoot": int(visible_end - target),
+            "windows": windows,
+        })
+        absolute_start += target
+    return plans
+
+
 def build_timeline(windows: list[dict[str, Any]], pictures: list[dict[str, Any]],
                    segment_images: list[list[str]], audio_file: str, fps: int,
                    duration: float, prompts: list[str], second_pass: bool,
