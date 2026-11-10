@@ -257,6 +257,57 @@ def main() -> int:
         check("缺参考图时拒绝生成", no_refs.status_code == 400
               and "参考图" in str(no_refs.json().get("detail")), str(no_refs.status_code))
 
+        # 6.1) 取消：LLM 请求可被中断，job 会把取消标记传下去
+        import threading as _threading  # noqa: PLC0415
+
+        from backend.avatar import llm_client as avatar_llm  # noqa: PLC0415
+        original_chat_sync = avatar_llm._chat_sync
+        original_generate_prompt = avatar_plan.generate_prompt
+        cancel_event = _threading.Event()
+        cancel_seen: dict[str, object] = {}
+
+        def slow_chat(*args, **kwargs):  # noqa: ANN002, ANN003
+            time.sleep(3)
+            return "ok"
+
+        def fake_generate_prompt(project, row, config_llm=None, images=None,
+                                 repair=True, cancel=None):  # noqa: ANN001
+            cancel_seen["cancel"] = cancel
+            raise avatar_llm.CancelledError("任务已取消。")
+
+        avatar_llm._chat_sync = slow_chat
+        _threading.Timer(0.2, cancel_event.set).start()
+        started = time.time()
+        cancelled_ok = False
+        try:
+            avatar_llm.chat({}, [{"role": "user", "content": "x"}], cancel=cancel_event)
+        except avatar_llm.CancelledError:
+            cancelled_ok = True
+        finally:
+            avatar_llm._chat_sync = original_chat_sync
+        elapsed = time.time() - started
+        check("LLM 请求可被取消（<1.5s）", cancelled_ok and elapsed < 1.5, f"{elapsed:.2f}s")
+
+        runner = avatar_job.AvatarRunner()
+        runner.cancel_events[project2_id] = cancel_event
+        avatar_plan.generate_prompt = fake_generate_prompt
+        raised = None
+        try:
+            latest = avatar_store.get(project2_id)
+            row = dict(latest["segments"][0])
+            row["prompt"] = ""
+            row["prompt_source"] = ""
+            try:
+                runner._ensure_prompt(project2_id, latest, row, {})
+            except Exception as error:  # noqa: BLE001
+                raised = error
+        finally:
+            avatar_plan.generate_prompt = original_generate_prompt
+        check("job 把取消标记传给提示词生成并转为取消异常",
+              cancel_seen.get("cancel") is cancel_event
+              and isinstance(raised, avatar_job.comfy.ComfyError),
+              type(raised).__name__ if raised else "no error")
+
         # 7) 新工作流图结构
         generation = avatar_workflow.resolve_generation({}, {})
         graph2 = avatar_workflow.build(generation, text2, ["ref.png"], "voice.wav", 141, 24,

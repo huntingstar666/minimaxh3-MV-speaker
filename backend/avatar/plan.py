@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -1019,21 +1020,29 @@ def normalize_beats(value: Any) -> list[dict[str, Any]]:
 def generate_prompt(project: dict[str, Any], row: dict[str, Any],
                     config_llm: dict[str, Any] | None = None,
                     images: list[Path] | None = None,
-                    repair: bool = True) -> dict[str, Any]:
+                    repair: bool = True,
+                    cancel: threading.Event | None = None) -> dict[str, Any]:
     """生成单段提示词：三腔系统提示词 + 设计层 + 节拍表 → LLM → lint → 自动修复一轮。"""
     config_llm = llm_client.prepare(config_llm)
     result: dict[str, Any] = {"source": "fallback", "text": "", "warnings": [],
                               "beats": None, "meta": {}, "lint": {}}
+    if cancel is not None and cancel.is_set():
+        raise llm_client.CancelledError("任务已取消。")
     messages = build_messages(project, row)
     if config_llm.get("enabled") and messages is not None:
         conversation = list(messages)
         for attempt in (1, 2):
             try:
                 raw = llm_client.chat(config_llm, conversation,
-                                      images if attempt == 1 else None)
+                                      images if attempt == 1 else None,
+                                      cancel=cancel)
+            except llm_client.CancelledError:
+                raise
             except Exception as error:  # noqa: BLE001
                 result["warnings"] = [f"LLM 扩写失败，已回退内置模板：{error}"]
                 break
+            if cancel is not None and cancel.is_set():
+                raise llm_client.CancelledError("任务已取消。")
             summary, beats, body = parse_output(raw)
             lint = _lint_for(project, row, body)
             issues = [item["message"] for item in lint.get("errors") or []]

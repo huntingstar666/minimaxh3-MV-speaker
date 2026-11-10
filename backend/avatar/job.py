@@ -22,7 +22,7 @@ from .. import audio as audio_utils
 from .. import asr, comfy, llm, maintenance, media, settings
 from .. import workflow as mv_workflow
 from ..jobs import GPU_LOCK
-from . import audio_pipeline, config, design as design_mod, plan, store, workflow
+from . import audio_pipeline, config, design as design_mod, llm_client, plan, store, workflow
 
 MAX_TAKES_PER_SEGMENT = 10
 TAKE_RUNNER_FIELDS = ("status", "error", "output", "started", "finished", "prompt_id",
@@ -640,6 +640,8 @@ class AvatarRunner:
             output_node = mv_workflow.OUTPUT_NODE
         self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",
                      progress=round(base + span * 0.06, 4))
+        if (self.cancel_events.get(project_id) or threading.Event()).is_set():
+            raise comfy.ComfyError("任务已取消。")
         prompt_id = comfy.queue(graph)
         self._commit_segment(project_id, index, {"status": "running", "error": None,
                                                  "started": time.time(),
@@ -690,8 +692,12 @@ class AvatarRunner:
             return prompt_text, dict(row.get("prompt_meta") or {})
         images = [store.project_dir(project_id) / "refs" / str(ref.get("filename") or "")
                   for ref in project.get("refs") or []]
-        result = plan.generate_prompt(project, row, llm_config,
-                                      [path for path in images if path.is_file()])
+        try:
+            result = plan.generate_prompt(project, row, llm_config,
+                                          [path for path in images if path.is_file()],
+                                          cancel=self.cancel_events.get(project_id))
+        except llm_client.CancelledError as error:
+            raise comfy.ComfyError("任务已取消。") from error
         prompt_text = str(result["text"])
         patch: dict[str, Any] = {"prompt": prompt_text, "prompt_source": result["source"],
                                  "prompt_warnings": result["warnings"],
@@ -862,6 +868,8 @@ class AvatarRunner:
                                available=self._available)
         self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",
                      progress=round(base + span * 0.06, 4))
+        if (self.cancel_events.get(project_id) or threading.Event()).is_set():
+            raise comfy.ComfyError("任务已取消。")
         prompt_id = comfy.queue(graph)
         self._commit_segment(project_id, index, {"status": "running", "error": None,
                                                  "started": time.time(),

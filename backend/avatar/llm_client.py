@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any
 
 import httpx
@@ -19,6 +20,10 @@ from .. import llm as base_llm
 MIN_MAX_TOKENS = 16384
 MIN_TIMEOUT = 900.0
 OLLAMA_NUM_CTX = 32768
+
+
+class CancelledError(Exception):
+    """用户取消任务时中断等待中的 LLM 请求。"""
 
 
 def prepare(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -35,7 +40,39 @@ def prepare(config: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def chat(config: dict[str, Any] | None, messages: list[dict[str, Any]],
-         images: list[Any] | None = None) -> str:
+         images: list[Any] | None = None,
+         cancel: threading.Event | None = None) -> str:
+    """同步 LLM 调用；传 cancel 时在等待期间可被其他线程中断。
+
+    httpx 的同步请求无法从外部 cancel，因此把请求放到 daemon 线程里等，
+    主线程只轮询取消标记。取消后遗留的 daemon 线程会自行结束，不会阻塞退出。
+    """
+    if cancel is not None and cancel.is_set():
+        raise CancelledError("任务已取消。")
+    if cancel is None:
+        return _chat_sync(config, messages, images)
+    box: dict[str, Any] = {}
+    thread = threading.Thread(target=_chat_worker, args=(box, config, messages, images),
+                              name="avatar-llm", daemon=True)
+    thread.start()
+    while thread.is_alive():
+        if cancel.wait(0.2):
+            raise CancelledError("任务已取消。")
+    if "error" in box:
+        raise box["error"]
+    return str(box.get("value") or "")
+
+
+def _chat_worker(box: dict[str, Any], config: dict[str, Any] | None,
+                 messages: list[dict[str, Any]], images: list[Any] | None) -> None:
+    try:
+        box["value"] = _chat_sync(config, messages, images)
+    except BaseException as error:  # noqa: BLE001
+        box["error"] = error
+
+
+def _chat_sync(config: dict[str, Any] | None, messages: list[dict[str, Any]],
+               images: list[Any] | None = None) -> str:
     value = prepare(config)
     if "11434" in str(value.get("base_url") or ""):
         try:
