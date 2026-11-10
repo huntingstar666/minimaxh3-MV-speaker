@@ -24,6 +24,8 @@ async function init() {
   waveform = new Waveform($("#wave-canvas"), $("#wave-wrap"));
   waveform.onSeek = (seconds) => {
     const audio = $("#audio-el");
+    // 先记录这次点击/拖动开始前的播放状态，拖动结束要回到该状态
+    state.scrubResumePaused = audio.paused;
     audio.currentTime = Math.min(seconds, audio.duration || seconds);
     audio.play().catch(() => {});
   };
@@ -64,6 +66,31 @@ async function init() {
     applyCuts(api.splitSegment(state.project.id, time), `已在 ${time.toFixed(2)}s 处切分`);
   };
   waveform.onDeleteBoundary = (index) => deleteBoundary(index);
+  // 拖动播放头试听：移动超过阈值后开始播放，松手回到拖动前的播放状态
+  waveform.onScrubStart = () => {
+    const audio = $("#audio-el");
+    // 播放状态已在 onSeek（按下时）记录，这里只负责让拖动过程可听
+    if (audio.paused) audio.play().catch(() => { /* 浏览器拦截自动播放时静默 */ });
+  };
+  waveform.onScrub = (seconds) => {
+    const audio = $("#audio-el");
+    audio.currentTime = Math.min(seconds, audio.duration || seconds);
+    $("#play-time").textContent = formatTime(audio.currentTime);
+    waveform.setPlayhead(audio.currentTime);
+  };
+  waveform.onScrubEnd = () => {
+    const audio = $("#audio-el");
+    if (state.scrubResumePaused) audio.pause();
+    state.scrubResumePaused = false;
+    const current = audio.currentTime;
+    const index = (state.project?.segments || []).findIndex(
+      (row) => current >= row.start && current < row.end);
+    if (index !== -1) {
+      state.currentSegment = index;
+      setActiveSegment(index);
+    }
+  };
+  waveform.onTogglePlay = () => $("#btn-preview-audio")?.click();
   bindEvents();
   attachMentionMenu($("#note-input"));
   attachMentionMenu($("#prompt-note"));

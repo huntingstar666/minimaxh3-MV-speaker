@@ -203,6 +203,7 @@ const state = {
   formBaseline: null,
   playhead: 0,
   draggingPlayhead: false,
+  scrubResumePaused: false,
   cuts: [],
   audioFailed: false,
   beatsDraft: {},
@@ -2991,6 +2992,22 @@ function ensureWaveform() {
     splitAtPlayhead();
   };
   waveform.onDeleteBoundary = (index) => mergeDown(index);
+  // 拖动播放头试听：移动超过阈值后开始播放，松手回到拖动前的播放状态
+  waveform.onScrubStart = () => {
+    state.draggingPlayhead = true;
+    const audio = $("#av-audio");
+    if (!audio || !audio.dataset.src) return;
+    state.scrubResumePaused = audio.paused;
+    if (audio.paused) audio.play().catch(() => { /* 浏览器拦截自动播放时静默 */ });
+  };
+  waveform.onScrub = (seconds) => setPlayhead(seconds);
+  waveform.onScrubEnd = () => {
+    state.draggingPlayhead = false;
+    const audio = $("#av-audio");
+    if (audio && state.scrubResumePaused) audio.pause();
+    state.scrubResumePaused = false;
+  };
+  waveform.onTogglePlay = () => togglePlay();
   return waveform;
 }
 

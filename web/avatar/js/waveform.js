@@ -103,6 +103,17 @@ export class Waveform {
     this.tip = null;
     this._paintRaf = 0;
     this._dpr = 1;
+    // 播放头拖动（scrub）：按下先定位，移动超过阈值后开始试听，松手恢复原播放状态
+    this.scrubbing = false;
+    this.scrubTime = null;
+    this._downX = null;
+    this._scrubMoved = false;
+    this._hoverPlayhead = false;
+    this.onScrub = null;
+    this.onScrubStart = null;
+    this.onScrubEnd = null;
+    this.onTogglePlay = null;
+    this._tipTimer = 0;
 
     // 画布内联高度必须和 this.height 同步（index.html 上的 height 属性只作为初始值）
     this.canvas.style.height = `${this.height}px`;
@@ -110,7 +121,8 @@ export class Waveform {
     try {
       if (getComputedStyle(this.wrap).position === "static") this.wrap.style.position = "relative";
     } catch { /* 忽略：没有样式环境时气泡退化为普通块 */ }
-    try { this.canvas.setAttribute("aria-label", "音频波形时间线"); } catch { /* 忽略 */ }
+    try { this.canvas.setAttribute("aria-label", "音频波形时间线：拖动播放头试听，左右方向键微调"); } catch { /* 忽略 */ }
+    try { this.canvas.tabIndex = 0; } catch { /* 忽略 */ }
 
     this.resizeObserver = new ResizeObserver(() => {
       const width = Math.round(this.wrap.clientWidth || 0);
@@ -125,6 +137,7 @@ export class Waveform {
     canvas.addEventListener("pointerleave", () => this._onPointerLeave());
     canvas.addEventListener("dblclick", (event) => this._onDoubleClick(event));
     canvas.addEventListener("contextmenu", (event) => this._onContextMenu(event));
+    canvas.addEventListener("keydown", (event) => this._onKeyDown(event));
   }
 
   // ------------------------------- 公开 API -------------------------------
@@ -283,44 +296,60 @@ export class Waveform {
       }
     }
 
-    // 播放头：光晕 + 顶部圆点
-    const px = timeToX(this.playhead);
+    // 播放头：抓手表头 + 竖线 + 光晕；hover / 拖动时放大提亮
+    const px = clamp(timeToX(this.playhead), 0, width);
     const playheadColor = colors.playhead || colors.amber;
-    if (px >= 0 && px <= width) {
-      const glow = ctx.createLinearGradient(px - 14, 0, px + 14, 0);
+    if (this.duration > 0) {
+      const active = this.scrubbing || this._hoverPlayhead;
+      const glow = ctx.createLinearGradient(px - 16, 0, px + 16, 0);
       glow.addColorStop(0, toRgba(playheadColor, 0));
-      glow.addColorStop(0.5, toRgba(playheadColor, light ? .07 : .10));
+      glow.addColorStop(0.5, toRgba(playheadColor,
+        light ? (active ? .09 : .06) : (active ? .15 : .09)));
       glow.addColorStop(1, toRgba(playheadColor, 0));
       ctx.fillStyle = glow;
-      ctx.fillRect(px - 14, bodyTop, 28, height - bodyTop);
+      ctx.fillRect(px - 16, bodyTop, 32, height - bodyTop);
 
       ctx.save();
       if (!light) {
         ctx.shadowColor = toRgba(playheadColor, .85);
-        ctx.shadowBlur = 9;
+        ctx.shadowBlur = active ? 12 : 8;
       }
-      ctx.strokeStyle = toRgba(playheadColor, light ? .9 : .95);
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = toRgba(playheadColor, light ? .95 : 1);
+      ctx.lineWidth = active ? 2.2 : 1.8;
       ctx.beginPath();
-      ctx.moveTo(px, 9);
+      ctx.moveTo(px, 13);
       ctx.lineTo(px, height);
       ctx.stroke();
       ctx.restore();
 
+      // 抓手表头：圆角旗 + 向下小三角，明确「这里可以拖」
+      const headW = active ? 13 : 11;
+      const headH = active ? 13 : 11;
+      const headTop = 2;
       ctx.save();
       if (!light) {
         ctx.shadowColor = toRgba(playheadColor, .8);
-        ctx.shadowBlur = 7;
+        ctx.shadowBlur = active ? 12 : 7;
       }
       ctx.fillStyle = toRgba(playheadColor, 1);
+      this.roundRect(ctx, px - headW / 2, headTop, headW, headH, 3);
+      ctx.fill();
       ctx.beginPath();
-      ctx.arc(px, 9, 3.2, 0, Math.PI * 2);
+      ctx.moveTo(px - 3.4, headTop + headH - 0.5);
+      ctx.lineTo(px + 3.4, headTop + headH - 0.5);
+      ctx.lineTo(px, headTop + headH + 4);
+      ctx.closePath();
       ctx.fill();
       ctx.restore();
+
+      // 表头内两道防滑细纹
       ctx.strokeStyle = this.chromeOf("playheadRing");
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(px, 9, 3.2, 0, Math.PI * 2);
+      ctx.moveTo(px - 1.7, headTop + 3.6);
+      ctx.lineTo(px - 1.7, headTop + headH - 3);
+      ctx.moveTo(px + 1.7, headTop + 3.6);
+      ctx.lineTo(px + 1.7, headTop + headH - 3);
       ctx.stroke();
     }
 
@@ -360,6 +389,12 @@ export class Waveform {
       if (time >= this.segments[i].start && time < this.segments[i].end) return i;
     }
     return this.segments.length ? this.segments.length - 1 : 0;
+  }
+
+  // 时间 → 画布 x（供气泡 / 命中判断复用，避免各handler重复算比例）
+  xOf(time) {
+    if (!this.duration) return 0;
+    return (clamp(Number(time) || 0, 0, this.duration) / this.duration) * this.width;
   }
 
   // ------------------------------- 静态层细节 -------------------------------
@@ -649,11 +684,18 @@ export class Waveform {
       const el = this.ensureTip();
       const light = this.isLight;
       el.textContent = label;
+      // 播放头气泡贴表头下方，避免盖住抓手；切点 / hover 气泡贴顶
+      el.style.top = tone === "playhead" ? `${RULER_H + 2}px` : "1px";
       if (tone === "drag") {
         el.style.background = light ? "rgba(255,255,255,.97)" : "rgba(18,12,30,.94)";
         el.style.border = light ? "1px solid rgba(110,92,230,.4)" : "1px solid rgba(167,139,250,.5)";
         el.style.color = light ? "#5b49d6" : "#ddd0ff";
         el.style.boxShadow = light ? "0 6px 18px rgba(0,0,0,.14)" : "0 6px 18px rgba(0,0,0,.5)";
+      } else if (tone === "playhead") {
+        el.style.background = light ? "rgba(255,255,255,.98)" : "rgba(247,185,85,.96)";
+        el.style.border = light ? "1px solid rgba(247,185,85,.6)" : "1px solid rgba(255,214,150,.72)";
+        el.style.color = light ? "#8a5a00" : "#241803";
+        el.style.boxShadow = "0 8px 20px rgba(0,0,0,.3)";
       } else {
         el.style.background = light ? "rgba(255,255,255,.97)" : "rgba(8,11,16,.92)";
         el.style.border = light ? "1px solid rgba(0,0,0,.12)" : "1px solid rgba(247,185,85,.34)";
@@ -670,17 +712,24 @@ export class Waveform {
   }
 
   hideTip() {
+    clearTimeout(this._tipTimer);
+    this._tipTimer = 0;
     if (!this.tip) return;
     // pointerleave / 拖动结束即把气泡从 DOM 移除，不留隐藏节点
     try { this.tip.remove(); } catch { try { this.tip.style.opacity = "0"; } catch { /* 忽略 */ } }
     this.tip = null;
   }
 
-  // ------------------------------- 指针交互（语义保持不变） -------------------------------
+  // ------------------------------- 指针交互 -------------------------------
   _localX(event) {
     const rect = this.canvas.getBoundingClientRect();
     const width = Math.max(1, rect.width);
     return { rect, width, x: event.clientX - rect.left, ratio: clamp((event.clientX - rect.left) / width, 0, 1) };
+  }
+
+  // 播放头命中带：±8px 内视为抓到了播放头，光标变 ew-resize
+  _nearPlayhead(x) {
+    return this.duration > 0 && Math.abs(x - this.xOf(this.playhead)) <= 8;
   }
 
   _onPointerDown(event) {
@@ -698,11 +747,39 @@ export class Waveform {
       this.paint();
       return;
     }
+    // 播放头拖动：按下先定位（保持原“点击定位”语义），移动超过 3px 才开始试听
+    this.scrubbing = true;
+    this.scrubTime = time;
+    this._downX = x;
+    this._scrubMoved = false;
+    this._hoverPlayhead = true;
+    this.hoverX = null;
+    this.hoverBoundary = null;
+    try { this.canvas.setPointerCapture(event.pointerId); } catch { /* 忽略 */ }
+    try { this.canvas.focus({ preventScroll: true }); } catch { /* 忽略 */ }
+    this.canvas.style.cursor = "ew-resize";
     if (this.onSeek) this.onSeek(time);
+    this.showTip(this.xOf(time), formatClock(time, 2), "playhead");
+    this.paint();
   }
 
   _onPointerMove(event) {
     const { x, width, ratio } = this._localX(event);
+    if (this.scrubbing) {
+      this.scrubTime = ratio * this.duration;
+      this.playhead = this.scrubTime;
+      if (!this._scrubMoved && Math.abs(x - this._downX) >= 3) {
+        this._scrubMoved = true;
+        if (this.onScrubStart) this.onScrubStart(this.scrubTime);
+      }
+      if (this._scrubMoved) {
+        if (this.onScrub) this.onScrub(this.scrubTime);
+        else if (this.onSeek) this.onSeek(this.scrubTime);
+      }
+      this.showTip(this.xOf(this.scrubTime), formatClock(this.scrubTime, 1), "playhead");
+      this.schedulePaint();
+      return;
+    }
     if (this.dragging !== null) {
       this.dragTime = ratio * this.duration;
       this.showTip(x, formatClock(this.dragTime, 2), "drag");
@@ -712,19 +789,38 @@ export class Waveform {
     if (!this.duration) return;
     const isMouse = !event.pointerType || event.pointerType === "mouse" || event.pointerType === "pen";
     const hit = this.editable ? this.boundaryAt(x) : null;
+    const near = hit === null && this._nearPlayhead(x);
     const hoverChanged = isMouse && Math.abs((this.hoverX ?? -9999) - x) > 0.5;
     const boundaryChanged = hit !== this.hoverBoundary;
+    const nearChanged = near !== this._hoverPlayhead;
     this.hoverX = isMouse ? clamp(x, 0, width) : null;
     this.hoverBoundary = hit;
-    if (this.editable) this.canvas.style.cursor = hit !== null ? "col-resize" : "pointer";
+    this._hoverPlayhead = near;
+    this.canvas.style.cursor = hit !== null ? "col-resize" : near ? "ew-resize" : "crosshair";
     if (isMouse && width > 0) {
-      const time = hit !== null ? Number(this.segments[hit]?.end) || 0 : ratio * this.duration;
-      this.showTip(x, formatClock(time, 1), "hover");
+      if (hit !== null) this.showTip(x, formatClock(Number(this.segments[hit]?.end) || 0, 1), "hover");
+      else if (near) this.showTip(this.xOf(this.playhead), formatClock(this.playhead, 1), "playhead");
+      else this.showTip(x, formatClock(ratio * this.duration, 1), "hover");
     }
-    if (hoverChanged || boundaryChanged) this.schedulePaint();
+    if (hoverChanged || boundaryChanged || nearChanged) this.schedulePaint();
   }
 
   _onPointerUp(event) {
+    if (this.scrubbing) {
+      const moved = this._scrubMoved;
+      const time = this.scrubTime;
+      this.scrubbing = false;
+      this.scrubTime = null;
+      this._downX = null;
+      this._scrubMoved = false;
+      this._hoverPlayhead = false;
+      try { this.canvas.releasePointerCapture?.(event.pointerId); } catch { /* 忽略 */ }
+      this.hideTip();
+      this.canvas.style.cursor = "crosshair";
+      if (moved && this.onScrubEnd) this.onScrubEnd(time);
+      this.paint();
+      return;
+    }
     if (this.dragging === null) return;
     const index = this.dragging;
     this.dragging = null;
@@ -742,6 +838,17 @@ export class Waveform {
   }
 
   _cancelDrag() {
+    if (this.scrubbing) {
+      const moved = this._scrubMoved;
+      this.scrubbing = false;
+      this.scrubTime = null;
+      this._downX = null;
+      this._scrubMoved = false;
+      this._hoverPlayhead = false;
+      if (moved && this.onScrubEnd) this.onScrubEnd(null);
+      this.hideTip();
+      this.paint();
+    }
     if (this.dragging === null) return;
     this.dragging = null;
     this.dragTime = null;
@@ -751,10 +858,38 @@ export class Waveform {
   }
 
   _onPointerLeave() {
-    if (this.dragging !== null) return;
+    if (this.dragging !== null || this.scrubbing) return;
     this.hoverX = null;
     this.hoverBoundary = null;
+    this._hoverPlayhead = false;
     this.hideTip();
+    this.paint();
+  }
+
+  // 键盘微调：←/→ 0.1s（Shift 1s），Home/End 到首尾，Space 播放/暂停
+  _onKeyDown(event) {
+    if (event.code === "Space" && this.onTogglePlay) {
+      event.preventDefault();
+      this.onTogglePlay();
+      return;
+    }
+    if (!this.duration) return;
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 1 : 0.1;
+    let next = Number(this.playhead) || 0;
+    if (event.key === "ArrowLeft") next -= step;
+    else if (event.key === "ArrowRight") next += step;
+    else if (event.key === "Home") next = 0;
+    else next = this.duration;
+    next = clamp(next, 0, this.duration);
+    this.playhead = next;
+    this._hoverPlayhead = true;
+    if (this.onScrub) this.onScrub(next);
+    else if (this.onSeek) this.onSeek(next);
+    this.showTip(this.xOf(next), formatClock(next, 1), "playhead");
+    clearTimeout(this._tipTimer);
+    this._tipTimer = setTimeout(() => this.hideTip(), 900);
     this.paint();
   }
 
