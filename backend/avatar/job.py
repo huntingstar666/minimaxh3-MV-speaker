@@ -272,6 +272,11 @@ class AvatarRunner:
             job = self.jobs.get(project_id)
             if not job:
                 return
+            if "progress" in patch:
+                # 同一任务内进度只增不减：二采节点会按帧回报 1/124，
+                # 不能让它把已经从 88% 走到的高清进度打回 10%。
+                patch["progress"] = max(float(job.get("progress") or 0),
+                                        float(patch.get("progress") or 0))
             job.update(patch)
             job["updated"] = now
             if len(job.get("logs") or []) > 300:
@@ -379,6 +384,21 @@ class AvatarRunner:
         return False
 
     # ------------------------------ 主流程 ------------------------------
+    @staticmethod
+    def _sampling_progress(base: float, span: float, value: Any, maximum: Any,
+                           steps: Any) -> float:
+        """把低清步数进度和高清逐帧进度映射到同一段区间，避免来回跳。"""
+        top = max(1, int(maximum or 1))
+        done = max(0, min(int(value or 0), top))
+        steps_value = max(1, int(steps or 6))
+        if top > steps_value:
+            # 高清二采：6 步已经走完，按帧数在 0.60–0.88 之间推进
+            ratio = 0.60 + 0.28 * done / top
+        else:
+            # 低清阶段：0.10–0.60
+            ratio = 0.10 + 0.50 * done / top
+        return round(base + span * ratio, 4)
+
     def _release_before_generation(self, project_id: str) -> None:
         try:
             cfg = settings.load()
@@ -655,8 +675,8 @@ class AvatarRunner:
                 return
             data = message.get("data") or {}
             value, maximum = data.get("value") or 0, data.get("max") or 1
-            self._update(project_id, progress=round(
-                base + span * (0.1 + 0.78 * value / max(maximum, 1)), 4),
+            self._update(project_id, progress=self._sampling_progress(
+                base, span, value, maximum, generation.get("steps")),
                 stage="sampling", message=f"{label}：采样 {value}/{maximum}")
 
         entry = comfy.wait(prompt_id, on_progress, self.cancel_events.get(project_id))
@@ -883,8 +903,8 @@ class AvatarRunner:
                 return
             data = message.get("data") or {}
             value, maximum = data.get("value") or 0, data.get("max") or 1
-            self._update(project_id, progress=round(
-                base + span * (0.1 + 0.78 * value / max(maximum, 1)), 4),
+            self._update(project_id, progress=self._sampling_progress(
+                base, span, value, maximum, generation.get("steps")),
                 stage="sampling", message=f"{label}：采样 {value}/{maximum}")
 
         entry = comfy.wait(prompt_id, on_progress, self.cancel_events.get(project_id))

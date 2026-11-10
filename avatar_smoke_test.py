@@ -327,6 +327,19 @@ def main() -> int:
               and isinstance(raised, avatar_job.comfy.ComfyError),
               type(raised).__name__ if raised else "no error")
 
+        low_done = avatar_job.AvatarRunner._sampling_progress(0, 1, 6, 6, 6)
+        high_start = avatar_job.AvatarRunner._sampling_progress(0, 1, 1, 124, 6)
+        high_done = avatar_job.AvatarRunner._sampling_progress(0, 1, 124, 124, 6)
+        check("进度映射：高清二采接在低清之后",
+              abs(low_done - 0.6) < 1e-6 and high_start > low_done and high_done <= 0.88,
+              f"{low_done} -> {high_start} -> {high_done}")
+        monotonic = avatar_job.AvatarRunner()
+        monotonic.jobs[project2_id] = {"project_id": project2_id, "progress": 0.88,
+                                       "logs": [], "status": "completed"}
+        monotonic._update(project2_id, progress=0.1)
+        check("同一任务进度不回退", monotonic.snapshot(project2_id).get("progress") == 0.88,
+              str(monotonic.snapshot(project2_id).get("progress")))
+
         # 7) 新工作流图结构
         generation = avatar_workflow.resolve_generation({}, {})
         graph2 = avatar_workflow.build(generation, text2, ["ref.png"], "voice.wav", 141, 24,
