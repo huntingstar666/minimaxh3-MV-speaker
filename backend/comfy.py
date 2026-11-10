@@ -5,6 +5,7 @@ import json
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
@@ -113,9 +114,28 @@ def object_info(node: str) -> dict[str, Any] | None:
     return data.get(node)
 
 
+def object_info_many(names: list[str]) -> dict[str, dict[str, Any] | None]:
+    """并发读取多个节点信息。
+
+    数字人首屏原来串行读 10+ 个 object_info，每个 0.3–0.9s，累计 8–15s；
+    ComfyUI 本身能并行处理，这里用 8 个线程把首读压到 1–2s。
+    """
+    unique = sorted({str(name) for name in names if name})
+    if not unique:
+        return {}
+    if time.time() < _down_until:
+        return {name: None for name in unique}
+    with ThreadPoolExecutor(max_workers=min(8, len(unique))) as pool:
+        results = list(pool.map(object_info, unique))
+    return dict(zip(unique, results))
+
+
 def combo_values(node: str, field: str) -> list[str]:
     """读取 COMBO 可选值，兼容旧版 [[...]] 与新版 ["COMBO", {"options": [...]}]。"""
-    info = object_info(node)
+    return combo_values_from(object_info(node), field)
+
+
+def combo_values_from(info: dict[str, Any] | None, field: str) -> list[str]:
     if not info:
         return []
     for section in ("required", "optional"):
@@ -152,29 +172,49 @@ def options(force: bool = False) -> dict[str, Any]:
     with _options_lock:
         if not force and _options_cache["value"] and time.time() - _options_cache["time"] < 45:
             return _options_cache["value"]
-        seam_info = object_info("MiniMaxH3FiniteSegmentVideoSampler") or {}
+        node_names = [
+            "MiniMaxH3FiniteSegmentVideoSampler", "UNETLoader", "CLIPLoader", "VAELoader",
+            "LoraLoaderModelOnly", "SelfLiftAvatarH3Sampler", "SelfLiftAvatarH3SamplerFix",
+            "KSamplerSelect", "BasicScheduler", "ResolutionSelector", "ModelAttentionBackend",
+            "UpscaleModelLoader", "MiniMaxH3SigmaShift", "H3SigmaRefiner",
+            "MiniMaxH3ReferenceToVideo", "LTXVConcatAVLatent", "VHS_VideoCombine",
+            "ModelPreviewOverrideKJ", "MiniMaxH3ImageToVideo", "MiniMaxH3AddGuide", "ImageScale",
+        ]
+        infos = object_info_many(node_names)
+        seam_info = infos.get("MiniMaxH3FiniteSegmentVideoSampler") or {}
         seam_optional = (seam_info.get("input") or {}).get("optional") or {}
+
+        def combo(node: str, field: str) -> list[str]:
+            return combo_values_from(infos.get(node), field)
+
         value = {
-            "unet": combo_values("UNETLoader", "unet_name"),
-            "clip": combo_values("CLIPLoader", "clip_name"),
-            "vae": combo_values("VAELoader", "vae_name"),
-            "lora": combo_values("LoraLoaderModelOnly", "lora_name"),
-            "upscaler": combo_values("SelfLiftAvatarH3Sampler", "upscaler_model"),
-            "samplers": combo_values("KSamplerSelect", "sampler_name"),
-            "schedulers": combo_values("BasicScheduler", "scheduler"),
-            "aspects": combo_values("ResolutionSelector", "aspect_ratio"),
-            "attention": combo_values("ModelAttentionBackend", "attention"),
-            "upscalers_common": combo_values("UpscaleModelLoader", "model_name"),
+            "unet": combo("UNETLoader", "unet_name"),
+            "clip": combo("CLIPLoader", "clip_name"),
+            "vae": combo("VAELoader", "vae_name"),
+            "lora": combo("LoraLoaderModelOnly", "lora_name"),
+            "upscaler": combo("SelfLiftAvatarH3Sampler", "upscaler_model"),
+            "samplers": combo("KSamplerSelect", "sampler_name"),
+            "schedulers": combo("BasicScheduler", "scheduler"),
+            "aspects": combo("ResolutionSelector", "aspect_ratio"),
+            "attention": combo("ModelAttentionBackend", "attention"),
+            "upscalers_common": combo("UpscaleModelLoader", "model_name"),
             "nodes": {
-                "selflift": bool(object_info("SelfLiftAvatarH3Sampler")),
-                "sigma_shift": bool(object_info("MiniMaxH3SigmaShift")),
-                "sigma_refiner": bool(object_info("H3SigmaRefiner")),
-                "reference": bool(object_info("MiniMaxH3ReferenceToVideo")),
-                "attention": bool(object_info("ModelAttentionBackend")),
-                "ltxv": bool(object_info("LTXVConcatAVLatent")),
-                "vhs": bool(object_info("VHS_VideoCombine")),
+                "selflift": bool(infos.get("SelfLiftAvatarH3Sampler")),
+                "selflift_fix": bool(infos.get("SelfLiftAvatarH3SamplerFix")),
+                "sigma_shift": bool(infos.get("MiniMaxH3SigmaShift")),
+                "sigma_refiner": bool(infos.get("H3SigmaRefiner")),
+                "refiner": bool(infos.get("H3SigmaRefiner")),
+                "reference": bool(infos.get("MiniMaxH3ReferenceToVideo")),
+                "attention": bool(infos.get("ModelAttentionBackend")),
+                "ltxv": bool(infos.get("LTXVConcatAVLatent")),
+                "vhs": bool(infos.get("VHS_VideoCombine")),
                 "seam": bool(seam_info),
                 "seam_params": "transition_step" in seam_optional,
+                "preview": bool(infos.get("ModelPreviewOverrideKJ")),
+                "lora": bool(infos.get("LoraLoaderModelOnly")),
+                "image_to_video": bool(infos.get("MiniMaxH3ImageToVideo")),
+                "add_guide": bool(infos.get("MiniMaxH3AddGuide")),
+                "image_scale": bool(infos.get("ImageScale")),
             },
         }
         if not value["attention"]:

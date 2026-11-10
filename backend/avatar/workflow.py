@@ -28,31 +28,29 @@ _available_cache: dict[str, Any] = {"time": 0.0, "value": {}}
 _available_lock = threading.Lock()
 
 
-def _node_exists(name: str) -> bool:
-    try:
-        return bool(comfy.object_info(name))
-    except Exception:  # noqa: BLE001
-        return False
-
-
 def available_nodes(force: bool = False) -> dict[str, bool]:
     """可选节点可用性（缓存 45s，ComfyUI 掉线时返回上一次结果）。"""
     with _available_lock:
         cached = _available_cache["value"]
         if not force and cached and time.time() - _available_cache["time"] < 45:
             return dict(cached)
-        value = {
-            "selflift_fix": _node_exists("SelfLiftAvatarH3SamplerFix"),
-            "selflift": _node_exists("SelfLiftAvatarH3Sampler"),
-            "refiner": _node_exists("H3SigmaRefiner"),
-            "preview": _node_exists("ModelPreviewOverrideKJ"),
-            "attention": _node_exists("ModelAttentionBackend"),
-            "lora": _node_exists("LoraLoaderModelOnly"),
-            "image_to_video": _node_exists("MiniMaxH3ImageToVideo"),
-            "add_guide": _node_exists("MiniMaxH3AddGuide"),
-            "image_scale": _node_exists("ImageScale"),
-            "sigma_shift": _node_exists("MiniMaxH3SigmaShift"),
+        names = {
+            "selflift_fix": "SelfLiftAvatarH3SamplerFix",
+            "selflift": "SelfLiftAvatarH3Sampler",
+            "refiner": "H3SigmaRefiner",
+            "preview": "ModelPreviewOverrideKJ",
+            "attention": "ModelAttentionBackend",
+            "lora": "LoraLoaderModelOnly",
+            "image_to_video": "MiniMaxH3ImageToVideo",
+            "add_guide": "MiniMaxH3AddGuide",
+            "image_scale": "ImageScale",
+            "sigma_shift": "MiniMaxH3SigmaShift",
         }
+        try:
+            infos = comfy.object_info_many(list(names.values()))
+        except Exception:  # noqa: BLE001
+            infos = {}
+        value = {key: bool(infos.get(node)) for key, node in names.items()}
         _available_cache.update(time=time.time(), value=value)
         return dict(value)
 

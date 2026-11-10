@@ -475,7 +475,11 @@ def options_api(force: bool = False) -> dict[str, Any]:
         if options is None:
             raise HTTPException(502, f"无法读取 ComfyUI 节点信息：{error}") from error
     nodes = dict((options or {}).get("nodes") or {})
-    nodes.update({key: bool(value) for key, value in workflow.available_nodes(force).items()})
+    # comfy.options() 已经并发读到了节点可用性；只有旧快照缺字段时才补一次
+    required_nodes = {"selflift", "selflift_fix", "refiner", "preview", "attention", "lora",
+                      "image_to_video", "add_guide", "image_scale", "sigma_shift"}
+    if not required_nodes.issubset(nodes):
+        nodes.update({key: bool(value) for key, value in workflow.available_nodes(force).items()})
     return {
         "ok": True,
         "stale": stale,
