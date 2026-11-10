@@ -500,6 +500,11 @@ def main() -> int:
             "name": "mode1-空", "mode": "1"}).json()["project"]
         analyze_empty = client.post(f"/avatar/api/projects/{mode1_empty['id']}/analyze", json={})
         check("模式 1 无音频时拒绝分析", analyze_empty.status_code == 400)
+        generate_empty = client.post(f"/avatar/api/projects/{mode1_empty['id']}/generate", json={})
+        check("模式 1 无音频时生成提示先上传音频",
+              generate_empty.status_code == 400
+              and "驱动音频" in str((generate_empty.json() or {}).get("detail") or ""),
+              str((generate_empty.json() or {}).get("detail")))
 
         # 9) 列表 / 删除
         listing = client.get("/avatar/api/projects").json()["projects"]

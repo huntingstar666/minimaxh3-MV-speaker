@@ -308,11 +308,12 @@ class AvatarRunner:
             project = store.get(project_id)
             mode = int(project.get("mode") or 0)
             segments = project.get("segments") or []
+            # 模式 1 没上传音频时，先说“上传音频”，避免被“请先完成分段”误导
+            if mode == config.MODE_AUDIO_DRIVE and not project.get("audio"):
+                raise ValueError("模式 1 需要先上传驱动音频并分析分段。")
             if not segments:
                 raise ValueError("请先完成分段（模式 1 需先分析音频；模式 2/3 需先按台词分段）。")
             if mode == config.MODE_AUDIO_DRIVE:
-                if not project.get("audio"):
-                    raise ValueError("模式 1 需要先上传驱动音频并分析分段。")
                 if not (store.project_dir(project_id) / "source.wav").is_file():
                     raise ValueError("驱动音频文件丢失，请重新上传。")
             elif mode == config.MODE_VOICE_REF:
