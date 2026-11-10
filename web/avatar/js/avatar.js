@@ -788,6 +788,14 @@ function setSegmented(id, value) {
   });
 }
 
+// 分段控件 + 隐藏 input 的组合（替代只有 2–5 个选项的原生下拉）
+function setChoice(segId, hiddenId, value) {
+  const hidden = document.getElementById(hiddenId);
+  if (!hidden) return;
+  hidden.value = value;
+  setSegmented(segId, value);
+}
+
 function applyAnchorModelStack(stack) {
   const savedRaw = state.project?.generation || {};
   // 旧项目可能保存过单采/双采栈；切回硬切时不能把它当成 Ref2VA 模型。
@@ -1487,6 +1495,53 @@ function initRightTabs() {
   setRightTab(saved, false);
 }
 
+/* 作品设定：分页（基础 / 音频 / 参考图 / 设计），一次只露一屏 */
+const SETTINGS_TAB_KEY = "h3av.settingsTab";
+const SETTINGS_TABS = ["content", "audio", "refs", "design"];
+
+function openSettingsTab(name, { open = false } = {}) {
+  const tab = SETTINGS_TABS.includes(name) ? name : "content";
+  if (open) {
+    const modal = $("#modal-settings");
+    if (modal) modal.hidden = false;
+  }
+  $$("#settings-tabs [data-settings-tab]").forEach((btn) => {
+    const active = btn.dataset.settingsTab === tab;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  $$("#settings-body [data-settings-pane]").forEach((pane) => {
+    pane.hidden = pane.dataset.settingsPane !== tab;
+  });
+  const body = $("#settings-body");
+  if (body) body.scrollTop = 0;
+  try {
+    localStorage.setItem(SETTINGS_TAB_KEY, tab);
+  } catch {
+    /* 隐私模式下忽略 */
+  }
+}
+
+function initSettingsTabs() {
+  const root = $("#settings-tabs");
+  if (!root) return;
+  root.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-settings-tab]");
+    if (btn) openSettingsTab(btn.dataset.settingsTab);
+  });
+  // 参考图用途 / ASR 模型 / 识别语言：选项少，用分段控件替掉原生下拉
+  bindSegmented("ref-role-seg", "ref-role");
+  bindSegmented("asr-model-seg", "asr-model");
+  bindSegmented("asr-language-seg", "asr-language");
+  let saved = "content";
+  try {
+    saved = localStorage.getItem(SETTINGS_TAB_KEY) || "content";
+  } catch {
+    saved = "content";
+  }
+  openSettingsTab(saved);
+}
+
 function updateRangeTone() {
   // 越往后拖越红：色相从琥珀 42° 压到 0°，亮度同步压暗，暗示“段越长越吃力”
   ["#f-target", "#f-max"].forEach((selector) => {
@@ -1538,8 +1593,8 @@ function fillForm(project) {
   $("#f-voice-desc").value = project.voice_description || "";
   if ($("#f-material-note")) $("#f-material-note").value = project.material_note || "";
   $("#asr-enabled").checked = project.asr?.enabled !== false;
-  if (project.asr?.model) setSelectValue($("#asr-model"), project.asr.model === "base" ? "base" : "small");
-  if (project.asr?.language) setSelectValue($("#asr-language"), project.asr.language === "auto" ? "auto" : "zh");
+  if (project.asr?.model) setChoice("asr-model-seg", "asr-model", project.asr.model === "base" ? "base" : "small");
+  if (project.asr?.language) setChoice("asr-language-seg", "asr-language", project.asr.language === "auto" ? "auto" : "zh");
   setMode(Number(project.mode) === 1 ? 1 : Number(project.mode) === 3 ? 3 : 2, { quiet: true });
   fillGeneration(project.generation || {});
   updateRangeLabels();
@@ -1558,8 +1613,8 @@ function resetForm() {
   if ($("#f-material-note")) $("#f-material-note").value = "";
   $("#f-seed").value = "0";
   $("#asr-enabled").checked = true;
-  setSelectValue($("#asr-model"), "small");
-  setSelectValue($("#asr-language"), "zh");
+  setChoice("asr-model-seg", "asr-model", "small");
+  setChoice("asr-language-seg", "asr-language", "zh");
   fillGeneration(state.generationDefaults || {});
   updateRangeLabels();
   updateScriptCount();
@@ -1757,8 +1812,8 @@ function applyStyleSystem(id) {
   set("#design-visual-style", item.visual_style);
   $("#design-accent").value = designColor(item.accent_color);
   $("#design-secondary").value = designColor(item.secondary_color, "secondary");
-  fillPresetSelect($("#design-typography-preset"), presetValues("typography"), item.typography || "");
-  fillPresetSelect($("#design-material-preset"), presetValues("material"), item.material || "");
+  fillPresetChips($("#design-typography-presets"), presetValues("typography"), item.typography || "");
+  fillPresetChips($("#design-material-presets"), presetValues("material"), item.material || "");
   state.designStyleId = id;
   markDesignDirty();
   renderDesignCards();
@@ -1796,24 +1851,26 @@ function renderDesignPreview() {
 }
 
 
-function fillPresetSelect(select, values, current) {
-  if (!select) return;
+function fillPresetChips(box, values, current) {
+  if (!box) return;
   const list = Array.isArray(values) ? values : [];
-  select.innerHTML = [`<option value="__custom__">自定义</option>`]
-    .concat(list.map((value) => `<option value="${esc(value)}">${esc(value)}</option>`))
-    .join("");
-  select.value = list.includes(String(current || "")) ? String(current) : "__custom__";
+  const active = list.includes(String(current || "")) ? String(current) : "";
+  box.innerHTML = list.length
+    ? list
+      .map((value) => `<button type="button" class="av-chip${value === active ? " is-active" : ""}" data-preset="${esc(value)}" title="${esc(value)}">${esc(value)}</button>`)
+      .join("")
+    : '<span class="hint">没有可用预设，直接输入即可</span>';
 }
 
 function fillDesignOptions() {
   const current = state.designLoadedFor ? readDesignSafe() : null;
-  fillPresetSelect(
-    $("#design-typography-preset"),
+  fillPresetChips(
+    $("#design-typography-presets"),
     presetValues("typography"),
     current?.style_system?.typography || $("#design-typography")?.value || ""
   );
-  fillPresetSelect(
-    $("#design-material-preset"),
+  fillPresetChips(
+    $("#design-material-presets"),
     presetValues("material"),
     current?.style_system?.material || $("#design-material")?.value || ""
   );
@@ -1896,8 +1953,8 @@ function fillDesign(design) {
   $("#design-secondary").value = designColor(d.style_system?.secondary_color, "secondary");
   $("#design-typography").value = d.style_system?.typography || "";
   $("#design-material").value = d.style_system?.material || "";
-  fillPresetSelect($("#design-typography-preset"), presetValues("typography"), d.style_system?.typography || "");
-  fillPresetSelect($("#design-material-preset"), presetValues("material"), d.style_system?.material || "");
+  fillPresetChips($("#design-typography-presets"), presetValues("typography"), d.style_system?.typography || "");
+  fillPresetChips($("#design-material-presets"), presetValues("material"), d.style_system?.material || "");
   renderEffectCheckboxes(Array.isArray(d.effect_families) ? d.effect_families : []);
   setSelectValue($("#design-platform"), d.platform || "generic");
   const area = isPlainObject(d.safe_area) ? d.safe_area : DESIGN_DEFAULT.safe_area;
@@ -1984,8 +2041,6 @@ function updateDesignChrome() {
     badge.textContent = GRAPHICS_MODE_LABEL[state.designGraphicsMode] || "生成式";
     badge.className = `pill ${overlay ? "" : "vocal"}`;
   }
-  const mini = $(".av-design-mini");
-  if (mini) mini.textContent = `密度${DENSITY_LABEL[density] || "中"}`;
   $("#design-graphics-note").classList.toggle("hidden", !overlay);
   $("#design-effects-count").textContent = `${selectedEffectIds().length} 项`;
   renderDesignPreview();
@@ -2092,7 +2147,7 @@ async function suggestDesignEffects() {
     markDesignDirty();
     updateDesignChrome();
     renderProjectContext();
-    $("#design-details").open = true;
+    openSettingsTab("design");
     toast(
       warnings.length ? `AI 建议已填入表单（${warnings.length} 条提示），请点「保存设计」` : "AI 建议已填入表单，请点「保存设计」",
       warnings.length ? "info" : "ok",
@@ -2120,7 +2175,7 @@ async function suggestVoiceCard() {
     });
     if (filled) markDesignDirty();
     updateDesignChrome();
-    $("#design-details").open = true;
+    openSettingsTab("design");
     $("#voice-card").hidden = false;
     $("#voice-card").scrollIntoView({ behavior: "smooth", block: "center" });
     const warnings = Array.isArray(data?.warnings) ? data.warnings : [];
@@ -4336,13 +4391,13 @@ function renderProjectContext() {
   const isMode1 = (p?.mode ?? state.mode) === 1;
   if (p) {
     $("#form-hint").textContent = isMode1
-      ? (p.audio ? "音频已就绪：点「上传并分析」重建分段，或直接在时间轴微调切点。" : "拖入音频后点「上传并分析」，按波形自动分段。")
+      ? (p.audio ? "音频已就绪：到「音频」页签点「上传并分析」重建分段，或直接在时间轴微调切点。" : "到「音频」页签上传音频，再点「上传并分析」按波形分段。")
       : segments.length
         ? "改动台词后点「按台词分段」重建分段；只改参数点「保存设定」。"
         : "点「按台词分段」，按标点与语速切段。";
   } else {
     $("#form-hint").textContent = isMode1
-      ? "选择音频后点「上传并分析」，会先创建作品再上传分析。"
+      ? "先在「音频」页签选择音频，上传时会先创建作品再分析分段。"
       : "填写台词后新建作品，再点「按台词分段」。";
   }
 }
@@ -5150,15 +5205,23 @@ function bindDesignEvents() {
     updateDesignChrome();
     renderProjectContext();
   });
-  $("#design-typography-preset").addEventListener("change", (event) => {
-    const value = event.target.value;
-    if (value && value !== "__custom__") $("#design-typography").value = value;
+  $("#design-typography-presets").addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-preset]");
+    if (!chip) return;
+    $("#design-typography").value = chip.dataset.preset;
+    $$("#design-typography-presets [data-preset]").forEach((el) => {
+      el.classList.toggle("is-active", el === chip);
+    });
     markDesignDirty();
     updateDesignChrome();
   });
-  $("#design-material-preset").addEventListener("change", (event) => {
-    const value = event.target.value;
-    if (value && value !== "__custom__") $("#design-material").value = value;
+  $("#design-material-presets").addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-preset]");
+    if (!chip) return;
+    $("#design-material").value = chip.dataset.preset;
+    $$("#design-material-presets [data-preset]").forEach((el) => {
+      el.classList.toggle("is-active", el === chip);
+    });
     markDesignDirty();
     updateDesignChrome();
   });
@@ -5392,17 +5455,14 @@ function bindEvents() {
     const action = el.dataset.action;
     const index = el.dataset.index !== undefined ? Number(el.dataset.index) : null;
     if (action === "focus-create") {
-      // 表单已收进「作品设定」弹窗：先打开弹窗再聚焦，否则 focus 落在隐藏节点上
-      const modal = document.getElementById("modal-settings");
-      if (modal) modal.hidden = false;
-      const name = $("#f-name");
-      if (name) name.focus();
+      // 表单收进「作品设定」分页：先切到基础页再聚焦，否则 focus 落在隐藏页签里
+      openSettingsTab("content", { open: true });
+      setTimeout(() => $("#f-name")?.focus(), 60);
       return;
     }
     if (action === "focus-audio") {
-      const modal = document.getElementById("modal-settings");
-      if (modal) modal.hidden = false;
-      $("#audio-input")?.click();
+      openSettingsTab("audio", { open: true });
+      setTimeout(() => $("#audio-input")?.click(), 80);
       return;
     }
     if (action === "seg-tab") {
@@ -5510,6 +5570,7 @@ async function boot() {
   bindEvents();
   initAnchorControls();
   initRightTabs();
+  initSettingsTabs();
   setMode(1, { quiet: true });
   renderSegments();
   renderRun(null);

@@ -732,6 +732,21 @@ body.av-body.av-light{
 }
 .av-body.av-light .av-settings-body .mode-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .av-body.av-light .av-settings-body .ref-grid{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+.av-body.av-light .av-settings-tabs{border-bottom-color:var(--line);background:#fff}
+.av-body.av-light .av-settings-tab{color:#6e6e73}
+.av-body.av-light .av-settings-tab:hover{color:#1d1d1f;background:#f5f5f7}
+.av-body.av-light .av-settings-tab.is-active{color:#1d1d1f}
+.av-body.av-light .av-settings-tab.is-active::after{background:#1d1d1f}
+.av-body.av-light .av-chip{background:#fff;border-color:var(--line);color:#6e6e73}
+.av-body.av-light .av-chip:hover{border-color:var(--line-strong);color:#1d1d1f}
+.av-body.av-light .av-chip.is-active{background:#e8f2ff;border-color:#9cc7f5;color:#0066cc;font-weight:600}
+.av-body.av-light .av-settings-body .av-design-hero{background:#fbfbfd}
+.av-body.av-light .av-settings-body .av-design-phone{background:#f0f0f3}
+.av-body.av-light .av-settings-body .av-density-card,
+.av-body.av-light .av-settings-body .av-style-card{background:#fff}
+.av-body.av-light .av-settings-body .av-effect-list,
+.av-body.av-light .av-settings-body .av-color{background:#fff}
+.av-body.av-light .av-settings-body .av-ref-card{background:#f4f4f7}
 @media (max-width:720px){
   .av-body.av-light .av-settings-body .mode-cards{grid-template-columns:1fr}
 }

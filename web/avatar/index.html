@@ -304,8 +304,14 @@
       <h2>作品设定</h2>
       <button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button>
     </div>
+    <div class="av-settings-tabs" id="settings-tabs" role="tablist" aria-label="作品设定分页">
+      <button type="button" class="av-settings-tab is-active" data-settings-tab="content" role="tab">基础</button>
+      <button type="button" class="av-settings-tab" data-settings-tab="audio" role="tab">音频</button>
+      <button type="button" class="av-settings-tab" data-settings-tab="refs" role="tab">参考图</button>
+      <button type="button" class="av-settings-tab" data-settings-tab="design" role="tab">设计</button>
+    </div>
     <div class="modal-body av-settings-body" id="settings-body">
-    <section class="av-card" id="panel-content">
+    <section class="av-card av-settings-pane" id="panel-content" data-settings-pane="content">
       <div class="av-card-head">
         <div class="av-card-heading">
           <h3 class="av-card-title">台词 / 口播稿</h3>
@@ -358,7 +364,7 @@
         </div>
       </div>
     </section>
-    <section class="av-card" id="audio-card">
+    <section class="av-card av-settings-pane" id="audio-card" data-settings-pane="audio" hidden>
       <div class="av-card-head">
         <div class="av-card-heading">
           <h3 class="av-card-title">驱动音频</h3>
@@ -391,14 +397,16 @@
                     <i></i><span>语音识别辅助切分</span>
                   </label>
                   <div class="av-asr-opts" id="asr-opts">
-                    <select id="asr-model" class="input" title="ASR 模型">
-                      <option value="small" selected>small</option>
-                      <option value="base">base</option>
-                    </select>
-                    <select id="asr-language" class="input" title="识别语言">
-                      <option value="zh" selected>中文 zh</option>
-                      <option value="auto">自动 auto</option>
-                    </select>
+                    <div class="av-seg-control sm" id="asr-model-seg" role="tablist" aria-label="ASR 模型">
+                      <button type="button" class="av-seg-control-item active" data-value="small">small</button>
+                      <button type="button" class="av-seg-control-item" data-value="base">base</button>
+                    </div>
+                    <input type="hidden" id="asr-model" value="small">
+                    <div class="av-seg-control sm" id="asr-language-seg" role="tablist" aria-label="识别语言">
+                      <button type="button" class="av-seg-control-item active" data-value="zh">中文</button>
+                      <button type="button" class="av-seg-control-item" data-value="auto">自动</button>
+                    </div>
+                    <input type="hidden" id="asr-language" value="zh">
                   </div>
                 </div>
                 <button class="btn primary" id="btn-analyze" type="button">
@@ -451,36 +459,30 @@
               </div>
       </div>
     </section>
-    <section class="panel" id="panel-refs">
+    <section class="panel av-settings-pane" id="panel-refs" data-settings-pane="refs" hidden>
       <div class="panel-head"><h2>参考图</h2><span class="hint" id="ref-count">0 张</span></div>
       <div class="av-ref-upload">
-        <select id="ref-role" class="input">
-          <option value="performer">人物</option>
-          <option value="environment">场景</option>
-          <option value="appearance">服装 / 造型</option>
-          <option value="subject">道具 / 主体</option>
-          <option value="other">其他</option>
-        </select>
-        <button class="btn ghost sm" id="btn-ref-upload" type="button"><svg><use href="#i-image"/></svg>上传</button>
+        <div class="av-seg-control sm av-ref-roles" id="ref-role-seg" role="tablist" aria-label="参考图用途">
+          <button type="button" class="av-seg-control-item active" data-value="performer" title="人物参考">人物</button>
+          <button type="button" class="av-seg-control-item" data-value="environment" title="场景参考">场景</button>
+          <button type="button" class="av-seg-control-item" data-value="appearance" title="服装 / 造型">造型</button>
+          <button type="button" class="av-seg-control-item" data-value="subject" title="道具 / 主体">道具</button>
+          <button type="button" class="av-seg-control-item" data-value="other" title="其他">其他</button>
+        </div>
+        <input type="hidden" id="ref-role" value="performer">
+        <button class="btn primary sm" id="btn-ref-upload" type="button"><svg><use href="#i-image"/></svg>上传图片</button>
         <input type="file" id="ref-input" accept="image/*" hidden multiple>
       </div>
       <div class="ref-grid av-ref-grid" id="ref-grid"></div>
       <div class="av-ref-empty" id="ref-empty">还没有参考图。</div>
       <p class="panel-note tiny">人物参考图建议 1 张；场景、服装、道具按需补充。后期叠加的 logo 也可作为参考图上传。</p>
     </section>
-    <section class="panel" id="panel-design">
+    <section class="panel av-settings-pane" id="panel-design" data-settings-pane="design" hidden>
       <div class="panel-head">
         <h2>设计</h2>
+        <span class="pill" id="design-badge">生成式</span>
         <span class="hint" id="design-state">默认</span>
       </div>
-      <details class="av-design" id="design-details">
-        <summary>
-          <svg><use href="#i-chevron"/></svg>
-          <span>风格与效果</span>
-          <span class="pill" id="design-badge">生成式</span>
-          <span class="grow"></span>
-          <span class="av-design-mini">密度中</span>
-        </summary>
         <div class="av-design-body">
           <div class="av-design-hero" id="design-preview">
             <div class="av-design-phone">
@@ -511,18 +513,14 @@
             </div>
           </div>
           <div class="field">
-            <label>字体语言 <span class="hint">预设 / 自定义</span></label>
-            <div class="av-preset-row">
-              <select id="design-typography-preset" class="input"></select>
-              <input id="design-typography" class="input" placeholder="例如：中文黑体 + 数字等宽">
-            </div>
+            <label>字体语言 <span class="hint">点预设，或直接写</span></label>
+            <div class="av-chip-row" id="design-typography-presets"></div>
+            <input id="design-typography" class="input" placeholder="例如：中文黑体 + 数字等宽">
           </div>
           <div class="field">
-            <label>卡片材质 <span class="hint">预设 / 自定义</span></label>
-            <div class="av-preset-row">
-              <select id="design-material-preset" class="input"></select>
-              <input id="design-material" class="input" placeholder="例如：磨砂玻璃 + 细描边">
-            </div>
+            <label>卡片材质 <span class="hint">点预设，或直接写</span></label>
+            <div class="av-chip-row" id="design-material-presets"></div>
+            <input id="design-material" class="input" placeholder="例如：磨砂玻璃 + 细描边">
           </div>
           <div class="field">
             <label>效果清单 <span class="hint" id="design-effects-count">0 项</span></label>
@@ -564,9 +562,9 @@
               <div class="field">
                 <label>图形预算</label>
                 <div class="av-field-grid3">
-                  <div class="field"><label>max_groups</label><input id="design-budget-groups" class="input mono" type="number" min="1" max="4" step="1"></div>
-                  <div class="field"><label>flash / 秒</label><input id="design-budget-flashes" class="input mono" type="number" min="1" max="3" step="1"></div>
-                  <div class="field"><label>prompt_chars</label><input id="design-budget-chars" class="input mono" type="number" min="2000" max="20000" step="100"></div>
+                  <div class="field"><label>单帧图形组</label><input id="design-budget-groups" class="input mono" type="number" min="1" max="4" step="1"></div>
+                  <div class="field"><label>每秒闪烁</label><input id="design-budget-flashes" class="input mono" type="number" min="1" max="3" step="1"></div>
+                  <div class="field"><label>提示词字符上限</label><input id="design-budget-chars" class="input mono" type="number" min="2000" max="20000" step="100"></div>
                 </div>
               </div>
               <div class="field"><label>品牌色 <span class="hint">逗号分隔 hex</span></label>
@@ -578,12 +576,12 @@
               <div class="field"><label>品牌字体说明</label>
                 <textarea id="design-brand-typography" class="input" rows="2" spellcheck="false" placeholder="例如：标题用思源黑体 Heavy，数字用等宽；主色面积不超过 20%。"></textarea>
               </div>
-              <div class="field"><label>visual_style</label><input id="design-visual-style" class="input" placeholder="例如：暗调科技纪录片，低饱和冷色 + 琥珀高光"></div>
-              <div class="field"><label>motion_grammar</label><input id="design-motion-grammar" class="input" placeholder="例如：先入后出、从左下 35° 滑入，落定缓停"></div>
-              <div class="field"><label>icon_family</label><input id="design-icon-family" class="input" placeholder="例如：细描边线性图标，2px 圆头"></div>
+              <div class="field"><label>画面风格</label><input id="design-visual-style" class="input" placeholder="例如：暗调科技纪录片，低饱和冷色 + 琥珀高光"></div>
+              <div class="field"><label>动效语法</label><input id="design-motion-grammar" class="input" placeholder="例如：先入后出、从左下 35° 滑入，落定缓停"></div>
+              <div class="field"><label>图标体系</label><input id="design-icon-family" class="input" placeholder="例如：细描边线性图标，2px 圆头"></div>
               <div class="field-row">
-                <div class="field"><label>route</label><input id="design-route" class="input mono" placeholder="Ref2VA"></div>
-                <div class="field"><label>audio_mode</label>
+                <div class="field"><label>生成路由</label><input id="design-route" class="input mono" placeholder="Ref2VA"></div>
+                <div class="field"><label>音频模式</label>
                   <select id="design-audio-mode" class="input">
                     <option value="">按模式推导</option>
                     <option value="runtime">runtime</option>
@@ -604,7 +602,6 @@
             <button class="btn ghost sm block" type="button" id="btn-voicecard-suggest"><svg><use href="#i-spark"/></svg>AI 生成音色卡</button>
           </div>
         </div>
-      </details>
     </section>
     </div>
   </div>
