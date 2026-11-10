@@ -2843,11 +2843,13 @@ function focusSegmentAt(seconds) {
   }
   const stageRect = stage.getBoundingClientRect();
   const cardRect = card.getBoundingClientRect();
-  // 吸顶的标题栏 / 音轨会盖住滚动容器顶部，先把它们叠起来的高度让出来
+  // 吸顶的标题栏 / 音轨会盖住滚动容器顶部，先把它们叠起来的高度让出来。
+  // 注意：不能用“当前是否已经在顶部”判断——页面还在顶部时 #timeline 尚未吸顶，
+  // 但 scrollTo 之后它会变成 sticky，正好差一个波形高度把目标卡盖住。
   let reserved = 0;
   [$(".av-stage-head"), $("#timeline")].forEach((el) => {
     if (!el || el.classList.contains("hidden")) return;
-    if (el.getBoundingClientRect().top <= stageRect.top + reserved + 2) reserved += el.offsetHeight;
+    if (window.getComputedStyle(el).position === "sticky") reserved += el.offsetHeight;
   });
   const top = stageRect.top + reserved + 12;
   const bottom = stageRect.bottom - 12;
