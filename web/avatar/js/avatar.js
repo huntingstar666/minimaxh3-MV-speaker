@@ -2769,6 +2769,8 @@ function focusSegmentAt(seconds) {
   if (!card) return;
   $$("#seg-list .av-seg.is-focus").forEach((el) => el.classList.remove("is-focus"));
   card.classList.add("is-focus");
+  // 点音轨 = 要看这一段的提示词与参考图
+  activateSegmentTab(index, "prompt");
   const stage = document.querySelector(".av-stage");
   if (!stage) {
     card.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -4156,9 +4158,8 @@ function segCardHtml(project, seg) {
       ${warningsHtml(seg)}
       <div class="av-seg-tabs" role="tablist">
         ${tabBtn("clip", "预览 / 片段", takes.length)}
-        ${tabBtn("prompt", "提示词", null)}
+        ${tabBtn("prompt", "提示词 / 参考图", null)}
         ${tabBtn("text", "台词", null)}
-        ${tabBtn("ref", "参考图", null)}
       </div>
       <div class="av-seg-pane" data-pane="clip" ${activeTab === "clip" ? "" : "hidden"}>
         <div class="av-takes">
@@ -4171,15 +4172,13 @@ function segCardHtml(project, seg) {
         ${segmentNoteHtml(seg)}
         ${promptBlockHtml(project, seg)}
         ${beatsBlockHtml(project, seg)}
+        ${segmentRefsHtml(project, seg)}
       </div>
       <div class="av-seg-pane" data-pane="text" ${activeTab === "text" ? "" : "hidden"}>
         <textarea class="av-seg-text" rows="2" spellcheck="false" data-action="seg-text"
           data-index="${seg.index}" data-fkey="seg-text-${seg.index}"
           placeholder="${isMode1 ? "这一段的台词（可选：来自语音识别或按比例分配，不填不影响生成）…" : "这一段的台词…"}">${esc(seg.text || "")}</textarea>
         ${segmentVoicesHtml(project, seg)}
-      </div>
-      <div class="av-seg-pane" data-pane="ref" ${activeTab === "ref" ? "" : "hidden"}>
-        ${segmentRefsHtml(project, seg)}
       </div>
     </div>
     <div class="av-seg-actions">
@@ -4205,12 +4204,14 @@ function segCardHtml(project, seg) {
 function activateSegmentTab(index, tab) {
   const card = document.querySelector(`.av-seg[data-index="${index}"]`);
   if (!card) return;
-  state.segTabs[index] = tab;
+  // 参考图已经并进「提示词 / 参考图」页签，旧的 ref 调用一并归到这里
+  const target = tab === "ref" ? "prompt" : tab;
+  state.segTabs[index] = target;
   card.querySelectorAll(".av-seg-tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === tab);
+    btn.classList.toggle("active", btn.dataset.tab === target);
   });
   card.querySelectorAll(".av-seg-pane").forEach((pane) => {
-    pane.hidden = pane.dataset.pane !== tab;
+    pane.hidden = pane.dataset.pane !== target;
   });
 }
 
