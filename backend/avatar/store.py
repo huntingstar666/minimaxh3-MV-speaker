@@ -76,7 +76,7 @@ def create(name: str, mode: int, script: str = "", voice_description: str = "",
         raise ValueError("mode 必须是 1、2 或 3。")
     project: dict[str, Any] = {
         "id": project_id,
-        "name": (name or "未命名数字人").strip()[:80],
+        "name": (name or "未命名数字人").strip()[:config.MAX_NAME_CHARS],
         "created": time.time(),
         "updated": time.time(),
         "mode": mode,

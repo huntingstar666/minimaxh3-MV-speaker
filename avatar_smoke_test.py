@@ -176,6 +176,14 @@ def main() -> int:
               and int(edited.json()["project"]["segments"][0]["frames"]) >= avatar_config.MIN_FRAMES,
               str(edited.status_code))
 
+        renamed = client.patch(f"/avatar/api/projects/{project_id}",
+                               json={"name": "长" * 300}).json()["project"]["name"]
+        check("改名超长按 80 字截断", len(renamed) == avatar_config.MAX_NAME_CHARS,
+              str(len(renamed)))
+        blank_name = client.patch(f"/avatar/api/projects/{project_id}",
+                                  json={"name": "   "}).json()["project"]["name"]
+        check("改名留空保留原名", blank_name == renamed, blank_name[:8])
+
         # 3) 提示词：模式 3 不含 <Audio N>
         prompt3 = client.post(f"/avatar/api/projects/{project_id}/segments/0/prompt", json={}).json()
         text3 = str(prompt3.get("text") or "")

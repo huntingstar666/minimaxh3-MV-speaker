@@ -32,6 +32,8 @@ VOICE_SAMPLE_MAX = 15.0
 # ComfyUI MiniMaxH3ReferenceToVideo.ref_audios 的 autogrow max=3；
 # 前端、后端与提示词都必须以这个上限为准，避免第 4 个音色静默失效。
 MAX_VOICES = 3
+# 作品名统一截断长度：新建与改名共用，避免 PATCH 写进超长名字
+MAX_NAME_CHARS = 80
 
 # 台词规划默认：约 5 字/秒
 DEFAULT_CPS = 5.0

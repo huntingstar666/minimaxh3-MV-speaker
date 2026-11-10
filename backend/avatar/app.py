@@ -779,7 +779,11 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         # 创作模式随项目在创建时固定：前端已锁定，这里再挡一次，防止旧页面/脚本改坏
         if value != previous_mode:
             raise HTTPException(400, "创作模式在新建项目时确定，项目内不可更改；请新建作品。")
-    for key in ("name", "script", "voice_description", "language", "material_note"):
+    if "name" in payload:
+        # 与新建保持一致：空名保留原名，超长按上限截断（以前能写进 300 字）
+        name = str(payload.get("name") or "").strip()[:config.MAX_NAME_CHARS]
+        project["name"] = name or str(project.get("name") or "未命名数字人")
+    for key in ("script", "voice_description", "language", "material_note"):
         if key in payload:
             value = str(payload[key] or "")
             if key == "material_note" and value != str(project.get(key) or ""):
