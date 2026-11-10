@@ -130,7 +130,7 @@ python run.py          # Windows 可直接双击 start.bat
 | --- | --- |
 | Python | 3.10+（已在 3.13 验证） |
 | ComfyUI | 0.43.0 验证通过；需要新版 `object_info` 的 `COMBO` schema |
-| 显卡 | 已在 RTX 5090 24G+ 验证；1MP / 9:16 单段 11 秒约 2–3 分钟 |
+| 显卡 | 已在 RTX 5090 24G+ 验证；1MP 单段 11 秒约 2–3 分钟（竖屏 768×1376 / 横屏 1376×768 同档耗时相近；画幅以参考图比例为准） |
 | ffmpeg / ffprobe | 必须在 PATH，或设置绝对路径（设置面板 / 环境变量） |
 | 自定义节点 | `selflift-Avatar`、`ComfyUI-YCNodes-MiniMax-H3`、`ComfyUI-VideoHelperSuite`；seam 模式另需 `minimaxh3-long-video-seam`；可选 `ComfyUI-H3-LongVideo`（仅参考，不运行）、`KJNodes`（仅预览） |
 | 语音识别（可选） | `faster-whisper`（已在 1.2.1 验证）；模型默认下载到项目内 `<项目>/data/hf-cache`，整个文件夹拷走后仍可用 |
@@ -421,20 +421,125 @@ git log --oneline   # 出问题时可回到上一个可用版本
 
 AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py` → 重启 `start.bat`。提示词、项目数据都在 `data/`，不受 git 回滚影响。
 
-## 11. 数字人工作台（模式 1/2/3）
+## 11. 数字人工作台（A 音频驱动 / B 参考音色 / C 无音频参考）
 
-顶部「数字人工作台」进入 `/avatar/`（独立页面与后端子应用，MV 侧只多一行挂载）：
+顶部「数字人工作台」进入 `/avatar/`（独立页面与后端子应用，MV 侧只多一行挂载）。数据独立在 `data/avatar/`，不影响 MV 项目；接口前缀 `/avatar/api/*`。
 
-- **模式 1 音频驱动**：上传驱动音频 → 分析分段 / 波形拖切点 / 分合段 → 走 MV 的锁定音轨
-  工作流（SelfLift 双采），成片直接使用原始驱动音频；
-- **模式 2 参考音色**：2–15s 参考音频作为音色参考 + 台词，用 Ref2VA `ref_audios` + 原生音轨；
-- **模式 3 无音频口播**：台词 + 音色卡，H3 原生生成口播音频（约 5 字/秒规划分段）。
+### 11.1 页面与模块
 
-三种模式的系统提示词已随仓库携带（A 音频驱动 / B 参考音色 / C 无音频参考），按 mode 注入；
-LLM 输出会过提示词 lint 并自动修复一轮，失败回退内置六段模板。设计面板支持效果密度、
-主辅色、字体/材质、效果清单、节拍表（可 AI 建议）；`overlay` 模式下文字/logo 由
-ffmpeg 确定性叠加兜底（H3 只负责画面）。数据独立在 `data/avatar/`，不影响 MV 项目。
-详见 [docs/数字人工作台.md](docs/数字人工作台.md)。测试：
+| 层 | 文件 | 职责 |
+| --- | --- | --- |
+| 页面 | `web/avatar/index.html` | 左栏（创作模式 / 最近作品）、中栏（音轨 + 分段卡）、右栏（参数 / 运行·成片）、各类弹窗 |
+| 主控 | `web/avatar/js/avatar.js` | `state.project` 快照、REST 调用、模式与锚定 UI、波形/分段卡渲染、可视化裁切、轮询 run |
+| 波形 | `web/avatar/js/waveform.js` | canvas 波形、切点拖拽、播放头点击、双击切分 |
+| 弹窗 | `web/avatar/js/avatar-polish.js` | 「作品设定」四分页（基础 / 音频 / 参考图 / 设计）、右栏设置摘要、弹窗开关与 Esc |
+| 样式 | `web/avatar/css/avatar.css` + `avatar-light.css` | 深色骨架 + 浅色（`.av-body.av-light`）作用域 |
+
+状态只有一份：`state.project` 是后端 `project.json` 的快照。所有写操作都走接口，成功后用响应里的 `project` 整体替换快照，再局部重渲染；前端不做本地持久化。
+
+**创作模式绑定项目**：模式只在新建时写入；项目内左栏只高亮真实模式，其余卡变灰，点击只提示不切换；`PATCH` 改 mode 会被后端 400 拒绝。
+
+### 11.2 三种模式对照
+
+| 项 | A 音频驱动（mode 1） | B 参考音色（mode 2） | C 无音频参考（mode 3） |
+| --- | --- | --- | --- |
+| 驱动素材 | 上传任意音频/视频，解码成 `source.wav` | 2–15s 参考音频（可多段音色） | 无音频，只有台词 + 音色描述 |
+| 台词 | 可选（ASR 对照文本，不填也能生成） | 必填 | 必填 |
+| 分段方式 | 按波形切点：自动分析 + 拖拽改切点 / 按播放头切分 / 合并下段 | 按台词标点 + 语速（约 5 字/秒）自动分段 | 同 B |
+| 单段工作流 | 硬切：`backend/workflow.py::build`（锁定音轨）<br>锚定：`backend/avatar/workflow.py::build_anchor`（FL2VA） | `backend/avatar/workflow.py::build`（Ref2VA + `ref_audios`） | 同 B，但不接参考音频 |
+| 音轨 | 原始完整音频，生成片段音轨丢弃 | 每段 H3 原生生成，成片按段拼接 | 同 B（台词驱动生成） |
+| 段间模式 | 硬切 / 首尾帧锚定（可选） | 固定硬切，不跨段传递 | 固定硬切 |
+| 种子 | 硬切：0 = 每段随机；锚定：0 = 项目固定种子 | 0 = 每段随机 | 0 = 每段随机 |
+| 成片 | 视频段拼接 + 混原音 | 视频段拼接 + 生成音轨拼接 | 同 B |
+
+### 11.3 参数从界面到 ComfyUI 的链路
+
+1. **读表单**：`readForm()` 收 `name / script / voice_description / material_note / chars_per_second / target_seconds / max_seconds`；`readGeneration()` 收画幅、清晰度、种子、模型、LoRA、步数、二采参数、`stitch`、`anchor_*`、`anchor_resize`。
+2. **创建**：`POST /avatar/api/projects`（multipart）→ `store.create()` 写 `data/avatar/projects/<id>/project.json`。**mode 只在这里写入**。
+3. **保存**：`PATCH /avatar/api/projects/{id}`。`generation` 深合并；参数真的变了才把 `final.stale=true`；`mode` 与当前不同直接 400。
+4. **启动生成**：`POST /api/projects/{id}/generate`（可带 `only` / `force`）→ `AvatarRunner.start()` → 抢 `backend/jobs.py::GPU_LOCK`（与 MV 共用，保证单卡串行）→ `_run()`。
+5. **合并参数**：`workflow.resolve_generation(project.generation)` = 默认参数 + 项目值 + ComfyUI `object_info` 实际可用模型（`_choose()` 按关键词回退：`fl2va` / `qwen3vl` / `video_vae` / `DMAD_4step` / `latent_upscaler_3d`）；锚定再套 `anchor_plain_generation()`（Cobijada + dmad@0.8 + int8）或 `anchor_selflift_generation()`（fl2va int8 + nvfp4 + DMAD@0.65），项目里存的旧模型栈不生效。
+6. **上传素材**：参考图 → `comfy.upload()`；模式 2 的 `voices/*.wav` 按序上传；模式 1 每段用 `audio_pipeline.slice_audio()` 切出本段 wav 再上传。
+7. **构图与提交**：调用对应 workflow builder 生成 ComfyUI API 节点图（纯 dict）→ `comfy.queue()`（POST `/prompt`）→ `comfy.wait()`（轮询 `/history`，带进度回调与取消）。
+8. **取片与落盘**：`comfy.extract_outputs()` → `comfy.view()` 拉 mp4 → （overlay 模式）ffmpeg 叠加 → `_store_take()` 写 `takes/seg_xxxx/t_000N.mp4` + `.jpg` + 元数据（seed / frames / `segment_signature`）→ 回写 `project.segments[].selected_take`。
+
+帧数：台词段用 `plan.frames_for_seconds()` 换算成 H3 合法帧数 `5+17k`（124–719，约 5.17–29.96s）；模式 1 的每段 `edit_frames` 是 24fps 时间刻度，提交前按输出帧率换算成 `length`。
+
+### 11.4 单段工作流内部
+
+**A 硬切 · 锁定音轨**（`backend/workflow.py::build`）
+
+```
+UNETLoader → LoRA → Attention → (SigmaShift) → ResolutionSelector
+LoadImage(参考图 1..n) ─┐
+CLIP ───────────────────┴→ MiniMaxH3ReferenceToVideo(prompt, width, height, length)
+                                     │ video latent
+LoadAudio(本段 wav) → LTXVAudioVAEEncode → SolidMask(0) → SetLatentNoiseMask
+                                     │ audio latent（整段锁死）
+                          LTXVConcatAVLatent(video + audio)
+                                     ↓
+KSamplerSelect + BasicScheduler (+ H3SigmaRefiner)
+                                     ↓
+SelfLiftAvatarH3Sampler（transition_step / lowres_scale / rho / w_min / w_max / 放大模型 / 分块）
+                                     ↓
+LTXVSeparateAVLatent → VAEDecode → VHS_VideoCombine(audio = 原始本段 wav)
+```
+
+关键点：音频 latent 用全 0 遮罩锁住，所以成片音轨与上传音频 1:1 一致，模型只负责画面。
+
+**A 锚定 · FL2VA 首尾同图**（`backend/avatar/workflow.py::build_anchor`）
+
+首帧 / 尾帧 / 中间锚点图各自 `LoadImage`（同图复用节点；`anchor_resize=true` 时按 `anchor_upscale` 建 `ImageScale`，裁切过的图用 `stretch`、未裁切用 `center_crop`）→ `MiniMaxH3ImageToVideo(first_frame, last_frame, length)` → 分离视频 latent → 本段音频编码 + 遮罩锁定 → `LTXVConcatAVLatent` → `MiniMaxH3AddGuide`（frame 0 与中间锚点）→ `ConditioningZeroOut` 负向 → `BasicScheduler` + `SamplerCustom`（plain）或 `SelfLiftAvatarH3SamplerFix`（selflift 二采）→ `VAEDecode` + `VHS_VideoCombine`。`anchor_seed` 必须 >0（0 时由项目 ID 派生固定种子）。
+
+**B/C · Ref2VA + 原生音轨**（`backend/avatar/workflow.py::build`）
+
+```
+UNETLoader → LoRA → Attention → ResolutionSelector
+LoadImage(参考图) + [LoadAudio(音色 1..n) → ref_audios]
+        ↓
+MiniMaxH3ReferenceToVideo(prompt, ref_images, ref_audios)
+        ↓ latent 直接进采样器（不做 AV concat）
+SelfLiftAvatarH3Sampler
+        ↓
+VAEDecode（视频） + VAEDecodeAudio（生成音轨） → VHS_VideoCombine
+```
+
+模式 2 的 `ref_audios` 顺序与提示词里的 `<Audio N>` 一一对应；模式 3 不接音频，台词与音色卡只写进提示词，由模型自己生成口播音轨。
+
+### 11.5 拼接是怎么生效的
+
+- **选片**：每段以 `selected_take` 为准；重跑会新增 take 不覆盖旧的。改台词 / 改切点会让旧 take 的 `segment_signature` 不匹配，生成结果直接丢弃，避免错配。
+- **合成**：`POST /api/projects/{id}/assemble` 只跑 ffmpeg，不碰 ComfyUI。
+  - A：每段 `media.normalize()` 成精确 `edit_frames` 帧（去音轨、偶数尺寸、crf 18）→ concat demuxer → 混入 `source.wav`（**原始完整音轨**）。
+  - B/C：每段 normalize 成 `frames` 帧 → `ffmpeg -vn` 抽每段生成音轨 → concat 音频 → concat 视频 → 混流。
+  - `media.concat()` 会先校验所有片段分辨率一致；换画幅后混拼会直接报错，必须先整片重生成。
+- **产物**：`final/final.mp4`（`+faststart`）、`final/cover.jpg`、`final/audio.wav`（A = 原音拷贝，B/C = 拼接后的生成音轨），并在 `final.take_signature` 记录选片签名；换选片段后前端显示「需要重新合成」。
+- **跨段策略**：三种模式都**逐段独立生成，不传上一段尾帧**。锚定不是跨段续接，只是让每段首尾都贴近同一张参考图，避免误差累积；段与段之间始终是硬剪切点。
+
+### 11.6 前后端职责
+
+- 前端：表单 / 裁切 / 波形时间线 / 预览 / 挑片 / 轮询 `/run`，不直接访问 ComfyUI。
+- `backend/avatar/app.py`：路由、校验、落盘（`store.py` 原子读写 `project.json`）。
+- `backend/avatar/job.py`：GPU 串行、素材上传、构图、等待、take 管理、拼接；同一项目同时只允许一个 run，失败/取消会把卡住的段收尾。
+- `backend/avatar/workflow.py`：三种模式的节点图与模型栈；`backend/workflow.py`：模式 1 硬切用的锁定音轨图；`backend/comfy.py`：ComfyUI HTTP/WS 客户端；`backend/media.py`：ffmpeg 归一化 / 拼接 / 封面。
+- 项目数据：`data/avatar/projects/<id>/{project.json, source.wav, refs/, anchor/, voice/, voices/, takes/, final/, state/}`。
+
+### 11.7 常见报错定位
+
+| 现象 | 原因 |
+| --- | --- |
+| `400 创作模式在新建项目时确定…` | 项目内尝试改 mode；换模式请新建作品 |
+| `缺少生成参数：…` | `generation` 里的模型名不在 ComfyUI 下拉里，重选或清空 `settings.json` 的默认值 |
+| `分段分辨率不一致` | 中途改过画幅；需在同画幅下重新生成全部片段再合成 |
+| `第 N 段还没有可用片段` | 该段未生成或 take 因改台词被丢弃 |
+| 锚定报错 `必须使用固定种子` / 缺节点 | `anchor_seed=0` 未派生、或 ComfyUI 缺 `MiniMaxH3ImageToVideo` / `MiniMaxH3AddGuide` / `ImageScale` |
+| 锚定 SelfLift 报错 | 缺 `upscaler_model`，或低清步数不满足 `1 ≤ transition_step < steps` |
+
+**画幅口径**：`aspect_ratio` 必须与参考图实际比例一致（16:9 → 1MP×32 = **1376×768**；9:16 → **768×1376**）。比例填错不会报错，只会在预裁切时裁掉画面，规则见 [docs/数字人工作台.md](docs/数字人工作台.md) 的「画幅与输出尺寸」。
+
+**首尾帧提示词**：默认固定模板 `plan.ANCHOR_DEFAULT_PROMPT`，自动写进每段（`prompt_source=template`），手改后以用户版本为准；提示词里不要写 `black` 之类否定色词（单采会把背景压成纯黑）。
+
+三种模式的系统提示词随仓库携带（A / B / C），按 mode 注入；LLM 输出会过 lint 并自动修复一轮，失败回退内置六段模板。设计面板支持效果密度、主辅色、字体/材质、效果清单、节拍表（可 AI 建议）；`overlay` 模式下文字/logo 由 ffmpeg 确定性叠加兜底。详见 [docs/数字人工作台.md](docs/数字人工作台.md)。测试：
 `python avatar_smoke_test.py`、`python avatar_audio_smoke_test.py`、`python avatar_lint_test.py`、
 `python avatar_overlay_test.py`。
 

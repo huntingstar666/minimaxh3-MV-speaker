@@ -870,8 +870,17 @@ function syncAnchorUI() {
   if (entry) entry.hidden = !on;
   const hint = $("#anchor-hint");
   if (hint) hint.hidden = !on;
+  // 段间模式只对模式 1 有意义：模式 2/3 逐段生成、每段自带音轨，固定硬切
+  const stitchSeg = $("#f-stitch-seg");
+  if (stitchSeg) stitchSeg.hidden = !anchorAvailable;
+  const stitchStatic = $("#stitch-static-hint");
+  if (stitchStatic) stitchStatic.hidden = anchorAvailable;
   const note = $("#anchor-mode-note");
-  if (note) note.textContent = anchorAvailable ? "仅模式 1 · 固定种子" : "仅模式 1 可用";
+  if (note) {
+    note.textContent = anchorAvailable
+      ? (on ? "仅模式 1 · 固定种子" : "模式 1 · 可锚定")
+      : "模式 2/3 · 逐段生成";
+  }
   const seedField = $("#f-seed")?.closest(".field");
   const seedLabel = seedField?.querySelector("label");
   if (seedLabel) {
@@ -887,12 +896,21 @@ function syncAnchorUI() {
   const wfTitle = $("#wf-title");
   const wfTemplate = $("#wf-template");
   const wfDesc = $("#wf-desc");
-  if (wfTitle) wfTitle.textContent = on ? "首尾帧 · FL2VA 首尾同图" : "Ref 模式 · 锁定音轨";
+  if (wfTitle) {
+    wfTitle.textContent = on ? "首尾帧 · FL2VA 首尾同图"
+      : mode === 2 ? "参考音色 · 逐段生成"
+        : mode === 3 ? "无音频参考 · 逐段生成"
+          : "Ref 模式 · 锁定音轨";
+  }
   if (wfTemplate) wfTemplate.textContent = on ? "提示词：FL2VA 固定模板" : "提示词：Ref2VA 六段";
   if (wfDesc) {
     wfDesc.textContent = on
       ? "参数：参考图（首尾同图）+ 段音频 + 固定种子 → FL2VA 工作流"
-      : "参数：驱动音频 + 参考图 + 每段随机种子 → 锁定音轨工作流（SelfLift 双采）";
+      : mode === 2
+        ? "参数：参考音频（音色）+ 参考图 + 每段随机种子 → H3 参考生成（视频自带生成音轨）"
+        : mode === 3
+          ? "参数：台词 + 音色描述 + 参考图 + 每段随机种子 → H3 参考生成（台词驱动，自带音轨）"
+          : "参数：驱动音频 + 参考图 + 每段随机种子 → 锁定音轨工作流（SelfLift 双采）";
     wfDesc.title = wfDesc.textContent;
   }
   const allLabel = $("#btn-prompts-all-label");
