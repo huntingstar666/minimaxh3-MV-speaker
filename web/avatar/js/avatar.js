@@ -659,6 +659,7 @@ const api = {
   assemble: (id) => request(`${projectPath(id)}/assemble`, { method: "POST", body: {} }),
   downloadUrl: (id) => `${projectPath(id)}/download`,
   exportUrl: (id) => `${projectPath(id)}/export`,
+  exportFullUrl: (id) => `${projectPath(id)}/export?full=true`,
   importProject: (file) =>
     request(`${API}/projects/import`, { method: "POST", form: formData({}, "package", file) }),
 };
@@ -5609,6 +5610,10 @@ function bindEvents() {
   $("#btn-backup")?.addEventListener("click", openBackupModal);
   $("#btn-backup-now")?.addEventListener("click", createProjectBackup);
   $("#btn-backup-refresh")?.addEventListener("click", () => loadBackups());
+  $("#btn-backup-full")?.addEventListener("click", () => {
+    if (!state.project) return;
+    window.location.href = api.exportFullUrl(state.project.id);
+  });
   $("#backup-list")?.addEventListener("click", (event) => {
     const el = event.target.closest('[data-action="restore-backup"]');
     if (el?.dataset.name) restoreProjectBackup(el.dataset.name);

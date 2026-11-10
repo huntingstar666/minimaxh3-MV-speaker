@@ -101,7 +101,7 @@
       <div class="panel-head"><h2>最近作品</h2><span class="hint" id="project-count">0 个</span></div>
       <div class="av-form-actions-row">
         <button class="btn ghost sm" id="btn-import-pack"><svg><use href="#i-plus"/></svg>导入 .h3avatar 包</button>
-        <button class="btn ghost sm" id="btn-export-pack"><svg><use href="#i-film"/></svg>导出当前包</button>
+        <button class="btn ghost sm" id="btn-export-pack" title="创作包：manifest + 提示词 + 参考图/音色（不含生成片段与成片）"><svg><use href="#i-film"/></svg>导出创作包</button>
         <button class="btn ghost sm" id="btn-backup"><svg><use href="#i-layers"/></svg>备份与恢复</button>
         <button class="btn ghost sm" id="btn-trash"><svg><use href="#i-trash"/></svg>回收站</button>
         <input id="pack-input" type="file" accept=".zip,.h3avatar" hidden>
@@ -901,6 +901,7 @@
       <div class="av-form-actions-row">
         <button class="btn primary sm" type="button" id="btn-backup-now"><svg><use href="#i-plus"/></svg>立即备份</button>
         <button class="btn ghost sm" type="button" id="btn-backup-refresh"><svg><use href="#i-refresh"/></svg>刷新</button>
+        <button class="btn ghost sm" type="button" id="btn-backup-full" title="包含参考图、生成片段、成片与锚定图"><svg><use href="#i-film"/></svg>下载完整备份</button>
       </div>
       <div class="av-backup-list" id="backup-list"></div>
     </div>

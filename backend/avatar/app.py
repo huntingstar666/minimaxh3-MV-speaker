@@ -14,6 +14,7 @@ import shutil
 import tempfile
 import time
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -148,6 +149,23 @@ def _backup(project_id: str, reason: str) -> str:
         return store.backup(project_id, reason)
     except OSError as error:
         raise HTTPException(500, f"项目备份写入失败，已取消操作：{error}") from error
+
+
+def _full_backup_zip(project_id: str) -> Path:
+    """把整个项目目录打包（含参考图、片段、成片、锚定图、备份）。"""
+    base = store.project_dir(project_id)
+    folder = base / "state"
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"full-{uuid.uuid4().hex[:8]}.zip"
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in base.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(base).as_posix()
+            if relative.startswith("state/full-") or relative.endswith(".tmp"):
+                continue
+            archive.write(path, relative)
+    return target
 
 
 def _row(project: dict[str, Any], index: int) -> dict[str, Any]:
@@ -553,17 +571,25 @@ def import_project(package: UploadFile = File(...), name: str | None = Form(None
 
 
 @app.get("/api/projects/{project_id}/export")
-def export_project(project_id: str) -> FileResponse:
-    """把项目导出成 .h3avatar.zip（manifest + design.md + audio/voice/refs + 提示词）。"""
+def export_project(project_id: str, full: bool = False) -> FileResponse:
+    """默认导出创作包；full=true 导出整个项目目录（含片段/成片/锚定图）。"""
     project = _project(project_id)
-    try:
-        target = pack.export_pack(project_id)
-    except pack.PackError as error:
-        raise HTTPException(400, str(error)) from error
-    except Exception as error:  # noqa: BLE001
-        raise HTTPException(400, f"导出失败：{error}") from error
     safe = "".join(ch for ch in str(project.get("name") or "avatar")
                    if ch not in '\\/:*?"<>|').strip() or "avatar"
+    if full:
+        try:
+            target = _full_backup_zip(project_id)
+        except OSError as error:
+            raise HTTPException(500, f"完整备份打包失败：{error}") from error
+        filename = f"{safe}-完整备份.zip"
+    else:
+        try:
+            target = pack.export_pack(project_id)
+        except pack.PackError as error:
+            raise HTTPException(400, str(error)) from error
+        except Exception as error:  # noqa: BLE001
+            raise HTTPException(400, f"导出失败：{error}") from error
+        filename = f"{safe}.h3avatar.zip"
 
     def cleanup() -> None:
         try:
@@ -572,7 +598,7 @@ def export_project(project_id: str) -> FileResponse:
             pass
 
     return FileResponse(target, media_type="application/zip",
-                        filename=f"{safe}.h3avatar.zip", background=BackgroundTask(cleanup))
+                        filename=filename, background=BackgroundTask(cleanup))
 
 
 @app.post("/api/projects")

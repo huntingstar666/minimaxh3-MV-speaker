@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 import shutil
@@ -24,6 +25,7 @@ import sys
 import tempfile
 import time
 import wave
+import zipfile
 from pathlib import Path
 
 import httpx
@@ -258,6 +260,14 @@ def main() -> int:
         bad_restore = client.post(f"/avatar/api/projects/{project2_id}/restore",
                                   json={"name": "../../project.json"})
         check("非法备份名被拒绝", bad_restore.status_code == 400, str(bad_restore.status_code))
+        full_export = client.get(f"/avatar/api/projects/{project2_id}/export?full=true")
+        full_names = (zipfile.ZipFile(io.BytesIO(full_export.content)).namelist()
+                      if full_export.status_code == 200 else [])
+        check("完整备份包含项目文件",
+              "project.json" in full_names
+              and any(name.startswith("refs/") for name in full_names)
+              and any(name.startswith("voices/") for name in full_names),
+              str(full_names[:8]))
         client.post(f"/avatar/api/projects/{project2_id}/plan",
                     json={"script": "第一句台词。第二句台词。"})
         backups = client.get(f"/avatar/api/projects/{project2_id}/backups").json()["backups"]
