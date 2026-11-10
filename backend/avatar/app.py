@@ -130,7 +130,14 @@ def _project(project_id: str) -> dict[str, Any]:
         project = store.get(project_id)
     except FileNotFoundError as error:
         raise HTTPException(404, "数字人项目不存在。") from error
-    if _ensure_director_fields(project):
+    changed = _ensure_director_fields(project)
+    final = project.get("final")
+    if isinstance(final, dict) and final.get("take_signature"):
+        # 生成中途失败/取消时只写了新 take、没有重新合成；读取时补一次选片指纹校验
+        if str(final["take_signature"]) != job.take_signature(project):
+            final["stale"] = True
+            changed = True
+    if changed:
         store.save(project)
     return project
 

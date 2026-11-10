@@ -276,6 +276,15 @@ def main() -> int:
         check("音色上限 3 与 ComfyUI 一致",
               fourth_voice.status_code == 400 and "最多 3 个音色" in fourth_voice.text,
               str(fourth_voice.status_code))
+        avatar_store.mutate(
+            project2_id,
+            lambda latest: latest.__setitem__(
+                "final", {"path": "final/final.mp4", "take_signature": "old-signature",
+                          "stale": False}))
+        stale_project = client.get(f"/avatar/api/projects/{project2_id}").json()["project"]
+        check("成片选片签名不一致时自动标记过期",
+              (stale_project.get("final") or {}).get("stale") is True,
+              str((stale_project.get("final") or {}).get("stale")))
 
         # 6) 生成前置校验
         empty = client.post("/avatar/api/projects", data={"name": "空参考", "mode": "2",

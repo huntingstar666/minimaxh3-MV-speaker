@@ -1006,6 +1006,9 @@ class AvatarRunner:
             takes.append(record)
             target["selected_take"] = take_id
             target["output"] = record["file"]
+            if isinstance(latest.get("final"), dict):
+                # 即使后续段失败/取消、没有走 _finish_run 重新合成，也要让旧成片显示过期
+                latest["final"]["stale"] = True
             while len(takes) > MAX_TAKES_PER_SEGMENT:
                 victim = next((item for item in takes
                                if item.get("take_id") not in {take_id, target.get("selected_take")}
