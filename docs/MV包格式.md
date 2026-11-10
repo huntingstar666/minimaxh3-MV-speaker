@@ -54,7 +54,8 @@
     "prompt_rule": "",
     "style": "视觉风格：暖阳赛璐璐CG。……",
     "filter": "影像处理：柔和肤色，低对比人像胶片。……",
-    "generation": {"output_fps": 24, "aspect_ratio": "9:16 (Portrait Widescreen)", "stitch": "hard"}
+    "generation": {"output_fps": 24, "aspect_ratio": "9:16 (Portrait Widescreen)",
+                   "stitch": "mixed", "seam_overlap": 22}
   },
 
   "timeline": {
@@ -68,6 +69,7 @@
       "start": 0.0,
       "end": 11.8,
       "visual_type": "performance",
+      "stitch": "hard",
       "brief": "画面任务：人物演唱\n声音关系：……\n开场构图：……",
       "note": "本段创作要求（可空）",
       "lyrics": "本段歌词（可空）",
@@ -93,10 +95,11 @@
 | `project.script` | 否 | 歌词 / 口播稿（也会填进左栏「歌词/台词」） |
 | `project.material_note` | 否 | 全片创作要求，对每段生效 |
 | `project.style` / `filter` | 否 | 全局风格 / 滤镜，会追加到提示词顶部 |
-| `project.generation` | 否 | 只接受工作台已知参数（画幅、帧率、步数、拼接方式等），未知键忽略 |
+| `project.generation` | 否 | 只接受工作台已知参数（画幅、帧率、步数、拼接方式等），未知键忽略。`stitch` 取 `hard`/`seam`/`mixed`；`seam_overlap` 取 `22`/`39`（MV 不接受 5，5 仅供数字人模式 2） |
 | `timeline.cuts_seconds` | 否 | 内部切点（秒，严格递增）。**省略则导入后自动分析分段** |
 | `timeline.use_asr` | 否 | 自动分析时是否启用语音识别，默认 false |
 | `segments[]` | 否 | 按 `index` 或 `start/end` 匹配已生成的段，写入简报/提示词/运镜等 |
+| `segments[].stitch` | 否 | 行级接续方式，`hard`（默认，硬切）或 `seam`（与上一段 latent 续接）；只在 `generation.stitch=mixed` 时生效。第 1 段没有上一段，写 `seam` 会被归一成 `hard` |
 
 ### refs.role
 
@@ -158,6 +161,9 @@ detailed_description → overall_soundscape → non_diegetic_music`），并按�
   - 导入包由工作台导出、或提示词已经包含风格/滤镜/运镜时，带上它可避免再追加前缀；
   - 不写则导入后仍按当前 `style`/`filter`/`motion` 在生成时追加前缀。
 - `ref_ids` 是参考图下标数组（按 `refs[]` 顺序，0 开始），`null` 表示继承全局。
+- `stitch` 是行级接续方式：`seam` 表示本段与**上一段**之间 latent 续接，连续 `seam` 的段会被
+  归为同一条链；`hard` 或省略表示硬切。第 1 段（`index=0`）没有上一段，`seam` 会被归一成 `hard`。
+  导出时始终写出 `stitch`，保证包能原样导回。
 
 > 提示词建议使用 H3 六段结构（`subject_definitions` → `summary` →
 > `retention_analysis` → `detailed_description` → `overall_soundscape` →
@@ -204,7 +210,7 @@ python skills/mv-pack-builder/scripts/validate_pack.py 我的MV.h3pack.zip \
 
 当前项目的「导出 MV 包」会生成：
 
-- `manifest.json`（含逐段 `brief`、`final_prompt`、`motion`、`prompt_overlays`、`ref_ids`）
+- `manifest.json`（含逐段 `brief`、`final_prompt`、`motion`、`prompt_overlays`、`ref_ids`、`stitch`）
 - `audio/source.wav`
 - `refs/…`
 - `README.md`

@@ -28,8 +28,12 @@ ALLOWED_DOC = {".json", ".md", ".txt"}
 VALID_ROLES = {"performer", "environment", "appearance", "subject", "other"}
 MANIFEST_NAMES = ("manifest.json", "h3mv.json", "pack.json")
 GENERATION_KEYS = set(settings.DEFAULTS["generation"].keys()) | {
-    "output_fps", "stitch", "seam_second_pass",
+    "output_fps", "stitch", "seam_overlap", "seam_second_pass",
 }
+VALID_STITCH = {"hard", "seam", "mixed"}
+VALID_ROW_STITCH = {"hard", "seam"}
+# MV 只接受 22/39；5 仅供数字人模式 2（方案 §9.1 决策 2）。
+MV_OVERLAPS = {22, 39}
 
 
 class PackError(ValueError):
@@ -117,6 +121,19 @@ def _number(value: Any, label: str, low: float, high: float) -> float:
     return number
 
 
+def _integer(value: Any, label: str) -> int:
+    """严格取整：拒绝 bool、小数与 "22.5" 这类会悄悄改变窗口计划的写法。"""
+    if isinstance(value, bool):
+        raise PackError(f"{label} 必须是整数。")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise PackError(f"{label} 必须是整数。") from None
+    if not number.is_integer():
+        raise PackError(f"{label} 必须是整数。")
+    return int(number)
+
+
 def validate_manifest(manifest: Any) -> dict[str, Any]:
     if not isinstance(manifest, dict):
         raise PackError("manifest.json 必须是 JSON 对象。")
@@ -173,6 +190,27 @@ def validate_manifest(manifest: Any) -> dict[str, Any]:
         _number(project["target_seconds"], "project.target_seconds", 5, 30)
     if "max_seconds" in project:
         _number(project["max_seconds"], "project.max_seconds", 5, 30)
+    generation = project.get("generation")
+    if generation is not None:
+        if not isinstance(generation, dict):
+            raise PackError("project.generation 必须是对象。")
+        stitch = str(generation.get("stitch") or "hard").strip().lower()
+        if stitch not in VALID_STITCH:
+            raise PackError(
+                f"project.generation.stitch 不支持：{generation.get('stitch')}"
+                "（只能是 hard / seam / mixed）。")
+        if "seam_overlap" in generation and generation["seam_overlap"] is not None:
+            overlap = _integer(generation["seam_overlap"],
+                               "project.generation.seam_overlap")
+            # 窗口长度 = 可见长度（17 的倍数）+ overlap，必须仍落在 5+17k 上。
+            if overlap < 5 or (overlap - 5) % 17:
+                raise PackError(
+                    "project.generation.seam_overlap 必须是 5+17k 的 guide 帧数，"
+                    f"收到 {overlap}。")
+            if overlap not in MV_OVERLAPS:
+                raise PackError(
+                    "MV 的 project.generation.seam_overlap 只支持 22 或 39"
+                    "（5 仅供数字人模式 2）。")
     segments = manifest.get("segments") or []
     if not isinstance(segments, list) or len(segments) > 200:
         raise PackError("segments 必须是最多 200 条的数组。")
@@ -181,6 +219,12 @@ def validate_manifest(manifest: Any) -> dict[str, Any]:
             raise PackError(f"segments[{index}] 必须是对象。")
         if "visual_type" in item and item["visual_type"] not in {"performance", "atmosphere", "environment"}:
             raise PackError(f"segments[{index}].visual_type 无效。")
+        if "stitch" in item and item["stitch"] is not None:
+            row_stitch = str(item["stitch"] or "hard").strip().lower()
+            if row_stitch not in VALID_ROW_STITCH:
+                raise PackError(f"segments[{index}].stitch 只能是 hard 或 seam。")
+            # 第 1 段没有上一段：与 UI / seam.group_chains 一致，强制视为 hard。
+            item["stitch"] = "hard" if index == 0 else row_stitch
         if "ref_ids" in item and item["ref_ids"] is not None:
             if not isinstance(item["ref_ids"], list):
                 raise PackError(f"segments[{index}].ref_ids 必须是数组或 null。")
@@ -350,6 +394,9 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
                 continue
             if "visual_type" in item:
                 row["visual_type"] = item["visual_type"]
+            if "stitch" in item:
+                # 第 1 段没有上一段，无论包里写了什么都落成 hard。
+                row["stitch"] = "hard" if row is rows[0] else item["stitch"]
             for key in ("brief", "note", "lyrics", "motion"):
                 if key in item:
                     row[key] = str(item.get(key) or "")
@@ -424,12 +471,36 @@ def _check_export_cuts(project: dict[str, Any], segments: list[dict],
         previous = float(value)
 
 
+def _row_stitch(row: dict[str, Any]) -> str:
+    """行级接续方式：非法/缺省一律落 hard，保证导出的包一定能再导回来。"""
+    stitch = str(row.get("stitch") or "hard").strip().lower()
+    return stitch if stitch in VALID_ROW_STITCH else "hard"
+
+
+def _clean_generation(project: dict[str, Any]) -> dict[str, Any]:
+    """只带已知参数，并把接续相关字段收敛到导入端支持的取值。"""
+    generation = {key: value for key, value in (project.get("generation") or {}).items()
+                  if key in GENERATION_KEYS}
+    stitch = str(generation.get("stitch") or "hard").strip().lower()
+    generation["stitch"] = stitch if stitch in VALID_STITCH else "hard"
+    if "seam_overlap" in generation:
+        try:
+            overlap = _integer(generation["seam_overlap"], "seam_overlap")
+        except PackError:
+            generation.pop("seam_overlap")
+        else:
+            if overlap in MV_OVERLAPS:
+                generation["seam_overlap"] = overlap
+            else:
+                generation.pop("seam_overlap")
+    return generation
+
+
 def _manifest_from_project(project: dict[str, Any]) -> dict[str, Any]:
     segments = project.get("segments") or []
     cuts = [round(float(row.get("end") or 0), 3) for row in segments[:-1]]
     _check_export_cuts(project, segments, cuts)
-    generation = {key: value for key, value in (project.get("generation") or {}).items()
-                  if key in GENERATION_KEYS}
+    generation = _clean_generation(project)
     director_config = {key: value for key, value in (project.get("director") or {}).items()
                        if key in ("performance_intensity", "note", "soundscape",
                                   "rule_config")}
@@ -469,6 +540,7 @@ def _manifest_from_project(project: dict[str, Any]) -> dict[str, Any]:
             "start": float(row.get("start") or 0),
             "end": float(row.get("end") or 0),
             "visual_type": row.get("visual_type") or "performance",
+            "stitch": "hard" if index == 0 else _row_stitch(row),
             "brief": str(row.get("brief") or ""),
             "note": str(row.get("note") or ""),
             "lyrics": str(row.get("lyrics") or row.get("text") or ""),
