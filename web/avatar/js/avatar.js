@@ -927,7 +927,7 @@ function syncAnchorUI() {
   if (allBtn) {
     allBtn.title = on
       ? "可选：为每段写入首尾帧固定模板（不调用 LLM）"
-      : "可选：为每段润色提示词（运行不会自动润色）";
+      : "可选：为每段润色提示词（运行会为空白提示词调用本地 LLM）";
   }
   const anchorBtn = document.querySelector('#f-stitch-seg [data-value="anchor"]');
   if (anchorBtn) {
@@ -4044,7 +4044,7 @@ function promptBlockHtml(project, seg) {
       <span class="av-prompt-toggle">展开编辑</span>
     </summary>
     <div class="av-prompt-body">
-      <p class="av-prompt-note">即将发给视频模型的提示词${anchor ? " · 首尾帧固定模板" : " · Ref2VA 模板"} · 润色可选，运行不会自动润色</p>
+      <p class="av-prompt-note">即将发给视频模型的提示词${anchor ? " · 首尾帧固定模板" : " · Ref2VA 模板"} · 润色可选；运行会为空白提示词调用 LLM，已有提示词不会重复润色</p>
       <div class="av-prompt-meta" data-meta-index="${seg.index}">${promptMetaInner(seg)}</div>
       <p class="av-overlay-inline" ${overlay ? "" : "hidden"}>叠加模式：提示词只写人物表演 / 构图 / 光，文字与 logo 由后期确定性叠加，不要求生成画面文字。</p>
       <textarea class="av-prompt-area" spellcheck="false" data-prompt-index="${seg.index}"
@@ -5051,6 +5051,17 @@ async function generateRun() {
   if (!p) return toast("请先新建作品", "err");
   if (Number(p.mode) === 1 && !p.audio) return toast("模式 1 请先上传并分析音频", "err");
   if (!(p.segments || []).length) return toast("请先按台词分段", "err");
+  const missing = (p.segments || []).filter(
+    (row) => !String(row.prompt || "").trim()).length;
+  if (missing) {
+    const ok = await confirmDialog(
+      "开始生成",
+      `有 ${missing}/${p.segments.length} 段还没有提示词。运行会先调用本地 LLM 逐段生成，`
+      + "每段通常需要几十秒；建议先点「一键润色（可选）」。仍要开始生成？",
+      "继续生成"
+    );
+    if (!ok) return;
+  }
   await withBusy($("#btn-generate"), async () => {
     const data = await api.generate(p.id, { force: false, generation: readGeneration() });
     state.run = data.run || state.run;
@@ -5071,6 +5082,15 @@ async function generateRun() {
 async function regenerateSegment(index) {
   const p = state.project;
   if (!p) return;
+  const row = (p.segments || [])[index];
+  if (row && !String(row.prompt || "").trim()) {
+    const ok = await confirmDialog(
+      "单段重跑",
+      "这一段的提示词还是空的，运行会先调用本地 LLM 生成提示词（通常几十秒）。继续？",
+      "继续重跑"
+    );
+    if (!ok) return;
+  }
   await withBusy(null, async () => {
     const data = await api.regenerate(p.id, index);
     state.run = data.run || state.run;
