@@ -36,6 +36,7 @@ os.environ["H3WB_DATA"] = str(DATA_DIR)
 sys.path.insert(0, str(ROOT))
 
 from backend.avatar import config as avatar_config  # noqa: E402
+from backend.avatar import job as avatar_job  # noqa: E402
 from backend.avatar import plan as avatar_plan  # noqa: E402
 from backend.avatar import store as avatar_store  # noqa: E402
 from backend.avatar import workflow as avatar_workflow  # noqa: E402
@@ -230,6 +231,11 @@ def main() -> int:
         check("创建模式 2 项目并解码参考音频",
               project2.get("mode") == 2 and (project2.get("voice") or {}).get("duration") == 6.0,
               str((project2.get("voice") or {}).get("duration")))
+        check("模式 2 音色文件路径可被 start 前置检查识别",
+              avatar_job.voice_file_ok(project2_id, project2)
+              and avatar_job.voice_files(project2) == [
+                  str(item.get("filename")) for item in project2.get("voices") or []],
+              str(avatar_job.voice_files(project2)))
         client.post(f"/avatar/api/projects/{project2_id}/plan", json={}).raise_for_status()
         client.post(f"/avatar/api/projects/{project2_id}/refs",
                     data={"role": "performer", "title": "主播"},

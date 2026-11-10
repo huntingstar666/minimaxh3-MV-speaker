@@ -196,6 +196,35 @@ def anchor_seed(project_id: str, generation: dict[str, Any]) -> int:
     return int(hashlib.sha1(f"{project_id}:anchor".encode("utf-8")).hexdigest()[:8], 16)
 
 
+def voice_files(project: dict[str, Any]) -> list[str]:
+    """模式 2 音色文件名：优先多音色 voices[]，兼容旧字段 voice。
+
+    这里只收集清单，不判断文件是否真的存在——存在性由 voice_file_ok 统一检查，
+    避免 start() 和 _upload_voices() 各自拼一套路径。
+    """
+    names: list[str] = []
+    for item in project.get("voices") or []:
+        if isinstance(item, dict) and str(item.get("filename") or "").strip():
+            names.append(str(item["filename"]).strip())
+    if not names:
+        voice = project.get("voice")
+        if isinstance(voice, dict) and str(voice.get("filename") or "").strip():
+            names.append(str(voice["filename"]).strip())
+    return names
+
+
+def voice_file_ok(project_id: str, project: dict[str, Any]) -> bool:
+    """至少有一份音色文件真实存在；兼容旧的 voice/<basename> 存放方式。"""
+    base = store.project_dir(project_id)
+    for name in voice_files(project):
+        if (base / name).is_file():
+            return True
+        # 旧项目把样本放在 voice/ 下，而 filename 只写 ref.wav
+        if (base / "voice" / Path(name).name).is_file():
+            return True
+    return False
+
+
 class AvatarRunner:
     """单 GPU 任务的数字人 runner（与 MV runner 共用 GPU_LOCK，避免同时抢卡）。"""
 
@@ -282,10 +311,9 @@ class AvatarRunner:
                 if not (store.project_dir(project_id) / "source.wav").is_file():
                     raise ValueError("驱动音频文件丢失，请重新上传。")
             elif mode == config.MODE_VOICE_REF:
-                voice = project.get("voice") or {}
-                if not voice.get("filename"):
+                if not voice_files(project):
                     raise ValueError("模式 2 需要先上传参考音频（音色参考）。")
-                if not (store.project_dir(project_id) / "voice" / str(voice["filename"])).is_file():
+                if not voice_file_ok(project_id, project):
                     raise ValueError("参考音频文件丢失，请重新上传。")
             if not project.get("refs"):
                 raise ValueError("请先上传至少一张人物参考图。")
