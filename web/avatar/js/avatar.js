@@ -182,7 +182,7 @@ const state = {
   project: null,
   run: null,
   mode: 1,
-  modePicked: true,
+  modePicked: false,
   pendingVoice: null,
   pendingAudio: null,
   pollTimer: null,
@@ -2310,8 +2310,10 @@ function setMode(mode) {
     state.pendingAudio = null;
   }
   stopVoiceAudition();
+  // 没选过模式时不点亮任何卡片，避免默认高亮模式 1 与「先选创作模式」提示矛盾
+  const highlight = !!state.project || state.modePicked;
   $$("[data-mode-card]").forEach((btn) => {
-    btn.classList.toggle("active", Number(btn.dataset.modeCard) === value);
+    btn.classList.toggle("active", highlight && Number(btn.dataset.modeCard) === value);
   });
   $("#mode-form-1").classList.toggle("hidden", value !== 1);
   $("#mode-form-2").classList.toggle("hidden", value !== 2);
@@ -3610,6 +3612,7 @@ function clearProject({ silent = false } = {}) {
   stopAudioPlayback();
   localStorage.removeItem(LAST_KEY);
   resetForm();
+  setMode(state.mode);
   fillDesign(designBase(state.mode));
   renderProjectContext();
   renderSegments();
