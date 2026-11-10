@@ -107,6 +107,14 @@
         <button class="btn ghost sm" id="btn-trash"><svg><use href="#i-trash"/></svg>回收站</button>
         <input id="pack-input" type="file" accept=".zip,.h3avatar" hidden>
       </div>
+      <div class="av-project-tools">
+        <input id="project-search" class="input" type="search" placeholder="搜索作品名" autocomplete="off">
+        <select id="project-sort" class="input" title="作品排序">
+          <option value="updated">最近修改</option>
+          <option value="name">名称</option>
+          <option value="mode">模式</option>
+        </select>
+      </div>
       <div class="av-project-list" id="project-list">
         <div class="av-list-empty">暂无作品</div>
       </div>

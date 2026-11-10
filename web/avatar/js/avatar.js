@@ -179,6 +179,8 @@ const state = {
   anchorMidBackup: null,
   prompts: null,
   projects: [],
+  projectQuery: "",
+  projectSort: "updated",
   project: null,
   run: null,
   mode: 1,
@@ -3327,10 +3329,29 @@ function updateSummary(project) {
 function renderProjectList() {
   const box = $("#project-list");
   if (!box) return;
-  const items = [...state.projects].sort((a, b) => num(b.updated) - num(a.updated));
-  $("#project-count").textContent = `${items.length} 个`;
+  const query = String(state.projectQuery || "").trim().toLowerCase();
+  const nameCounts = new Map();
+  state.projects.forEach((item) => {
+    const name = String(item.name || "未命名作品");
+    nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+  });
+  const items = state.projects
+    .filter((item) => !query || String(item.name || "").toLowerCase().includes(query));
+  const sort = state.projectSort || "updated";
+  items.sort((a, b) => {
+    if (sort === "name") {
+      return String(a.name || "").localeCompare(String(b.name || ""), "zh-Hans-CN");
+    }
+    if (sort === "mode") {
+      return (num(a.mode) - num(b.mode)) || (num(b.updated) - num(a.updated));
+    }
+    return num(b.updated) - num(a.updated);
+  });
+  $("#project-count").textContent = query
+    ? `${items.length}/${state.projects.length} 个`
+    : `${items.length} 个`;
   if (!items.length) {
-    box.innerHTML = `<div class="av-list-empty">暂无作品，先在左侧新建</div>`;
+    box.innerHTML = `<div class="av-list-empty">${query ? "没有匹配的作品" : "暂无作品，先在左侧新建"}</div>`;
     return;
   }
   box.innerHTML = items
@@ -3338,11 +3359,12 @@ function renderProjectList() {
       const active = state.project?.id === item.id;
       const count = Array.isArray(item.segments) ? item.segments.length : num(item.segments);
       const mode = clamp(Number(item.mode) || 1, 1, 3);
+      const dup = (nameCounts.get(String(item.name || "未命名作品")) || 0) > 1;
       return `<div class="av-project ${active ? "active" : ""}" role="button" tabindex="0"
         data-action="open-project" data-id="${esc(item.id)}" title="打开作品">
         <span class="av-project-main">
           <strong>${esc(item.name || "未命名作品")}</strong>
-          <span>${MODE_LABEL[mode]} · ${count} 段 · ${fmtWhen(item.updated)}</span>
+          <span>${MODE_LABEL[mode]} · ${count} 段 · ${fmtWhen(item.updated)}${dup ? " · 同名" : ""}</span>
         </span>
         <span class="av-project-side">
           <i class="av-project-dot mode${mode}" title="${MODE_LABEL[mode]}"></i>
@@ -5678,6 +5700,14 @@ function bindEvents() {
 
   $("#btn-create").addEventListener("click", () => (state.project ? saveSettings() : createProject()));
   $("#btn-new").addEventListener("click", startNewProject);
+  $("#project-search")?.addEventListener("input", (event) => {
+    state.projectQuery = event.target.value || "";
+    renderProjectList();
+  });
+  $("#project-sort")?.addEventListener("change", (event) => {
+    state.projectSort = event.target.value || "updated";
+    renderProjectList();
+  });
   bindAnchorFrameControls();
   // 数字人包（.h3avatar.zip）导入 / 导出：后端与文档已定义契约，之前页面没有入口
   $("#btn-import-pack")?.addEventListener("click", () => $("#pack-input")?.click());

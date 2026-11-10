@@ -520,6 +520,10 @@
 
 /* ---------- 10. 最近作品 ---------- */
 .av-workspace .av-project-list{display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto}
+.av-workspace .av-project-tools{display:flex;gap:6px;margin-bottom:6px}
+.av-workspace .av-project-tools .input{font-size:11px;padding:6px 8px;min-width:0}
+.av-workspace .av-project-tools #project-search{flex:1}
+.av-workspace .av-project-tools #project-sort{width:92px;flex:none}
 .av-workspace .av-list-empty{font-size:11px;color:var(--faint);padding:8px 2px}
 .av-workspace .av-project{
   display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;
