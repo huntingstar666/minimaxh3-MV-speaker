@@ -331,58 +331,93 @@
 .av-workspace .av-form-actions-row.single{grid-template-columns:1fr}
 .av-workspace .av-form-actions-row .btn{width:100%;justify-content:center}
 .av-workspace #form-hint{margin-top:9px}
-.av-workspace .av-mode-form{display:flex;flex-direction:column}
 
-/* 上传区：同主站语言，聚焦时琥珀光圈 */
-.av-workspace .av-dropzone{margin-bottom:10px;padding:16px 12px}
-.av-workspace .dropzone{
+/* 上传区：同主站语言，聚焦时琥珀光圈
+   设定弹窗会把表单节点搬到 modal 里，所以作用域同时覆盖 .av-workspace 与 .av-settings-body */
+.av-workspace .av-mode-form,
+.av-settings-body .av-mode-form{display:flex;flex-direction:column}
+.av-settings-body .av-mode-form{max-width:640px}
+.av-workspace .av-dropzone,
+.av-settings-body .av-dropzone{margin-bottom:10px;padding:16px 12px}
+.av-workspace .dropzone,
+.av-settings-body .dropzone{
   border-radius:var(--av-md);
   transition:border-color var(--av-dur) var(--av-ease),background var(--av-dur) var(--av-ease),box-shadow var(--av-dur) var(--av-ease);
 }
-.av-workspace .dropzone:hover,.av-workspace .dropzone.drag{
+.av-workspace .dropzone:hover,.av-workspace .dropzone.drag,
+.av-settings-body .dropzone:hover,.av-settings-body .dropzone.drag{
   border-color:var(--av-amber-line);background:var(--av-amber-soft);box-shadow:var(--av-ring-soft);
 }
-.av-workspace .dropzone:focus-within{border-color:var(--av-amber-line);box-shadow:var(--av-ring)}
-.av-workspace .dropzone strong{font-size:12.5px;color:var(--text);font-weight:600}
-.av-workspace .dropzone span{font-size:10.5px;color:var(--faint)}
-.av-workspace .dropzone em{font-size:10.5px;color:var(--mint)}
+.av-workspace .dropzone:focus-within,
+.av-settings-body .dropzone:focus-within{border-color:var(--av-amber-line);box-shadow:var(--av-ring)}
+.av-workspace .dropzone strong,
+.av-settings-body .dropzone strong{font-size:12.5px;color:var(--text);font-weight:600}
+.av-workspace .dropzone span,
+.av-settings-body .dropzone span{font-size:10.5px;color:var(--faint)}
+.av-workspace .dropzone em,
+.av-settings-body .dropzone em{font-size:10.5px;color:var(--mint)}
 
 /* 参考音频行 / 音色库 */
-.av-workspace .av-voice-row{
+.av-workspace .av-voice-row,
+.av-settings-body .av-voice-row{
   display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:10px;
   border:1px solid color-mix(in srgb,var(--amber) 26%,transparent);border-radius:var(--av-sm);padding:8px 10px;
   background:color-mix(in srgb,var(--amber) 5%,transparent);
 }
-.av-workspace .av-voice-icon{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--amber);background:var(--av-amber-soft);border:1px solid color-mix(in srgb,var(--amber) 26%,transparent)}
-.av-workspace .av-voice-icon svg{width:15px;height:15px}
-.av-workspace .av-voice-meta{min-width:0}
-.av-workspace .av-voice-meta b{display:block;font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.av-workspace .av-voice-meta span{display:block;font-size:10px;color:var(--faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.av-workspace .av-voice-meta span.warn{color:var(--amber)}
-.av-workspace .av-voice-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
-.av-workspace .av-voice-actions .btn{padding:5px 8px;font-size:10px}
-.av-workspace .av-voice-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 2px}
-.av-workspace .av-voice-item{
+.av-workspace .av-voice-icon,
+.av-settings-body .av-voice-icon{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--amber);background:var(--av-amber-soft);border:1px solid color-mix(in srgb,var(--amber) 26%,transparent)}
+.av-workspace .av-voice-icon svg,
+.av-settings-body .av-voice-icon svg{width:15px;height:15px}
+.av-workspace .av-voice-meta,
+.av-settings-body .av-voice-meta{min-width:0}
+.av-workspace .av-voice-meta b,
+.av-settings-body .av-voice-meta b{display:block;font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.av-workspace .av-voice-meta span,
+.av-settings-body .av-voice-meta span{display:block;font-size:10px;color:var(--faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.av-workspace .av-voice-meta span.warn,
+.av-settings-body .av-voice-meta span.warn{color:var(--amber)}
+.av-workspace .av-voice-actions,
+.av-settings-body .av-voice-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.av-workspace .av-voice-actions .btn,
+.av-settings-body .av-voice-actions .btn{padding:5px 8px;font-size:10px}
+.av-workspace .av-voice-list,
+.av-settings-body .av-voice-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 2px}
+.av-workspace .av-voice-item,
+.av-settings-body .av-voice-item{
   display:flex;align-items:center;gap:8px;
   border:1px solid var(--line);border-radius:var(--av-sm);padding:6px 8px;
   background:color-mix(in srgb,var(--text) 2%,transparent);
   transition:border-color var(--av-dur) var(--av-ease),background var(--av-dur) var(--av-ease);
 }
-.av-workspace .av-voice-item:hover{border-color:var(--line-strong);background:var(--av-hover)}
-.av-workspace .av-voice-item.active{border-color:var(--av-amber-line);background:var(--av-amber-soft)}
-.av-workspace .av-voice-item .av-voice-name{flex:1;min-width:0;padding:4px 8px;height:30px;font-size:11px}
-.av-workspace .av-voice-item .av-voice-dur{font-family:var(--mono);font-size:10px;color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
-.av-workspace .av-voice-item .av-voice-tag{font-size:10px;color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 48%,transparent);border-radius:999px;padding:1px 6px;white-space:nowrap}
-.av-workspace .av-voice-sample{margin-top:10px;padding:10px 11px;border-radius:var(--av-sm);border:1px solid var(--line);background:color-mix(in srgb,var(--text) 2.5%,transparent)}
-.av-workspace .av-voice-sample-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim);margin-bottom:6px}
-.av-workspace .av-voice-sample-head b{font-family:var(--mono);color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
-.av-workspace .av-voice-sample .hint{margin-top:6px;font-size:10px;line-height:1.5;color:var(--faint)}
+.av-workspace .av-voice-item:hover,
+.av-settings-body .av-voice-item:hover{border-color:var(--line-strong);background:var(--av-hover)}
+.av-workspace .av-voice-item.active,
+.av-settings-body .av-voice-item.active{border-color:var(--av-amber-line);background:var(--av-amber-soft)}
+.av-workspace .av-voice-item .av-voice-name,
+.av-settings-body .av-voice-item .av-voice-name{flex:1;min-width:0;padding:4px 8px;height:30px;font-size:11px}
+.av-workspace .av-voice-item .av-voice-dur,
+.av-settings-body .av-voice-item .av-voice-dur{font-family:var(--mono);font-size:10px;color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
+.av-workspace .av-voice-item .av-voice-tag,
+.av-settings-body .av-voice-item .av-voice-tag{font-size:10px;color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 48%,transparent);border-radius:999px;padding:1px 6px;white-space:nowrap}
+.av-workspace .av-voice-sample,
+.av-settings-body .av-voice-sample{margin-top:10px;padding:10px 11px;border-radius:var(--av-sm);border:1px solid var(--line);background:color-mix(in srgb,var(--text) 2.5%,transparent)}
+.av-workspace .av-voice-sample-head,
+.av-settings-body .av-voice-sample-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim);margin-bottom:6px}
+.av-workspace .av-voice-sample-head b,
+.av-settings-body .av-voice-sample-head b{font-family:var(--mono);color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.av-workspace .av-voice-sample .hint,
+.av-settings-body .av-voice-sample .hint{margin-top:6px;font-size:10px;line-height:1.5;color:var(--faint)}
 
 /* 模式 1：ASR */
-.av-workspace .av-asr-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0 9px}
-.av-workspace .av-asr-opts{display:flex;gap:6px;flex:none}
-.av-workspace .av-asr-opts .input{width:auto;min-width:86px;padding:5px 7px;font-size:10.5px}
-.av-workspace #btn-analyze{margin-top:1px}
+.av-workspace .av-asr-row,
+.av-settings-body .av-asr-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0 9px}
+.av-workspace .av-asr-opts,
+.av-settings-body .av-asr-opts{display:flex;gap:6px;flex:none}
+.av-workspace .av-asr-opts .input,
+.av-settings-body .av-asr-opts .input{width:auto;min-width:86px;padding:5px 7px;font-size:10.5px}
+.av-settings-body .av-asr-row .av-switch{flex:0 1 auto;min-width:0}
+.av-workspace #btn-analyze,
+.av-settings-body #btn-analyze{margin-top:1px;align-self:flex-start}
 
 /* ---------- 8. 设计面板 ---------- */
 .av-workspace #panel-design .panel-head{margin-bottom:10px}

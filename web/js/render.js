@@ -343,8 +343,10 @@ export function renderSegments() {
   const project = state.project;
   const segments = project?.segments || [];
   const list = $("#segment-list");
-  const stitchMode = { ...(state.settings?.generation || {}), ...(project?.generation || {}) }
-    .stitch || "hard";
+  // 以左上角当前选择为准：刚切到「混合」还没等到自动保存时，也要立刻出现每段接续控件
+  const stitchMode = $("#stitch-select")?.value
+    || { ...(state.settings?.generation || {}), ...(project?.generation || {}) }.stitch
+    || "hard";
   const isMixed = stitchMode === "mixed";
   // seam / mixed 都是一次提交整条，没有单段 take
   const isSeam = stitchMode === "seam" || isMixed;

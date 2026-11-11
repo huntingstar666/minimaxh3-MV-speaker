@@ -1893,6 +1893,10 @@ function bindEvents() {
     const stitch = $("#stitch-select").value;
     $("#seam-secondpass-row").hidden = stitch === "hard";
     $("#seam-overlap-row").hidden = stitch === "hard";
+    // 段间模式决定每段卡片是否出现「接续」控件，也决定波形胶囊：立即重绘
+    // 只重绘分段列表（不能走 renderProject，否则会把刚选的值从项目旧值覆盖回去）
+    renderSegments();
+    if (waveform) setAudioWaveform(waveform);
   });
 
   $("#segment-list").addEventListener("click", (event) => {

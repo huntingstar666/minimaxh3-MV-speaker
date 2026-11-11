@@ -1644,6 +1644,11 @@ function bindSegmented(id, hiddenId) {
 
 function initAnchorControls() {
   bindSegmented("f-stitch-seg", "f-stitch");
+  // 段间模式影响每段卡片的「段间接续」入口与波形胶囊：切换后立即重绘
+  $("#f-stitch")?.addEventListener("change", () => {
+    renderSegments();
+    drawWave();
+  });
   bindSegmented("f-anchor-mid-seg", "f-anchor-mid");
   bindSegmented("f-anchor-pin-seg", "f-anchor-pin");
   bindSegmented("seam-overlap-seg", "f-seam-overlap");
@@ -3333,7 +3338,8 @@ function drawWave() {
     peaks: Array.isArray(peaks) ? peaks : [],
     segments: Number(project?.mode) === 1 ? segments : [],
     duration: Array.isArray(peaks) && peaks.length ? duration : 0,
-    stitch: String((project?.generation || {}).stitch || "hard"),
+    stitch: String($("#f-stitch")?.value
+      || (project?.generation || {}).stitch || "hard"),
   });
   wf.setPlayhead(state.playhead);
 }
@@ -4893,7 +4899,9 @@ function segCardHtml(project, seg) {
     ? (seg.prompt ? "重填模板" : "填入模板")
     : (seg.prompt ? "重新润色" : "润色（可选）");
   const takes = Array.isArray(seg.takes) ? seg.takes : [];
-  const mixed = String((project.generation || {}).stitch || "hard") === "mixed";
+  // 以右栏当前选择为准：用户刚切到「混合」但还没保存时，也要立刻出现每段接续控件
+  const mixed = String($("#f-stitch")?.value
+    || (project.generation || {}).stitch || "hard") === "mixed";
   const rowStitchValue = String(seg.stitch || "") === "seam" ? "seam" : "hard";
   const rowStitch = mixed && mode !== 3 && seg.index > 0
     ? `<div class="av-row-stitch" role="group" aria-label="本段接续方式"
