@@ -559,15 +559,15 @@ export class Waveform {
     ctx.restore();
   }
 
-  // mixed 模式里显式选了「续接上段」的段：用主题薄荷色胶囊圈住，
-  // 连续续接的段合并成一个胶囊，右上角挂「续接 / 续接 ×N」小标签。
+  // mixed 模式里连续选了「续接上段」的段：用主题薄荷色胶囊圈住整条链。
+  // 「续接」本身依赖上一段，所以胶囊从链首（上一段）开始，标注链内总段数。
   drawSeamCapsules(ctx, width, timeToX, bodyTop, bodyBottom) {
     if (this.stitch !== "mixed" || this.segments.length < 2) return;
     const light = this.isLight;
     const mint = (this.colors || FALLBACK_COLORS).mint;
     const runs = [];
     let run = null;
-    this.segments.forEach((segment) => {
+    this.segments.forEach((segment, index) => {
       if (String(segment.stitch || "hard") !== "seam") {
         run = null;
         return;
@@ -575,7 +575,13 @@ export class Waveform {
       const start = Number(segment.start) || 0;
       const end = Number(segment.end) || start;
       if (!run) {
-        run = { start, end, count: 1 };
+        // 链首是本段的前一段：它虽然选了硬切，但属于同一条 latent 链
+        const head = index > 0 ? this.segments[index - 1] : null;
+        run = {
+          start: head ? (Number(head.start) || 0) : start,
+          end,
+          count: head ? 2 : 1,
+        };
         runs.push(run);
       } else {
         run.end = end;
