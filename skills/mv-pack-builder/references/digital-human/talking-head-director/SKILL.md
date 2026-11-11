@@ -26,16 +26,16 @@ Create H3 prompts in which the speaker remains visibly alive and primary, while 
 
 ## Load the right references
 
-- Always read [references/h3-integration.md](references/h3-integration.md) for routing, prompt structure, audio handling, people, dialogue, and visible text.
-- Always read [references/human-performance.md](references/human-performance.md) for lifelike speech, gaze, blinks, micro-expression, breathing, posture, gesture, prop contact, and person-to-graphic interaction.
-- Read [references/generated-voice-direction.md](references/generated-voice-direction.md) whenever the mode is `无音频参考/原生生成语音`, or when generated voice gender/presentation, age, timbre, prosody, friendliness, realism, microphone perspective, or environmental acoustics must be designed.
-- Always read [references/effect-library.md](references/effect-library.md) to select suitable text, icon, graphic, particle, light, spatial, and transition effects.
-- Always read [references/script-to-effects.md](references/script-to-effects.md) to map meaning and screen space to effects.
-- Always read [references/composition-timing-quality.md](references/composition-timing-quality.md) for hierarchy, safe zones, easing, synchronization, readability, temporal stability, and accessibility.
-- Read [references/motion-graphics-type-catalog.md](references/motion-graphics-type-catalog.md) whenever selecting, combining, or prompting common motion-graphics families, or when deciding between screen-space, subject-tracked, surface-attached, camera-facing, and world-space behavior.
-- Read [references/prompt-patterns.md](references/prompt-patterns.md) when generating a new prompt or when speaker/effect ownership is structurally unclear.
-- Read [references/research-sources.md](references/research-sources.md) only when provenance or design rationale is requested.
-- Read [references/motion-graphics-research.md](references/motion-graphics-research.md) when terminology, provenance, real production examples, or the rationale behind the common-type catalog is requested.
+- Always read [h3-integration.md](h3-integration.md) for routing, prompt structure, audio handling, people, dialogue, and visible text.
+- Always read [human-performance.md](human-performance.md) for lifelike speech, gaze, blinks, micro-expression, breathing, posture, gesture, prop contact, and person-to-graphic interaction.
+- Read [generated-voice-direction.md](generated-voice-direction.md) whenever the mode is `无音频参考/原生生成语音`, or when generated voice gender/presentation, age, timbre, prosody, friendliness, realism, microphone perspective, or environmental acoustics must be designed.
+- Always read [effect-library.md](effect-library.md) to select suitable text, icon, graphic, particle, light, spatial, and transition effects.
+- Always read [script-to-effects.md](script-to-effects.md) to map meaning and screen space to effects.
+- Always read [composition-timing-quality.md](composition-timing-quality.md) for hierarchy, safe zones, easing, synchronization, readability, temporal stability, and accessibility.
+- Read [motion-graphics-type-catalog.md](motion-graphics-type-catalog.md) whenever selecting, combining, or prompting common motion-graphics families, or when deciding between screen-space, subject-tracked, surface-attached, camera-facing, and world-space behavior.
+- Read [prompt-patterns.md](prompt-patterns.md) when generating a new prompt or when speaker/effect ownership is structurally unclear.
+- Read [research-sources.md](research-sources.md) only when provenance or design rationale is requested.
+- Read [motion-graphics-research.md](motion-graphics-research.md) when terminology, provenance, real production examples, or the rationale behind the common-type catalog is requested.
 
 ## Workflow
 
@@ -73,7 +73,7 @@ Do not count punctuation as a spoken phoneme; it is counted only for the user's 
 
 ### 3. Design generated voice when no audio exists
 
-Use [references/generated-voice-direction.md](references/generated-voice-direction.md). Build one stable voice card before choreography:
+Use [generated-voice-direction.md](generated-voice-direction.md). Build one stable voice card before choreography:
 
 1. adult female, adult male, or neutral vocal presentation based on explicit character information;
 2. apparent vocal age band, pitch region and range, resonance, vocal weight, and restrained texture;
@@ -137,7 +137,7 @@ For multiple speakers, assign stable speaker IDs, explicit turns, separate mouth
 
 ### 7. Compile the H3 prompt
 
-Use the exact structure in [references/h3-integration.md](references/h3-integration.md). Describe each important motion-graphics event as:
+Use the exact structure in [h3-integration.md](h3-integration.md). Describe each important motion-graphics event as:
 
 `semantic trigger → preparation → reveal → readable hold → emphasis → settle/exit → clean background recovery`
 

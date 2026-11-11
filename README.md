@@ -1,11 +1,11 @@
 # H3 数字人 · MV 工作台
 
-把 MiniMax H3 SelfLift「双采」能力封装成可交互的本地工作台：上传一段任意时长的音频 + 一张人物参考图，自动分析音频、切分镜、规划机位、扩写提示词、逐段调用本地 ComfyUI 生成，最后拼成一条完整成片。
+把 MiniMax H3 SelfLift「双采」能力封装成可交互的本地工作台，包含两条产线：**MV**（音频 → 分镜 → 逐段生成 → 拼成片）与**数字人口播**（音频驱动 / 参考音色 / 无音频参考，支持首尾帧锚定、接缝接续、混合续接）。上传一段音频 + 一张人物参考图，自动分析、切分、规划机位、扩写提示词、逐段调用本地 ComfyUI 生成，最后拼成完整成片。
 
 - 后端：FastAPI（Python 3.10+）
 - 前端：原生 HTML / CSS / ES Modules，**零构建、无 CDN**
 - 渲染：本地 ComfyUI（`SelfLiftAvatarH3Sampler` + `MiniMaxH3ReferenceToVideo`）
-- 长视频：**不使用尾帧续接**，按原节点的「全局运镜规划 + 固定参考图 + 逐段独立生成 + 精确拼接」策略实现，避免误差累积导致画面劣化
+- 长视频：按原节点的「全局运镜规划 + 固定参考图 + 逐段独立生成 + 精确拼接」策略实现，避免误差累积导致画面劣化；段间可选**硬切 / 接缝接续 seam / 混合 mixed / 尾帧接力 relay（模式 2/3）/ 首尾帧锚定 anchor（数字人模式 1）**
 
 ## 0. 给 Agent 的快速入门（用本项目技能产 MV / 数字人）
 
@@ -51,7 +51,7 @@ python skills/mv-pack-builder/scripts/env_check.py --project .
 
 - 项目类型：MV / 数字人口播；数字人还要选 **A 音频驱动 / B 参考音色 / C 无音频参考**；
 - 素材：参考图（`performer` 1 张主身份，其他角色可多张，总 ≤9）、音频/参考音色、歌词/口播稿；
-- 参数：画幅、帧率、目标/最长段长、硬切/seam、风格/滤镜、效果密度；
+- 参数：画幅、帧率、目标/最长段长、段间模式（硬切 / seam / 混合 / 锚定或接力）、风格/滤镜、效果密度；
 - 工作台只用于最终预览/微调；准备阶段不要让用户去页面拖素材、点分析、点 AI 扩写。
 
 ### 0.4 产出两种包
@@ -91,9 +91,13 @@ python skills/mv-pack-builder/scripts/validate_avatar_pack.py .\my-avatar --requ
 ### 0.7 继续读
 
 - 技能目录：[skills/mv-pack-builder/](skills/mv-pack-builder/)；
+- **数字人工作台**：[docs/数字人工作台.md](docs/数字人工作台.md)（三种模式 / 段间模式 / 设计层 / 包格式）；
+- **接口与数据契约**：[docs/数字人工作台-实现契约.md](docs/数字人工作台-实现契约.md)；
 - **首次安装 / 缺节点缺模型**：[docs/首次安装与环境体检.md](docs/首次安装与环境体检.md)；
 - 分享/部署：[docs/分享与部署.md](docs/分享与部署.md)；
+- 移植到其它项目：[docs/移植说明.md](docs/移植说明.md)；
 - 数据链路与限制：[docs/数据链路与已知限制.md](docs/数据链路与已知限制.md)；
+- 界面设计：[docs/UI设计说明.md](docs/UI设计说明.md)；
 - 审查与维护记录：[docs/BUG审查-20261111.md](docs/BUG审查-20261111.md)；
 - 资源/显存管理：[docs/资源与显存管理.md](docs/资源与显存管理.md)。
 
@@ -113,7 +117,7 @@ python run.py          # Windows 可直接双击 start.bat
 
 首次打开会自动做一次**环境体检**（设置 → 环境体检）：检查 Python 依赖、ffmpeg、ComfyUI 连接/目录、节点与模型。缺节点可点「git 安装」（需确认，安装后手动重启 ComfyUI）；缺模型只给目录与清单，不自动下载。完整说明见 [docs/首次安装与环境体检.md](docs/首次安装与环境体检.md)。
 
-首次进入在右栏「模型」区域选择 UNET / CLIP / 视频 VAE / 音频 VAE / 加速 LoRA / 潜空间放大器；留空时后端会按关键词自动匹配（`minimax_h3`、`fl2va`、`qwen3vl`、`latent_upscaler_3d` 等）。
+首次进入在右栏「高级采样」里选择 UNET / CLIP / 视频 VAE / 音频 VAE / 加速 LoRA / 潜空间放大器；留空时后端会按关键词自动匹配（`minimax_h3`、`fl2va`、`qwen3vl`、`latent_upscaler_3d` 等）。
 
 ### 使用流程
 
@@ -124,9 +128,9 @@ python run.py          # Windows 可直接双击 start.bat
 5. **调整分段**（可选）：时间线右侧「在播放头切分」按钮、波形双击切分、拖动橙色切点改边界、段卡「合并下段」；每段最少 3 秒，且不能超过最长段长。切点没有实际变化时不会重建分段；真正改切点后只重新规划受影响的相邻段，其余段的提示词与已完成片段继续保留。
 6. **分段参考图**（可选）：段卡「本段参考图」里只勾选需要的图片，可覆盖全局；弹窗点「继承全局」恢复。提示词里的 `<Picture N>` 按**本段实际用图**从 1 重新编号。
 7. **导演简报与提示词**：段卡「提示词」弹窗里，简报可直接编辑，也能从 8 个类别模板（舞台 / 叙事 MV / 特写 / 空镜 / 讲解 / 带货 / 独白 / 风光）导入再改；保存后点「AI 重写」即可按新简报扩写。改简报 / 参考图 / 全局风格 / 本段运镜后，已经写好的提示词**不会被删除**，只会在段卡上提示「可能已过期」；手写提示词永不自动覆盖，自动扩写的提示词在下次生成或点「AI 重写」时按新输入重建。
-8. **开始生成**：逐段提交 ComfyUI（seam 模式为逐窗提交，支持断点续跑），实时进度与日志；可随时停止、单段重生成（仅硬切）。画幅在右栏「画幅」下拉里选（8 种比例），输出帧率选 24 / 25 / 30（默认 24），拼接方式选硬切 / seam。每段的结果会存成独立片段（take），不会覆盖旧版本：段卡右侧「选片台」可预览历史片段并选用；换选后点成片区「重新合成成片」即可用新选片段重新拼接（只跑 ffmpeg，不重新生成）。
+8. **开始生成**：逐段提交 ComfyUI（seam / mixed 为逐窗提交，支持断点续跑），实时进度与日志；可随时停止、单段重生成（仅硬切）。画幅在右栏「画幅」卡片里选（8 种比例），输出帧率选 24 / 25 / 30（默认 24），段间方式选硬切 / 接缝接续 / 混合（混合可在每段卡片上选「硬切 / 续接上段」）。每段的结果会存成独立片段（take），不会覆盖旧版本：段卡右侧「选片台」可预览历史片段并选用；换选后点成片区「重新合成成片」即可用新选片段重新拼接（只跑 ffmpeg，不重新生成）。
 9. **成片**：自动按输出帧率封装每段、拼接、混入**原始完整音轨**、生成封面；可在线预览与下载。段卡「试听」按一次播放本段、再按一次停止，播到段尾会自动停。如果换选过片段，成片区会出现「选材已变更」提示，点「重新合成成片」刷新。选片弹窗预览默认播放**原曲对应片段**（与成片一致），取消勾选「预览音轨：原曲」才播放片段自带的模型生成音频。
-10. **导入 / 导出 MV 包**：左栏「导入 MV 包」可拖入 `.h3pack.zip`，自动创建项目并导入音频、参考图、分段、提示词/参数；顶部「导出 MV 包」把当前项目导出成同格式，便于分享或交给别人继续做。同一套包格式同时支持 **MV（mode=singing）** 和 **数字人口播（mode=speaking）**。格式见 [docs/MV包格式.md](docs/MV包格式.md)。配套技能 [mv-pack-builder](skills/mv-pack-builder/SKILL.md) 不是机械打包：它会拆歌/拆稿、自由发散创意、检查素材缺口并主动提出补图建议（用户采纳就补图，不采纳就按用户想法改）、设计分镜与逐段提示词、与用户三次确认后，产出每段都设计好的包（在线时还能直接导入、应用设计、出片）。
+10. **导入 / 导出 MV 包**：顶部「导入 MV 包」可拖入 `.h3pack.zip`，自动创建项目并导入音频、参考图、分段、提示词/参数；「导出 MV 包」把当前项目导出成同格式，便于分享或交给别人继续做。同一套包格式同时支持 **MV（mode=singing）** 和 **数字人口播（mode=speaking）**。格式见 [docs/MV包格式.md](docs/MV包格式.md)。配套技能 [mv-pack-builder](skills/mv-pack-builder/SKILL.md) 不是机械打包：它会拆歌/拆稿、自由发散创意、检查素材缺口并主动提出补图建议（用户采纳就补图，不采纳就按用户想法改）、设计分镜与逐段提示词、与用户三次确认后，产出每段都设计好的包（在线时还能直接导入、应用设计、出片）。
 
 ### 主题切换
 
@@ -251,11 +255,18 @@ h3-workbench/
 ├─ skills/
 │  └─ mv-pack-builder/     配套 MV / 数字人包创作技能（含环境自检 / 包校验 / 导入脚本）
 └─ docs/
-   ├─ 首次安装与环境体检.md 依赖 / 节点 / 模型清单与安装引导
-   ├─ 工作流拆解.md        原工作流逐节点拆解与移植对照
-   ├─ 移植说明.md          移植到其他项目的完整步骤
-   ├─ MV包格式.md          .h3pack.zip 格式说明
-   └─ 数据链路与已知限制.md 数据流、并发写入规则与限制
+   ├─ 数字人工作台.md               三模式 / 段间模式 / 设计层 / 包格式
+   ├─ 数字人工作台-实现契约.md       数据模型 / API / 写作用域
+   ├─ H3-Ref2VA-三腔提示词规范.md    三腔提示词与 lint 规则
+   ├─ MV包格式.md                   .h3pack.zip / .h3avatar.zip 格式
+   ├─ 首次安装与环境体检.md          依赖 / 节点 / 模型清单与安装引导
+   ├─ 工作流拆解.md                 原工作流逐节点拆解与移植对照
+   ├─ 移植说明.md                   移植到其他项目的完整步骤
+   ├─ 分享与部署.md                 分享内容 / 部署 / 验收清单
+   ├─ UI设计说明.md                 视觉 token / 布局 / 交互
+   ├─ 数据链路与已知限制.md          数据流、并发写入规则与维护约定
+   ├─ 资源与显存管理.md              磁盘清理 / 显存释放 / 上传上限
+   └─ BUG审查-20261111.md           增量审查、修复记录与真机验证
 ```
 
 单个项目的数据布局：
@@ -289,12 +300,15 @@ data/projects/<id>/
 
 ### 段间拼接方式
 
-右栏「拼接方式」有两种：
+段间方式是三选一（MV 还支持按段混合）：
 
 | 方式 | 做法 | 适用 |
 | --- | --- | --- |
 | **硬切**（默认） | 每段独立生成，按 `edit_frames` 严格拼接 | 任意素材；跨镜头、换机位都稳 |
 | **接缝优化 seam** | 逐窗提交 `MiniMaxH3TimelinePlanner` + 单窗图，相邻窗口重叠 22（可选 39）帧，用上一窗采样后的 AV latent 续接；每窗产物与 latent 落盘，支持断点续跑 | **只适合同镜头/连续运镜**；跨镜头请用硬切 |
+| **混合 mixed** | 每段卡片单独选「硬切 / 续接上段」；连续续接段组成一条 latent 链，链内逐窗续接、链间硬切，按链断点续跑 | 长视频只有部分段落需要连续时；链首/链间保持硬切 |
+
+数字人侧的段间模式按创作模式收窄：模式 1 为 `hard / anchor / seam / mixed`，模式 2 为 `hard / relay / seam / mixed`，模式 3 为 `hard / relay / seam`（无 mixed）。
 
 seam 的窗口规则：
 
@@ -453,12 +467,31 @@ detailed_description: → overall_soundscape: → non_diegetic_music:
 改动代码后先跑一遍冒烟测试，再重启工作台：
 
 ```bash
-python smoke_test.py
-python setup_check_test.py   # 环境体检 / 安装动作边界
-python mv_seam_test.py       # MV 逐窗 seam / 断点续跑
-python mixed_jobs_test.py    # MV mixed 链级生成 / 只重拼 / 输出帧率
-python avatar_relay_test.py  # 数字人 force / 锚定模板 / 放大器依赖
-python avatar_pack_smoke_test.py  # .h3avatar 导入导出 / seam_overlap roundtrip
+# MV / 通用
+python smoke_test.py              # 主链路冒烟（临时数据目录）
+python setup_check_test.py        # 环境体检 / 安装动作边界
+python mv_seam_test.py            # MV 逐窗 seam / 断点续跑
+python mixed_jobs_test.py         # MV mixed 链级生成 / 只重拼 / 输出帧率
+python seam_chain_test.py         # 链规划与 25/30fps 起点精度
+python pack_stitch_test.py        # 包内 stitch/overlap 往返
+python segment_frame_test.py      # 分段帧数换算
+python media_retime_test.py       # 媒体重定时/拼接
+python segment_stitch_test.py     # 行级 stitch 选择
+
+# 数字人
+python avatar_smoke_test.py       # 设计层/节拍/lint/三腔/合成
+python avatar_audio_smoke_test.py # 模式 1 音轨=原音频
+python avatar_audio_frames_test.py
+python avatar_lint_test.py
+python avatar_overlay_test.py
+python avatar_pack_smoke_test.py  # .h3avatar 导入导出 / roundtrip
+python avatar_voice_sample_test.py
+python avatar_anchor_test.py
+python avatar_relay_test.py       # force / 锚定模板 / 放大器依赖
+python avatar_seam_test.py
+python avatar_mixed_test.py
+python avatar_stitch_api_test.py  # 段间模式 / 二采 / 设计字段
+python avatar_seam_assemble_test.py
 ```
 
 `smoke_test.py` 会自动：创建临时数据目录（不碰 `data/` 真实项目）、用合成音频建项目并分析、检查提示词保存顺序、全局风格/滤镜/运镜前缀、切点 no-op、AI 重写、任务线程写盘不覆盖用户编辑、结构变化后旧任务结果不回写，结束后清理临时数据。全部通过退出码为 0。
@@ -501,9 +534,9 @@ AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py`
 | 驱动素材 | 上传任意音频/视频，解码成 `source.wav` | 2–15s 参考音频（可多段音色） | 无音频，只有台词 + 音色描述 |
 | 台词 | 可选（ASR 对照文本，不填也能生成） | 必填 | 必填 |
 | 分段方式 | 按波形切点：自动分析 + 拖拽改切点 / 按播放头切分 / 合并下段 | 按台词标点 + 语速（约 5 字/秒）自动分段 | 同 B |
-| 单段工作流 | 硬切：`backend/workflow.py::build`（锁定音轨）<br>锚定：`backend/avatar/workflow.py::build_anchor`（FL2VA） | `backend/avatar/workflow.py::build`（Ref2VA + `ref_audios`） | 同 B，但不接参考音频 |
-| 音轨 | 原始完整音频，生成片段音轨丢弃 | 每段 H3 原生生成，成片按段拼接 | 同 B（台词驱动生成） |
-| 段间模式 | 硬切 / 首尾帧锚定（可选） | 固定硬切，不跨段传递 | 固定硬切 |
+| 单段工作流 | 硬切：`backend/workflow.py::build`（锁定音轨）<br>锚定：`backend/avatar/workflow.py::build_anchor`（FL2VA）<br>接缝/混合：`build_seam_window`（逐窗 AV latent） | `backend/avatar/workflow.py::build`（Ref2VA + `ref_audios`）<br>接缝/混合：`build_seam_window` | 同 B，但不接参考音频 |
+| 音轨 | 原始完整音频，生成片段音轨丢弃（seam/mixed 同样是源音轨） | 每段 H3 原生生成，成片按段拼接 | 同 B（台词驱动生成） |
+| 段间模式 | 硬切 / 首尾帧锚定 / 接缝接续 / 混合 | 硬切 / 尾帧接力 / 接缝接续 / 混合 | 硬切 / 尾帧接力 / 接缝接续（无混合） |
 | 种子 | 硬切：0 = 每段随机；锚定：0 = 项目固定种子 | 0 = 每段随机 | 0 = 每段随机 |
 | 成片 | 视频段拼接 + 混原音 | 视频段拼接 + 生成音轨拼接 | 同 B |
 
@@ -514,15 +547,19 @@ AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py`
 - 首尾帧锚定：开关等价于 `anchor_sampler` 的 `selflift` / `plain`；
 - 接缝 / 混合：模式 1（音频驱动）可开启二采，写 `generation.seam_second_pass=true`，单窗图改走 `MiniMaxH3TimelineSelfLiftSampler`（锁定源音轨，`highres_tiling=false`），需要放大模型且 `1 ≤ 低清步数 < 总步数`；混合下硬切窗（链首）与接缝链内窗都走双采。模式 2/3 的接缝与混合仍固定单采，开关置灰并显示原因。
 
-开启时点「参数」打开高级生成参数里的二采分组（低清步数、高清二采步数、低清比例、放大模型、rho、分块）；总步数保持不变。
+开启时点「参数」打开高级生成参数里的二采分组（低清步数、高清二采步数、低清比例、放大模型、rho、分块）；总步数保持不变。弹窗右上角「恢复默认」把采样/模型/二采参数恢复到后端默认值，但保留当前单双采选择（锚定双采会继续用双采推荐栈）。
 
 **模型三件套与 LoRA**：高级生成参数里的 UNET / CLIP / 视频 VAE / LoRA 在任何模式下都可修改；切换单/双采会自动填入推荐栈，手动修改后写 `generation.custom_models=true`，锚定生成时不再强制覆盖。
+
+**设计层只读字段**：设计页的「生成路由」固定 `Ref2VA`，「音频腔」由创作模式派生（runtime / reference / generated），只影响提示词腔调与 `.h3avatar` 包校验，不切换工作流；面板只展示，后端读写都会按模式纠正。
+
+**波形交互**：播放头与切点命中带分离，标尺区域只响应播放头，避免调播放头时误拖分割线；混合续接链在波形上用薄荷胶囊圈出并标注「续接 ×N」（MV 与数字人一致）。
 
 **系统提示词**：独立 880px 卡片弹窗，三份提示词各一张卡片 + 全宽等宽文本域，纵向滚动，不再出现窄栏、截断和横向滚动条。
 
 ### 11.3 参数从界面到 ComfyUI 的链路
 
-1. **读表单**：`readForm()` 收 `name / script / voice_description / material_note / chars_per_second / target_seconds / max_seconds`；`readGeneration()` 收画幅、清晰度、种子、模型、LoRA、步数、二采参数、`stitch`、`anchor_*`、`anchor_resize`。
+1. **读表单**：`readForm()` 收 `name / script / voice_description / material_note / chars_per_second / target_seconds / max_seconds`；`readGeneration()` 收画幅、清晰度、种子、模型、LoRA、步数、`ref_second_pass` / `seam_second_pass` 与二采参数、`stitch`、`anchor_*`、`anchor_resize`。
 2. **创建**：`POST /avatar/api/projects`（multipart）→ `store.create()` 写 `data/avatar/projects/<id>/project.json`。**mode 只在这里写入**。
 3. **保存**：`PATCH /avatar/api/projects/{id}`。`generation` 深合并；参数真的变了才把 `final.stale=true`；`mode` 与当前不同直接 400。
 4. **启动生成**：`POST /api/projects/{id}/generate`（可带 `only` / `force`）→ `AvatarRunner.start()` → 抢 `backend/jobs.py::GPU_LOCK`（与 MV 共用，保证单卡串行）→ `_run()`。
@@ -680,9 +717,7 @@ h3-workbench/
 
 **首尾帧提示词**：默认固定模板 `plan.ANCHOR_DEFAULT_PROMPT`，自动写进每段（`prompt_source=template`），手改后以用户版本为准；提示词里不要写 `black` 之类否定色词（单采会把背景压成纯黑）。
 
-三种模式的系统提示词随仓库携带（A / B / C），按 mode 注入；LLM 输出会过 lint 并自动修复一轮，失败回退内置六段模板。设计面板支持效果密度、主辅色、字体/材质、效果清单、节拍表（可 AI 建议）；`overlay` 模式下文字/logo 由 ffmpeg 确定性叠加兜底。详见 [docs/数字人工作台.md](docs/数字人工作台.md)。测试：
-`python avatar_smoke_test.py`、`python avatar_audio_smoke_test.py`、`python avatar_lint_test.py`、
-`python avatar_overlay_test.py`。
+三种模式的系统提示词随仓库携带（A / B / C），按 mode 注入；LLM 输出会过 lint 并自动修复一轮，失败回退内置六段模板。设计面板支持效果密度、主辅色、字体/材质、效果清单、节拍表（可 AI 建议）；「生成路由 / 音频腔」只读，由创作模式派生；`overlay` 模式下文字/logo 由 ffmpeg 确定性叠加兜底。详见 [docs/数字人工作台.md](docs/数字人工作台.md)。完整测试清单见 §10。
 
 ## 12. 许可与致谢
 
