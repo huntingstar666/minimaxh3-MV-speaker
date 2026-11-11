@@ -138,11 +138,12 @@ def fake_comfy(observed: dict):
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(b"clip")
 
-    def concat(clips, audio_source, out, total_frames, workdir):
+    def concat(clips, audio_source, out, total_frames, workdir, fps=frames.FPS):
         observed["concat"] = {
             "clips": [Path(clip).name for clip in clips],
             "total_frames": int(total_frames),
             "audio": Path(audio_source).name,
+            "fps": int(fps),
         }
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"final")
@@ -169,6 +170,10 @@ def fake_comfy(observed: dict):
 def run_mixed(rows: list[dict], overlap: int = 22, fps: int = FPS,
               audio_seconds: float | None = None) -> dict:
     project_id, project, directory = make_project(rows, audio_seconds)
+    # 真实链路里 /generate 会先把 generation（含 output_fps）落盘，再启动任务；
+    # 测试按同一口径写入，确保「重新拼装」能读到正确输出帧率。
+    project.setdefault("generation", {})["output_fps"] = fps
+    store.save(project)
     runner = make_runner(project_id)
     generation = {
         "stitch": "mixed", "seam_overlap": overlap, "output_fps": fps,
@@ -335,6 +340,19 @@ def test_concat_uses_full_source() -> None:
     require(concat["total_frames"] == total_edit,
             f"concat 总帧数 {concat['total_frames']} != {total_edit}")
     require(len(concat["clips"]) == 2, f"应拼接 2 条链片段：{concat['clips']}")
+
+
+def test_concat_uses_output_fps() -> None:
+    """交付帧率不是 24 时，生成与重新拼装都必须把 fps 传给 concat。"""
+    out = run_mixed(ROWS, fps=30)
+    require(out["concat"]["fps"] == 30,
+            f"mixed 生成拼接应使用输出帧率 30，实际 {out['concat']['fps']}")
+    runner = make_runner(out["id"])
+    observed = new_observed()
+    with fake_comfy(observed):
+        runner._run_assemble_mixed(out["id"])
+    require(observed["concat"]["fps"] == 30,
+            f"mixed 重新拼装应使用输出帧率 30，实际 {observed['concat']['fps']}")
 
 
 def test_all_hard_is_per_chain_submission() -> None:
@@ -605,6 +623,7 @@ def main() -> int:
     run("链 manifest", test_chain_manifest)
     run("每链裁到 target", test_normalize_targets)
     run("成片混整条源音频", test_concat_uses_full_source)
+    run("拼接使用输出帧率", test_concat_uses_output_fps)
     run("全 hard 逐链提交", test_all_hard_is_per_chain_submission)
     run("单链与 plan_windows 等价", test_single_chain_matches_plan_windows)
     run("overlap 只收 22/39", test_overlap_validation)

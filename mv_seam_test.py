@@ -467,12 +467,14 @@ def test_legacy_fallback_when_nodes_missing() -> None:
         return {"class_type": "fake-legacy-seam"}
 
     with mock.patch.object(jobs.workflow, "build_seam", build_seam):
-        generate(project_id, observed)
+        generate(project_id, observed, generation={"output_fps": 30})
     require(calls["build_seam"] == 1,
             f"缺逐窗节点应回退一次提交，实际 {calls['build_seam']} 次")
     require(len(observed["graphs"]) == 1, "回退只能提交 1 次")
     require(observed["graphs"][0]["class_type"] == "fake-legacy-seam",
             "回退应提交旧的一次性 seam 图")
+    require(observed["concat"]["fps"] == 30,
+            f"legacy seam 拼接应使用输出帧率 30，实际 {observed['concat']['fps']}")
 
 
 def test_manifest_archive_keeps_two() -> None:

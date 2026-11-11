@@ -1315,7 +1315,8 @@ class JobRunner:
         clipped = work / "clip.mp4"
         media.normalize(raw, clipped, total_target, fps=fps)
         final_path = directory / "final" / "final.mp4"
-        media.concat([clipped], directory / "source.wav", final_path, total_edit, work)
+        media.concat([clipped], directory / "source.wav", final_path, total_edit, work,
+                     fps=fps)
         thumb = directory / "final" / "cover.jpg"
         media.thumbnail(final_path, thumb,
                         min(0.8, max(frames.to_seconds(total_edit) / 3, 0.2)))
@@ -1532,7 +1533,7 @@ class JobRunner:
         self._update(project_id, stage="assemble",
                      message=f"mixed：拼接 {len(clips)} 条链并混入原始音轨", progress=0.9)
         final_path = directory / "final" / "final.mp4"
-        media.concat(clips, source, final_path, total_edit, work)
+        media.concat(clips, source, final_path, total_edit, work, fps=fps)
         thumb = directory / "final" / "cover.jpg"
         media.thumbnail(final_path, thumb,
                         min(0.8, max(frames.to_seconds(total_edit) / 3, 0.2)))
@@ -1625,12 +1626,17 @@ class JobRunner:
             clips = self._mixed_chain_files(project_id, final)
             segments = project.get("segments") or []
             total_edit = sum(int(row.get("edit_frames") or 0) for row in segments)
+            output_fps = int((project.get("generation") or {}).get("output_fps")
+                             or frames.FPS)
+            if output_fps not in (24, 25, 30):
+                output_fps = frames.FPS
             directory = store.project_dir(project_id)
             work = directory / "takes" / "_mixed"
             self._update(project_id, stage="assemble", message="mixed：重新拼接链",
                          progress=0.3)
             target = directory / "final" / "final.mp4"
-            media.concat(clips, directory / "source.wav", target, total_edit, work)
+            media.concat(clips, directory / "source.wav", target, total_edit, work,
+                         fps=output_fps)
             thumb = directory / "final" / "cover.jpg"
             media.thumbnail(target, thumb,
                             min(0.8, max(frames.to_seconds(total_edit) / 3, 0.2)))
