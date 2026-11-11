@@ -437,6 +437,21 @@ def test_per_row_overlap_invalid() -> None:
             "行级 overlap=23 必须报错")
 
 
+def test_chain_start_exact_across_chains() -> None:
+    """25fps 下链目标/起点取累计边界差，不能按逐段四舍五入累加。"""
+    rows = [
+        {"edit_frames": 72, "stitch": "hard"},
+        {"edit_frames": 84, "stitch": "seam"},
+        {"edit_frames": 120, "stitch": "hard"},
+    ]
+    plans = seam.plan_chain_windows(rows, 25, 22, max_seconds=None)
+    require(len(plans) == 2, f"应拆成 2 条链：{plans}")
+    require(plans[0]["target"] == 162,
+            f"链 0 目标应为 round(156×25/24)=162，实际 {plans[0]['target']}")
+    require(plans[1]["start"] == 162,
+            f"链 1 起点应严格等于链 0 精确边界 162，实际 {plans[1]['start']}")
+
+
 def main() -> int:
     run("group_chains 空输入", test_group_chains_empty)
     run("group_chains 全 hard", test_group_chains_all_hard)
@@ -459,6 +474,7 @@ def main() -> int:
     run("短链不拆", test_short_chain_not_split)
     run("split_long_chain 直接调用", test_split_long_chain_direct)
     run("拆链按输出帧率", test_split_respects_fps)
+    run("链起点取精确累计边界", test_chain_start_exact_across_chains)
     run("链指纹", test_chain_fingerprint)
     run("plan_windows overlap=39", test_plan_windows_overlap_39)
     run("行级 overlap", test_per_row_overlap)

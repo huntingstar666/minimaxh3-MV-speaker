@@ -69,7 +69,8 @@ def legal_frames(length: int) -> int:
 
 
 def plan_windows(rows: list[dict[str, Any]], fps: int, total_target: int,
-                 overlap: int = DEFAULT_OVERLAP) -> list[dict[str, Any]]:
+                 overlap: int = DEFAULT_OVERLAP, origin_frame: int = 0,
+                 origin_edit: float = 0.0) -> list[dict[str, Any]]:
     """按每段的目标秒数规划 H3 窗口。
 
     H3 窗口长度必须是 5+17k；第 2 段起段首裁掉 overlap 帧，所以「可见段长度」
@@ -79,6 +80,10 @@ def plan_windows(rows: list[dict[str, Any]], fps: int, total_target: int,
 
     rows 里的 edit_frames 是 24fps 时间刻度；visible 是这段在成片里占的帧数
     （目标帧率下）。窗口多出的部分由节点在段首裁掉，最后一段多出的帧由成片裁掉。
+
+    ``origin_edit`` / ``origin_frame`` 用于链级规划：base 取「累计边界差」而不是
+    逐段四舍五入，保证多条链的绝对起点严格等于 round(累计 edit_frames × fps / 24)，
+    避免 25/30fps 下链起点累计漂移。
     """
     fps = int(fps)
     total_target = max(int(total_target), 1)
@@ -87,8 +92,13 @@ def plan_windows(rows: list[dict[str, Any]], fps: int, total_target: int,
     previous_end = 0       # 上一窗口 endFrame（等于上一个可见边界）
     visible_end = 0        # 已经规划的可见累计边界
     cumulative = 0         # 各段 base 的累计（计划长度）
+    edit_cursor = float(origin_edit or 0)
+    previous_boundary = int(origin_frame or 0)
     for index, row in enumerate(rows):
-        base = max(1, int(round(int(row.get("edit_frames") or 0) * fps / FPS)))
+        edit_cursor += int(row.get("edit_frames") or 0)
+        boundary = int(round(edit_cursor * fps / FPS))
+        base = max(1, boundary - previous_boundary)
+        previous_boundary = boundary
         cumulative += base
         # 可见累计边界吸附到 5+17k 格点（向上取整，保证覆盖到计划位置）
         snapped = max(22, 5 + 17 * math.ceil((cumulative - 5) / 17))
@@ -188,25 +198,29 @@ def plan_chain_windows(rows: list[dict[str, Any]], fps: int,
             groups.extend(split_long_chain(rows, chain, fps, limit_frames))
 
     plans: list[dict[str, Any]] = []
-    absolute_start = 0
+    edit_cursor = 0.0
+    frame_cursor = 0
     for chain_id, row_indexes in enumerate(groups):
         chain_rows = [rows[index] for index in row_indexes]
         # total_target=0 时 plan_windows 的“补最后一窗”分支不会触发；
         # 链目标由各窗的 target_visible 求和得到，避免复制 base 公式。
-        windows = plan_windows(chain_rows, fps, 0, overlap)
+        # origin 让 base 取累计边界差，链起点严格对齐 round(累计 edit_frames × fps / 24)。
+        windows = plan_windows(chain_rows, fps, 0, overlap,
+                               origin_frame=frame_cursor, origin_edit=edit_cursor)
         target = sum(int(window["target_visible"]) for window in windows)
         visible_end = int(windows[-1]["end"]) if windows else 0
         plans.append({
             "id": chain_id,
             "rows": list(row_indexes),
-            "start": int(absolute_start),
-            "end": int(absolute_start + target),
+            "start": int(frame_cursor),
+            "end": int(frame_cursor + target),
             "target": int(target),
             "visible_end": visible_end,
             "overshoot": int(visible_end - target),
             "windows": windows,
         })
-        absolute_start += target
+        edit_cursor += sum(int(rows[index].get("edit_frames") or 0) for index in row_indexes)
+        frame_cursor += target
     return plans
 
 
@@ -220,8 +234,13 @@ def split_long_chain(rows: list[dict[str, Any]], indexes: list[int], fps: int,
     groups: list[list[int]] = []
     current: list[int] = []
     total = 0
+    edit_cursor = 0
+    previous_boundary = 0
     for index in indexes:
-        base = max(1, int(round(int(rows[index].get("edit_frames") or 0) * fps / FPS)))
+        edit_cursor += int(rows[index].get("edit_frames") or 0)
+        boundary = int(round(edit_cursor * fps / FPS))
+        base = max(1, boundary - previous_boundary)
+        previous_boundary = boundary
         if current and total + base > limit_frames:
             groups.append(current)
             current, total = [], 0
