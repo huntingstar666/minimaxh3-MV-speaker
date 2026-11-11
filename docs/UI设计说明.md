@@ -48,13 +48,16 @@
 - 数字人时间线改为 sticky 吸顶，滚动分段时轨道常驻；MV 波形增加常驻分割线并加宽播放头命中带。
 - 布局与主题样式：`web/avatar/css/avatar-history.css`。
 
-### 2.3 数字人左栏：常驻作品设定 + 全局素材（2026-11）
+### 2.3 数字人左栏：作品摘要 + 素材库，设定走卡片弹窗（2026-11）
 
-- **作品设定内嵌**：左栏结构改为 `创作模式 → 作品设定 → 全局素材`；`#settings-tabs` 与 `#settings-body` 启动时从隐藏源节点搬进 `#panel-settings-dock`，保留原有 id / 事件绑定。
-- **高度稳定**：dock 占满左栏剩余高度，`#settings-body` 固定区域内部滚动；实测四个分页切换时外框高度完全一致（1728×1080 下 body 242px），不再出现「选项不同、弹窗忽大忽小」。
-- **窄屏降级**：≤1200px 三栏堆叠时，设定区改为 `max-height:420px` 的独立滚动区，避免把舞台推到很远。
-- **全局素材**：左下角常驻参考图缩略图、段数与音色数摘要；拖拽 / 点击上传，按用途入库；全局图默认应用到全部段落（后端 `segment_ref_indices` 在 `ref_ids` 为空时返回全部），「全部段使用」用于清除个别段落的单独勾选。
-- 样式与结构：`web/avatar/index.html`（dock / assets 面板）、`web/avatar/js/avatar.js`（`mountSettingsDock` / `renderAssets` / `bindAssetDock` / `applyGlobalRefsToAll`）、`web/avatar/css/avatar-history.css`。
+- **左栏只放“现在有什么”**：`创作模式 → 当前作品摘要卡 → 素材库`。素材库直接展示驱动音频（模式 1，可试听/替换/分析）、参考音色（模式 2，可试听/添加）、音色描述（模式 3）与参考图网格，标题旁显示 `N 图 · N 音色 · N 段`。
+- **设定只放“要改什么”**：`#settings-tabs` 与 `#settings-body` 启动时搬入 `#modal-settings`；弹窗外框固定 `min(920px,94vw) × min(86vh,780px)`，四个分页内部滚动，实测切页高度恒定（756.6px）。
+- **设计页两栏**：左列固定预览（sticky），右列卡片化控制（密度/风格/配色/字体/效果/高级设计）；不再挤在 300px 左栏里。
+- **给下拉减负**：画幅改成 8 张比例卡片；清晰度、接缝重叠、设计平台、音频模式改成分段控件；参考图用途改成 chips。底层仍保留隐藏 `<select>` / `<input>` 供 `readGeneration/readDesign` 读写，避免动业务逻辑。
+- **键盘与焦点**：弹窗打开时焦点进入标题，Esc 关闭并回焦触发按钮，Tab 在弹窗内循环。
+- 全局参考图默认应用到全部段落（后端 `segment_ref_indices` 在 `ref_ids` 为空时返回全部），「全部段使用」清除个别段落的单独勾选。
+- 样式与结构：`web/avatar/index.html`、`web/avatar/js/avatar.js`（`mountSettingsModal` / `renderAssetMaterials` / `renderAspectCards` / `applyGlobalRefsToAll`）、`web/avatar/css/avatar-history.css`、`web/avatar/css/avatar.css`。
+- 完整审计与验收标准见 [数字人前端苹果标准整改.md](数字人前端苹果标准整改.md)。
 
 ## 3. 版式与比例
 
