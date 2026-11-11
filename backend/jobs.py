@@ -1047,7 +1047,22 @@ class JobRunner:
             raise comfy.ComfyError("任务已取消。")
         self._update(project_id, stage="prepare", message="mixed：规划链与窗口",
                      progress=0.03)
+        groups = seam.group_chains(segments)
         plans = seam.plan_chain_windows(segments, fps, overlap)
+        over_limit = [plan for plan in plans
+                      if plan["visible_end"] / fps > seam.MAX_PLAN_SECONDS]
+        if over_limit:
+            # 只在段边界拆链；单段自己就超限时无法安全拆分，必须在生成前拦住
+            longest = max(over_limit, key=lambda plan: plan["visible_end"])
+            raise ValueError(
+                f"从第 {longest['rows'][0] + 1} 段起的链仍有 "
+                f"{longest['visible_end'] / fps:.1f}s，超过 H3 单次 "
+                f"{seam.MAX_PLAN_SECONDS:.0f}s 上限；请先把该段切短。")
+        auto_split = len(plans) > len(groups)
+        if auto_split:
+            self._log(project_id,
+                      f"有链超过 {seam.MAX_PLAN_SECONDS:.0f} 秒上限，已在段边界自动拆成 "
+                      f"{len(plans)} 条链", "warning")
         pictures, segment_images = self._seam_materials(project, ref_names)
         source = directory / "source.wav"
         samples, sample_rate = audio.read_wav(source)
@@ -1143,6 +1158,7 @@ class JobRunner:
             "segments": len(segments),
             "stitch": "mixed",
             "chains": chain_manifest,
+            "chains_auto_split": bool(auto_split),
             "segment_signature": cuts_signature({"segments": segments}),
         }
         self._commit(project_id, project)

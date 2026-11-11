@@ -301,6 +301,62 @@ def test_plan_no_mutation() -> None:
     require(SAMPLE == snapshot, "plan_chain_windows 不能修改入参")
 
 
+def test_long_chain_auto_split() -> None:
+    """300 秒全 seam 必须拆成多条链，否则会撞 Planner 的 150 秒上限。"""
+    rows = [{"edit_frames": 720, "stitch": "seam"} for _ in range(10)]  # 10 × 30s
+    plans = seam.plan_chain_windows(rows, 24, 22)
+    require(len(plans) == 3,
+            f"300s 应拆成 3 条链，实际 {len(plans)}：{[p['rows'] for p in plans]}")
+    require([plan["rows"] for plan in plans] == [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9]],
+            f"拆分点不对：{[p['rows'] for p in plans]}")
+    require([index for plan in plans for index in plan["rows"]] == list(range(10)),
+            "拆链不能丢段或乱序")
+    for plan in plans:
+        require(plan["visible_end"] / 24 <= seam.MAX_PLAN_SECONDS,
+                f"链 {plan['id']} 仍有 {plan['visible_end'] / 24:.1f}s，超过上限")
+    require([plan["start"] for plan in plans] == [0, 2880, 5760],
+            f"子链区间必须首尾相接：{[p['start'] for p in plans]}")
+    require(sum(plan["target"] for plan in plans) == 7200,
+            f"拆分后总目标帧数必须不变：{sum(p['target'] for p in plans)}")
+
+
+def test_disable_auto_split() -> None:
+    rows = [{"edit_frames": 720, "stitch": "seam"} for _ in range(10)]
+    plans = seam.plan_chain_windows(rows, 24, 22, max_seconds=None)
+    require(len(plans) == 1, f"关掉上限后应为 1 条链，实际 {len(plans)}")
+    require(plans[0]["rows"] == list(range(10)), "不拆时应保留全部段")
+
+
+def test_short_chain_not_split() -> None:
+    rows = [{"edit_frames": 120, "stitch": "seam"},
+            {"edit_frames": 96, "stitch": "seam"}]
+    with_limit = seam.plan_chain_windows(rows, 24, 22)
+    without = seam.plan_chain_windows(rows, 24, 22, max_seconds=None)
+    require([p["rows"] for p in with_limit] == [p["rows"] for p in without],
+            "短链不应被拆分")
+
+
+def test_split_long_chain_direct() -> None:
+    rows = [{"edit_frames": 720} for _ in range(10)]
+    groups = seam.split_long_chain(rows, list(range(10)), 24, 3583)
+    require(groups == [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9]],
+            f"贪心拆分结果：{groups}")
+    huge = [{"edit_frames": 4000}]
+    require(seam.split_long_chain(huge, [0], 24, 3583) == [[0]],
+            "单段超限无法拆，应原样返回，由调用方报错")
+    require(seam.split_long_chain([], [], 24, 3583) == [], "空输入返回空")
+
+
+def test_split_respects_fps() -> None:
+    # 30fps 下 30 秒 = 900 帧，上限 4500-17=4483，每 4 段一组
+    rows = [{"edit_frames": 720, "stitch": "seam"} for _ in range(10)]  # 24fps 刻度 30s
+    plans = seam.plan_chain_windows(rows, 30, 22)
+    require(len(plans) == 3, f"30fps 也应拆成 3 条，实际 {len(plans)}")
+    for plan in plans:
+        require(plan["visible_end"] / 30 <= seam.MAX_PLAN_SECONDS,
+                f"链 {plan['id']} 超上限")
+
+
 def main() -> int:
     run("group_chains 空输入", test_group_chains_empty)
     run("group_chains 全 hard", test_group_chains_all_hard)
@@ -317,6 +373,12 @@ def main() -> int:
     run("plan overlap 非法值", test_plan_invalid_overlap)
     run("plan fps 非法 / 空输入", test_plan_invalid_fps_and_empty)
     run("plan 不改入参", test_plan_no_mutation)
+
+    run("超长链自动拆链", test_long_chain_auto_split)
+    run("可关闭自动拆链", test_disable_auto_split)
+    run("短链不拆", test_short_chain_not_split)
+    run("split_long_chain 直接调用", test_split_long_chain_direct)
+    run("拆链按输出帧率", test_split_respects_fps)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + ", ".join(failures))

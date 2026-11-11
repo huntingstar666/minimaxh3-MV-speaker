@@ -61,12 +61,13 @@ def legal(length: int) -> bool:
 # ---------------------------------------------------------------------------
 # 夹具
 # ---------------------------------------------------------------------------
-def make_project(rows: list[dict]) -> tuple[str, dict, Path]:
+def make_project(rows: list[dict], audio_seconds: float | None = None) -> tuple[str, dict, Path]:
     """建临时项目 + source.wav + 分段，返回 (id, project, 目录)。"""
     project = store.create("mixed 测试", "source.wav", 0, RATE, 0)
     project_id = project["id"]
     directory = store.project_dir(project_id)
-    seconds = max(1.0, sum(int(row["edit_frames"]) for row in rows) / FPS)
+    seconds = audio_seconds or max(
+        1.0, sum(int(row["edit_frames"]) for row in rows) / FPS)
     total = int(round(seconds * RATE))
     time_axis = np.arange(total) / RATE
     mono = np.stack([0.2 * np.sin(2 * np.pi * 220 * time_axis)] * 2, axis=1)
@@ -165,8 +166,9 @@ def fake_comfy(observed: dict):
     return patch
 
 
-def run_mixed(rows: list[dict], overlap: int = 22, fps: int = FPS) -> dict:
-    project_id, project, directory = make_project(rows)
+def run_mixed(rows: list[dict], overlap: int = 22, fps: int = FPS,
+              audio_seconds: float | None = None) -> dict:
+    project_id, project, directory = make_project(rows, audio_seconds)
     runner = make_runner(project_id)
     generation = {
         "stitch": "mixed", "seam_overlap": overlap, "output_fps": fps,
@@ -407,6 +409,41 @@ def test_cancel_aborts_between_chains() -> None:
     require(not observed["graphs"], "取消后不应有任何提交")
 
 
+def test_auto_split_long_chain() -> None:
+    """180 秒全 seam 必须在段边界拆成 2 条链，否则会撞 Planner 的 150 秒上限。"""
+    rows = [{"edit_frames": 720, "stitch": "seam"} for _ in range(6)]  # 6 × 30s
+    out = run_mixed(rows, audio_seconds=1.0)
+    require(len(out["graphs"]) == 2,
+            f"应提交 2 条链，实际 {len(out['graphs'])}")
+    final = out["project"]["final"]
+    require(final.get("chains_auto_split") is True,
+            f"必须记录自动拆链：{final.get('chains_auto_split')}")
+    require([chain["rows"] for chain in final["chains"]] == [[0, 1, 2, 3], [4, 5]],
+            f"拆分点不对：{[c['rows'] for c in final['chains']]}")
+    for chain in final["chains"]:
+        require(chain["visible_end"] / FPS <= 150,
+                f"链 {chain['index']} 仍有 {chain['visible_end'] / FPS:.1f}s")
+
+
+def test_over_limit_single_segment() -> None:
+    """单段自己就超过 150 秒时无法拆链，必须在生成前报错。"""
+    project_id, project, _ = make_project([{"edit_frames": 4000, "stitch": "hard"}],
+                                          audio_seconds=1.0)
+    runner = make_runner(project_id)
+    generation = {"stitch": "mixed", "seam_overlap": 22, "output_fps": FPS}
+    observed = {"graphs": [], "timelines": [], "seconds": [], "prefixes": [],
+                "normalize": [], "concat": None, "uploaded": {}}
+    try:
+        with fake_comfy(observed):
+            runner._generate_mixed(project_id, project, generation, {})
+    except ValueError as exc:
+        require("150" in str(exc), f"错误信息要说明上限：{exc}")
+        require("第 1 段" in str(exc), f"错误信息要指出段号：{exc}")
+    else:
+        raise AssertionError("超长单段必须报错")
+    require(not observed["graphs"], "报错前不能提交任何链")
+
+
 def test_final_stale_reason() -> None:
     """成片过期判断：hard 看 take，seam/mixed 看切点 + 接续方式。"""
     require(jobs.final_stale_reason({}) == "", "没有 final 时不应判过期")
@@ -467,6 +504,8 @@ def main() -> int:
     run("cuts_signature 兼容旧项目", test_cuts_signature_backward_compatible)
     run("取消后不再提交", test_cancel_aborts_between_chains)
     run("成片过期判断", test_final_stale_reason)
+    run("超长链自动拆分", test_auto_split_long_chain)
+    run("超长单段报错", test_over_limit_single_segment)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))

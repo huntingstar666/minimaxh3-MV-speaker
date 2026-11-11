@@ -13,6 +13,8 @@ from typing import Any
 from .frames import FPS
 
 DEFAULT_OVERLAP = 22
+# TimelinePlanner 的 generation_seconds 上限是 150（节点输入约束），单链不能超过。
+MAX_PLAN_SECONDS = 150.0
 
 
 def legal_frames(length: int) -> int:
@@ -96,7 +98,8 @@ def group_chains(rows: list[dict[str, Any]]) -> list[list[int]]:
 
 
 def plan_chain_windows(rows: list[dict[str, Any]], fps: int,
-                       overlap: int = DEFAULT_OVERLAP) -> list[dict[str, Any]]:
+                       overlap: int = DEFAULT_OVERLAP,
+                       max_seconds: float | None = MAX_PLAN_SECONDS) -> list[dict[str, Any]]:
     """混合模式的链级窗口规划：先按 ``stitch`` 切链，再对每条链复用 ``plan_windows``。
 
     返回每条链的规划，窗口坐标是**链内 0 基**：
@@ -108,6 +111,9 @@ def plan_chain_windows(rows: list[dict[str, Any]], fps: int,
     - ``visible_end``：链内最后一窗的 ``endFrame``（= ``target + overshoot``）；
     - ``overshoot``：链尾多生成的帧数，``0 ≤ overshoot < 17``，装配时裁掉；
     - ``windows``：链内窗口，``start/end/length`` 都是链内坐标，装配时加 ``start``。
+
+    ``max_seconds`` 非空时，超过上限的链会在**段边界**自动拆开（不切段内部），
+    避免撞 Planner 的 150 秒输入上限。传 ``None`` 可关闭自动拆分（仅测试/诊断用）。
     """
     fps = int(fps)
     if fps <= 0:
@@ -120,9 +126,19 @@ def plan_chain_windows(rows: list[dict[str, Any]], fps: int,
         raise ValueError(
             f"overlap 必须是 5+17k 的 guide 帧数（如 5/22/39），收到 {overlap}")
 
+    groups: list[list[int]] = []
+    if max_seconds is None or float(max_seconds) <= 0:
+        groups = group_chains(rows)
+    else:
+        # 累计吸附的总误差不超过 16 帧（吸附只看累计值，不随段数累积），
+        # 所以留 17 帧余量就能保证规划出的 visible_end 仍在 max_seconds 之内。
+        limit_frames = max(fps, int(float(max_seconds) * fps) - 17)
+        for chain in group_chains(rows):
+            groups.extend(split_long_chain(rows, chain, fps, limit_frames))
+
     plans: list[dict[str, Any]] = []
     absolute_start = 0
-    for chain_id, row_indexes in enumerate(group_chains(rows)):
+    for chain_id, row_indexes in enumerate(groups):
         chain_rows = [rows[index] for index in row_indexes]
         # total_target=0 时 plan_windows 的“补最后一窗”分支不会触发；
         # 链目标由各窗的 target_visible 求和得到，避免复制 base 公式。
@@ -141,6 +157,28 @@ def plan_chain_windows(rows: list[dict[str, Any]], fps: int,
         })
         absolute_start += target
     return plans
+
+
+def split_long_chain(rows: list[dict[str, Any]], indexes: list[int], fps: int,
+                     limit_frames: int) -> list[list[int]]:
+    """把超长的链在段边界拆开，保证每条子链的可见帧数不超过 ``limit_frames``。
+
+    只在段边界拆：切段内部会改变台词/口型与窗口的对应关系，必须让用户自己切。
+    单段本身就超限时无法拆，原样返回，由调用方报错。
+    """
+    groups: list[list[int]] = []
+    current: list[int] = []
+    total = 0
+    for index in indexes:
+        base = max(1, int(round(int(rows[index].get("edit_frames") or 0) * fps / FPS)))
+        if current and total + base > limit_frames:
+            groups.append(current)
+            current, total = [], 0
+        current.append(index)
+        total += base
+    if current:
+        groups.append(current)
+    return groups
 
 
 def build_timeline(windows: list[dict[str, Any]], pictures: list[dict[str, Any]],
