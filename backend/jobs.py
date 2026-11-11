@@ -502,7 +502,7 @@ class JobRunner:
                 int(row_index): {str(take.get("take_id")) for take in (row.get("takes") or [])
                                  if isinstance(take, dict)}
                 for row_index, row in enumerate(project.get("segments") or [])}
-            generation = self._resolve_generation(project, options)
+            generation = self._resolve_generation(project_id, project, options)
             nodes_info = (comfy.options() or {}).get("nodes") or {}
             self._available = {key: bool(nodes_info.get(key))
                                for key in ("sigma_shift", "sigma_refiner")}
@@ -575,7 +575,8 @@ class JobRunner:
                 pass
             self.cancel_events.pop(project_id, None)
 
-    def _resolve_generation(self, project: dict, options: dict) -> dict[str, Any]:
+    def _resolve_generation(self, project_id: str, project: dict,
+                            options: dict) -> dict[str, Any]:
         generation = settings.load().get("generation", {}).copy()
         generation.update(project.get("generation") or {})
         generation.update(options.get("generation") or {})
