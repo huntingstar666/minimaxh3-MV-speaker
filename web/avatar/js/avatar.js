@@ -879,7 +879,9 @@ function syncAnchorUI() {
   const anchorAvailable = mode === 1;
   if (stitchInput.value === "anchor" && !anchorAvailable) {
     stitchInput.value = "hard";
-    setSegmented("f-stitch-seg", "hard");
+  }
+  if (stitchInput.value === "relay" && anchorAvailable) {
+    stitchInput.value = "hard";
   }
   const on = stitchInput.value === "anchor" && anchorAvailable;
   const fields = $("#anchor-fields");
@@ -889,16 +891,33 @@ function syncAnchorUI() {
   if (entry) entry.hidden = !on;
   const hint = $("#anchor-hint");
   if (hint) hint.hidden = !on;
-  // 段间模式只对模式 1 有意义：模式 2/3 逐段生成、每段自带音轨，固定硬切
+  // 段间模式按模式换选项：模式 1 = 硬切/首尾帧锚定；模式 2/3 = 硬切/尾帧接力
   const stitchSeg = $("#f-stitch-seg");
-  if (stitchSeg) stitchSeg.hidden = !anchorAvailable;
+  if (stitchSeg) {
+    const options = anchorAvailable
+      ? [["hard", "硬切"], ["anchor", "首尾帧锚定"]]
+      : [["hard", "硬切"], ["relay", "尾帧接力"]];
+    const signature = options.map((item) => item[0]).join("|");
+    if (stitchSeg.dataset.options !== signature) {
+      stitchSeg.dataset.options = signature;
+      stitchSeg.innerHTML = options.map(([value, label]) =>
+        `<button type="button" class="av-seg-control-item" data-value="${value}">${label}</button>`,
+      ).join("");
+    }
+    stitchSeg.hidden = false;
+    setSegmented("f-stitch-seg", stitchInput.value);
+  }
   const stitchStatic = $("#stitch-static-hint");
-  if (stitchStatic) stitchStatic.hidden = anchorAvailable;
+  if (stitchStatic) {
+    stitchStatic.hidden = anchorAvailable;
+    stitchStatic.textContent = "尾帧接力：把上一段末帧作为本段第 0 帧的软引导，姿态/背景更连续；"
+      + "每段仍用自己的音色生成台词，音轨按段拼接。";
+  }
   const note = $("#anchor-mode-note");
   if (note) {
     note.textContent = anchorAvailable
       ? (on ? "仅模式 1 · 固定种子" : "模式 1 · 可锚定")
-      : "模式 2/3 · 逐段生成";
+      : "模式 2/3 · 尾帧接力可选";
   }
   const seedField = $("#f-seed")?.closest(".field");
   const seedLabel = seedField?.querySelector("label");
