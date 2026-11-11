@@ -719,6 +719,55 @@ h3-workbench/
 
 三种模式的系统提示词随仓库携带（A / B / C），按 mode 注入；LLM 输出会过 lint 并自动修复一轮，失败回退内置六段模板。设计面板支持效果密度、主辅色、字体/材质、效果清单、节拍表（可 AI 建议）；「生成路由 / 音频腔」只读，由创作模式派生；`overlay` 模式下文字/logo 由 ffmpeg 确定性叠加兜底。详见 [docs/数字人工作台.md](docs/数字人工作台.md)。完整测试清单见 §10。
 
-## 12. 许可与致谢
+## 12. 致谢
 
-编排逻辑参考像素幻想 Lab 的 `ComfyUI-H3-LongVideo`（分段、导演规则、提示词扩写）与 `selflift-Avatar` 采样器实现，重写为不依赖 ComfyUI 运行时的纯 Python 模块，便于移植与二次开发。
+这个项目不是从零发明的。它建立在 MiniMax H3 的生成能力、ComfyUI 生态、多个开源节点包，以及大量创作者公开分享的工作流、提示词方法与踩坑记录之上。向下面这些方案与作者致谢。
+
+### 12.1 模型与生成链路
+
+- **MiniMax H3**（MiniMax）：视频 / 音频生成模型与 Ref2VA、FL2VA 等路由；本项目的三腔提示词与六段结构对齐其官方 Skills。
+  <https://github.com/MiniMax-AI/MiniMax-H3>
+- **ComfyUI**（comfyanonymous）：节点式推理运行时、`object_info`、队列与历史接口；MV / 数字人所有节点图都跑在它上面。
+  <https://github.com/comfyanonymous/ComfyUI>
+- **selflift-Avatar**（slmonker）：`SelfLiftAvatarH3Sampler` / `SelfLiftAvatarH3SamplerFix` 双采采样器，是本项目所有出片路径的核心。
+  <https://github.com/slmonker/selflift-Avatar>
+- **ComfyUI-H3-LongVideo**（像素幻想 Lab）：长视频分段、全局运镜规划、导演规则与提示词扩写的原始方案；本项目的 `segmenter.py`、`director.py`、`prompts.py` 是对其思路的纯 Python 重写。
+- **ComfyUI-MiniMaxH3-TimelineDirector**（Songssx）：逐窗时间线规划与 AV latent 续接的上游实现。
+  <https://github.com/Songssx/ComfyUI-MiniMaxH3-TimelineDirector>
+- **minimaxh3-long-video-seam**（huntingstar666）：在上游 TimelineDirector 基础上增加动态 FPS 与单段 latent 缓存，作为本项目 seam / mixed 的内置节点包（GPL-3.0 衍生版）。
+  <https://github.com/huntingstar666/minimaxh3-long-video-seam>
+- **person-swap-v2 / swap-skill-v2.0**（huntingstar666）：seam 运行依赖与长视频换角流程的实践来源。
+  <https://github.com/huntingstar666/swap-skill-v2.0>
+- **Qwen3-VL**（阿里 Qwen）：H3 文本编码器的基础模型。
+  <https://github.com/QwenLM/Qwen3-VL>
+- **社区模型与 LoRA 作者**：Cobijada H3 Hybrid、DMAD 4-step、fl2v turbo、H3 latent upscaler 等权重均由社区作者训练与分享；本项目只做检测、推荐与参数编排，不重新分发权重，版权与许可归各作者。
+
+### 12.2 节点、工具与运行时
+
+- **ComfyUI-VideoHelperSuite**（Kosinkadink）：`VHS_VideoCombine`，所有成片的编码出口。
+  <https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite>
+- **ComfyUI-KJNodes**（kijai）与 **ComfyUI-Easy-Use**（yolain）：可选节点与显存清理模板。
+  <https://github.com/kijai/ComfyUI-KJNodes> · <https://github.com/yolain/ComfyUI-Easy-Use>
+- **ffmpeg / ffprobe**：归一化、拼接、抽帧、封面与确定性文字叠加。
+  <https://ffmpeg.org>
+- **faster-whisper**（SYSTRAN）与 **Whisper**（OpenAI）：可选的语音识别辅助切分。
+  <https://github.com/SYSTRAN/faster-whisper> · <https://github.com/openai/whisper>
+- **FastAPI / Starlette / Pydantic / Uvicorn / httpx / NumPy / python-multipart / websockets**：后端服务、校验、HTTP 客户端与数据处理。
+- **Ollama 与任意 OpenAI 兼容 LLM**：可选的提示词扩写 / 修复；不启用时回退内置确定性模板。
+
+### 12.3 提示词、设计与创作方法
+
+- **MiniMax H3 官方 Skills**：T2VA / I2VA / FL2VA / L2VA / Ref2VA 的路由职责、字段结构与参考标签规则。
+- **项目内配套技能** `skills/mv-pack-builder` 与《H3 口播动态图形导演》：三腔规范、节拍表、效果系统与 lint 规则；其中的设计方法参考了：
+  - Adobe After Effects 官方文档：文字动画、文本图层、Track Matte、Mask Tracker、Safe Margins；
+  - Apple Human Interface Guidelines：Motion、Typography、SF Symbols；
+  - Android Developers 与 Google Material Symbols：缓动、图标语义与状态表达。
+  以上只作为方法与规范参考，未直接复制其文本或素材。
+- **所有公开分享 H3 工作流、参数组合、失败案例与修复思路的创作者**：本项目里的窗口重叠、二采步数分配、锚定预处理、单双采模型栈等经验，很多来自这些公开记录与反复真机验证。
+
+### 12.4 许可说明
+
+- 本项目代码以 **Apache-2.0** 分发（见根目录 `LICENSE`）。
+- `vendor/minimaxh3-long-video-seam/` 是上游 TimelineDirector 的 **GPL-3.0** 衍生修改版，再分发时必须保留其 `LICENSE`、`FORK_NOTICE.md` 与上游来源说明。
+- 模型权重、LoRA、字体与商标不随本仓库分发，分别遵循其作者/厂商许可；本项目与上述上游项目不存在官方背书关系。
+- 如果你在本项目中认出了自己的方案而希望补充署名或链接，欢迎提交 issue / PR，我们会补上。
