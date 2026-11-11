@@ -2,7 +2,7 @@
 """行级 stitch 接口单测：PATCH /api/projects/{id}/segments/{index}。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe segment_stitch_test.py
+    .\\.venv\\Scripts\\python.exe tests/segment_stitch_test.py
 
 覆盖：
 1) hard / seam 可写、可来回切；
@@ -17,7 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 os.environ["H3WB_DATA"] = tempfile.mkdtemp(prefix="h3wb-stitch-api-")
 sys.path.insert(0, str(ROOT))
 

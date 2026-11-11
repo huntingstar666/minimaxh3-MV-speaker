@@ -254,6 +254,7 @@ h3-workbench/
 │  └─ projects/<id>/…
 ├─ skills/
 │  └─ mv-pack-builder/     配套 MV / 数字人包创作技能（含环境自检 / 包校验 / 导入脚本）
+├─ tests/                  全部冒烟/回归脚本（MV + 数字人，命令见 §10）
 └─ docs/
    ├─ 数字人工作台.md               三模式 / 段间模式 / 设计层 / 包格式
    ├─ 数字人工作台-实现契约.md       数据模型 / API / 写作用域
@@ -464,37 +465,37 @@ detailed_description: → overall_soundscape: → non_diegetic_music:
 
 ## 10. 冒烟测试与版本管理
 
-改动代码后先跑一遍冒烟测试，再重启工作台：
+改动代码后先跑一遍冒烟测试，再重启工作台。所有测试脚本都在 `tests/`，命令在仓库根目录执行：
 
 ```bash
 # MV / 通用
-python smoke_test.py              # 主链路冒烟（临时数据目录）
-python setup_check_test.py        # 环境体检 / 安装动作边界
-python mv_seam_test.py            # MV 逐窗 seam / 断点续跑
-python mixed_jobs_test.py         # MV mixed 链级生成 / 只重拼 / 输出帧率
-python seam_chain_test.py         # 链规划与 25/30fps 起点精度
-python pack_stitch_test.py        # 包内 stitch/overlap 往返
-python segment_frame_test.py      # 分段帧数换算
-python media_retime_test.py       # 媒体重定时/拼接
-python segment_stitch_test.py     # 行级 stitch 选择
+python tests/smoke_test.py              # 主链路冒烟（临时数据目录）
+python tests/setup_check_test.py        # 环境体检 / 安装动作边界
+python tests/mv_seam_test.py            # MV 逐窗 seam / 断点续跑
+python tests/mixed_jobs_test.py         # MV mixed 链级生成 / 只重拼 / 输出帧率
+python tests/seam_chain_test.py         # 链规划与 25/30fps 起点精度
+python tests/pack_stitch_test.py        # 包内 stitch/overlap 往返
+python tests/segment_frame_test.py      # 分段帧数换算
+python tests/media_retime_test.py       # 媒体重定时/拼接
+python tests/segment_stitch_test.py     # 行级 stitch 选择
 
 # 数字人
-python avatar_smoke_test.py       # 设计层/节拍/lint/三腔/合成
-python avatar_audio_smoke_test.py # 模式 1 音轨=原音频
-python avatar_audio_frames_test.py
-python avatar_lint_test.py
-python avatar_overlay_test.py
-python avatar_pack_smoke_test.py  # .h3avatar 导入导出 / roundtrip
-python avatar_voice_sample_test.py
-python avatar_anchor_test.py
-python avatar_relay_test.py       # force / 锚定模板 / 放大器依赖
-python avatar_seam_test.py
-python avatar_mixed_test.py
-python avatar_stitch_api_test.py  # 段间模式 / 二采 / 设计字段
-python avatar_seam_assemble_test.py
+python tests/avatar_smoke_test.py       # 设计层/节拍/lint/三腔/合成
+python tests/avatar_audio_smoke_test.py # 模式 1 音轨=原音频
+python tests/avatar_audio_frames_test.py
+python tests/avatar_lint_test.py
+python tests/avatar_overlay_test.py
+python tests/avatar_pack_smoke_test.py  # .h3avatar 导入导出 / roundtrip
+python tests/avatar_voice_sample_test.py
+python tests/avatar_anchor_test.py
+python tests/avatar_relay_test.py       # force / 锚定模板 / 放大器依赖
+python tests/avatar_seam_test.py
+python tests/avatar_mixed_test.py
+python tests/avatar_stitch_api_test.py  # 段间模式 / 二采 / 设计字段
+python tests/avatar_seam_assemble_test.py
 ```
 
-`smoke_test.py` 会自动：创建临时数据目录（不碰 `data/` 真实项目）、用合成音频建项目并分析、检查提示词保存顺序、全局风格/滤镜/运镜前缀、切点 no-op、AI 重写、任务线程写盘不覆盖用户编辑、结构变化后旧任务结果不回写，结束后清理临时数据。全部通过退出码为 0。
+`tests/smoke_test.py` 会自动：创建临时数据目录（不碰 `data/` 真实项目）、用合成音频建项目并分析、检查提示词保存顺序、全局风格/滤镜/运镜前缀、切点 no-op、AI 重写、任务线程写盘不覆盖用户编辑、结构变化后旧任务结果不回写，结束后清理临时数据。全部通过退出码为 0。
 
 最近一轮逐项修复与复核记录见 [docs/BUG审查-20261111.md](docs/BUG审查-20261111.md)；维护约定（输出帧率必须传给 concat、数字人三种生成入口、锚定模板生命周期、放大器依赖、成片过期口径）见 [docs/数据链路与已知限制.md](docs/数据链路与已知限制.md) §7。
 
@@ -507,7 +508,7 @@ git add -A && git commit -m "描述这次改动"
 git log --oneline   # 出问题时可回到上一个可用版本
 ```
 
-AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py` → 重启 `start.bat`。提示词、项目数据都在 `data/`，不受 git 回滚影响。
+AI 辅助改动后的固定流程：`git diff` 核对 → `python tests/smoke_test.py` → 重启 `start.bat`。提示词、项目数据都在 `data/`，不受 git 回滚影响。
 
 ## 11. 数字人工作台（A 音频驱动 / B 参考音色 / C 无音频参考）
 

@@ -73,7 +73,7 @@
 
 ```bash
 git status && git diff      # 看改了什么
-python smoke_test.py        # 关键链路冒烟（独立临时数据，不碰真实项目）
+python tests/smoke_test.py  # 关键链路冒烟（独立临时数据，不碰真实项目）
 ```
 
 全部通过后重启 `start.bat`，再刷新浏览器验证。

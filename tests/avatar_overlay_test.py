@@ -1,6 +1,6 @@
 """数字人叠加兜底（backend/avatar/overlay.py）测试。
 
-用法：`python avatar_overlay_test.py`
+用法：`python tests/avatar_overlay_test.py`
 
 流程：ffmpeg 合成 3s / 320x240 / 带正弦音轨的 mp4 → 构造 project + row（2 个 beat、
 中文可见文案）→ 调用 `compose_segment` 做确定性 drawtext + logo 叠加，断言：
@@ -26,7 +26,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 MODULE_PATH = ROOT / "backend" / "avatar" / "overlay.py"
 
 # 按文件直接加载：overlay.py 只依赖标准库，测试不需要拉起 backend.avatar 的 FastAPI 应用

@@ -6,7 +6,7 @@
 - 模式 2/3：hard / relay / seam；seam_overlap 必须是 5+17k（5/22/39）。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe avatar_stitch_api_test.py
+    .\\.venv\\Scripts\\python.exe tests/avatar_stitch_api_test.py
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 os.environ["H3WB_DATA"] = tempfile.mkdtemp(prefix="h3wb-stitch-api-")
 sys.path.insert(0, str(ROOT))
 

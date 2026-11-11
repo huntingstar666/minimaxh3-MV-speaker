@@ -2,7 +2,7 @@
 """数字人 relay（尾帧接力）单测：图结构 + 末帧抽取。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe avatar_relay_test.py
+    .\\.venv\\Scripts\\python.exe tests/avatar_relay_test.py
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import importlib
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 os.environ["H3WB_DATA"] = tempfile.mkdtemp(prefix="h3wb-relay-")
 sys.path.insert(0, str(ROOT))
 

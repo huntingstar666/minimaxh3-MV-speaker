@@ -7,7 +7,7 @@
 - `_assemble_mixed()` 的交付帧数（链尾裁掉 overshoot，链间不重复不丢帧）。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe avatar_mixed_test.py
+    .\\.venv\\Scripts\\python.exe tests/avatar_mixed_test.py
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 os.environ["H3WB_DATA"] = tempfile.mkdtemp(prefix="h3wb-avmixed-")
 sys.path.insert(0, str(ROOT))
 

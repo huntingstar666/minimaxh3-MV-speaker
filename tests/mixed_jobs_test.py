@@ -5,7 +5,7 @@
 但窗口规划、时间线构造、提示词、落盘都走真实代码。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe mixed_jobs_test.py
+    .\\.venv\\Scripts\\python.exe tests/mixed_jobs_test.py
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 os.environ["H3WB_DATA"] = tempfile.mkdtemp(prefix="h3wb-mixed-test-")
 sys.path.insert(0, str(ROOT))
 

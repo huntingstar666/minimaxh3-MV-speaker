@@ -2,7 +2,7 @@
 """数字人成片音频切片单测：模式 2/3 抽音轨必须严格等于段帧数。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe avatar_audio_frames_test.py
+    .\\.venv\\Scripts\\python.exe tests/avatar_audio_frames_test.py
 
 背景：H3 每次 take 的音频长度不一定等于交付帧数，不裁会让成片音轨比视频长，
 多段叠加后越拖越偏。`_extract_audio(..., frames=N)` 用 `apad,atrim=end_sample`
@@ -16,7 +16,7 @@ import tempfile
 import wave
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 os.environ["H3WB_DATA"] = tempfile.mkdtemp(prefix="h3wb-audio-frames-")
 sys.path.insert(0, str(ROOT))
 

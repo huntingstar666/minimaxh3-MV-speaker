@@ -1,6 +1,6 @@
 """H3 工作台冒烟测试：不依赖 ComfyUI / 不碰真实项目数据。
 
-用法：`python smoke_test.py`
+用法：`python tests/smoke_test.py`
 流程：临时数据目录 + 独立端口启动后端 → 生成一段合成音频 → 建项目/分析/改提示词/
 风格滤镜运镜/切点 no-op/AI 重写 → 校验任务线程写盘时不会覆盖用户编辑 → 清理。
 通过退出码 0；失败退出码 1 并打印失败项。
@@ -24,7 +24,7 @@ from pathlib import Path
 import httpx
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(tempfile.mkdtemp(prefix="h3wb-smoke-"))
 # 必须在 import backend 之前设置，保证测试进程与测试服务都读写这份临时数据
 os.environ["H3WB_DATA"] = str(DATA_DIR)

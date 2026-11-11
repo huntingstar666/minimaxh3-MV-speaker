@@ -1,6 +1,6 @@
 """数字人工作台冒烟测试：不依赖 ComfyUI 出片、不碰真实数据。
 
-用法：`python avatar_smoke_test.py`
+用法：`python tests/avatar_smoke_test.py`
 
 覆盖：
 - 数字人项目创建 / 台词分段（5 字/秒估算 + H3 合法帧数）/ 分段编辑重算时间轴
@@ -31,7 +31,7 @@ from pathlib import Path
 import httpx
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 # 测试数据走系统临时目录，不碰 data/ 里的真实项目
 DATA_DIR = Path(tempfile.mkdtemp(prefix="h3dh-smoke-"))
 os.environ["H3WB_DATA"] = str(DATA_DIR)

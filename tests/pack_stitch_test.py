@@ -2,7 +2,7 @@
 """MV 包接续字段校验单测：stitch / row.stitch / seam_overlap（纯校验，不跑 ffmpeg）。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe pack_stitch_test.py
+    .\\.venv\\Scripts\\python.exe tests/pack_stitch_test.py
 
 覆盖：
 1) project.generation.stitch：hard / seam / mixed 通过，缺省按 hard，非法值拒绝；
@@ -17,7 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 os.environ["H3WB_DATA"] = tempfile.mkdtemp(prefix="h3wb-pack-test-")
 sys.path.insert(0, str(ROOT))
 

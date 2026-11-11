@@ -6,7 +6,7 @@
 - `_assemble_seam()` 的数学（Finalize 已裁头，逐窗 keep 帧拼接，音轨样本精确）。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe avatar_seam_assemble_test.py
+    .\\.venv\\Scripts\\python.exe tests/avatar_seam_assemble_test.py
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import tempfile
 import wave
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 os.environ["H3WB_DATA"] = tempfile.mkdtemp(prefix="h3wb-avseam-asm-")
 sys.path.insert(0, str(ROOT))
 

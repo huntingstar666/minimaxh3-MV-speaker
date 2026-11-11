@@ -2,7 +2,7 @@
 """数字人提示词 lint + effect_catalog 独立自测（无第三方依赖、无网络、不写文件）。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe avatar_lint_test.py
+    .\\.venv\\Scripts\\python.exe tests/avatar_lint_test.py
 
 覆盖：
 1) 合格 A 腔（runtime，无 <Audio>，六段 + [Shot 1] + <d>[中文] + “字/秒”）；
@@ -23,7 +23,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def _load(name: str, path: Path):

@@ -1,7 +1,7 @@
 """模式 1（音频驱动）冒烟测试：上传音频 → 分析分段 → 切点/分合段 → 合成成片。
 
 不跑 ComfyUI 生成：用 ffmpeg 造假 take 验证「视频拼接 + 原始驱动音频」链路。
-用法：`python avatar_audio_smoke_test.py`（需要 ffmpeg；没有则相关项 SKIP）
+用法：`python tests/avatar_audio_smoke_test.py`（需要 ffmpeg；没有则相关项 SKIP）
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from pathlib import Path
 import httpx
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(tempfile.mkdtemp(prefix="h3dh-audio-smoke-"))
 os.environ["H3WB_DATA"] = str(DATA_DIR)
 sys.path.insert(0, str(ROOT))

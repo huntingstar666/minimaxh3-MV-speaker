@@ -6,7 +6,7 @@
 - 模式 3：无音频、台词自动分段（30s 档）；
 - 样本媒体可试听（media/voice/ref.wav 200）。
 
-用法：`python avatar_voice_sample_test.py`（临时数据目录，不占 GPU；需要 ffmpeg）。
+用法：`python tests/avatar_voice_sample_test.py`（临时数据目录，不占 GPU；需要 ffmpeg）。
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(tempfile.mkdtemp(prefix="h3dh-voice30-"))
 os.environ["H3WB_DATA"] = str(DATA_DIR)
 sys.path.insert(0, str(ROOT))

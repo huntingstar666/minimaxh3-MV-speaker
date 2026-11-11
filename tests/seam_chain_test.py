@@ -2,7 +2,7 @@
 """seam 混合链规划单测：group_chains / plan_chain_windows（纯函数、无第三方依赖）。
 
 运行：在 h3-workbench 项目根目录执行
-    .\\.venv\\Scripts\\python.exe seam_chain_test.py
+    .\\.venv\\Scripts\\python.exe tests/seam_chain_test.py
 
 覆盖：
 1) group_chains：hard 开新链、seam 并入、首段忽略、空值/非法值按 hard、大小写与空白；
@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from backend import seam  # noqa: E402

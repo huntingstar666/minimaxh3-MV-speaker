@@ -7,7 +7,7 @@
 - 用技能自带的 validate_avatar_pack.py 校验导出的包；
 - 非法包（schema/缺音频/非法帧数/workflow 不匹配/缺参考图文件）被 400 拒绝。
 
-用法：`python avatar_pack_smoke_test.py`（只写系统临时目录，不跑 ComfyUI、不需要 ffmpeg）。
+用法：`python tests/avatar_pack_smoke_test.py`（只写系统临时目录，不跑 ComfyUI、不需要 ffmpeg）。
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(tempfile.mkdtemp(prefix="h3dh-pack-smoke-"))
 os.environ["H3WB_DATA"] = str(DATA_DIR)
 sys.path.insert(0, str(ROOT))
