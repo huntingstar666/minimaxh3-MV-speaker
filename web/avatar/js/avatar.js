@@ -6232,6 +6232,10 @@ function bindEvents() {
     settingsBody.addEventListener("input", markFormDirty);
     settingsBody.addEventListener("change", markFormDirty);
   }
+  // 右栏的段间模式 / 二次采样 / 接缝重叠不在设定弹窗内，单独纳入脏标记
+  ["#f-stitch", "#f-secondpass", "#f-seam-overlap"].forEach((selector) => {
+    $(selector)?.addEventListener("change", markFormDirty);
+  });
   window.addEventListener("beforeunload", (event) => {
     if (!hasUnsavedChanges()) return;
     event.preventDefault();
