@@ -17,6 +17,7 @@ import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -48,6 +49,14 @@ def _check_upload_size(upload: UploadFile, limit: int, label: str) -> None:
         raise HTTPException(400, f"{label}过大：{size / 1024 / 1024:.1f}MB"
                                  f"（上限 {limit // 1024 // 1024}MB）")
 VALID_ROLES = {"performer", "environment", "appearance", "subject", "other"}
+
+
+def _valid_url(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text or any(ch.isspace() for ch in text):
+        return False
+    parts = urlsplit(text if "://" in text else "http://" + text)
+    return bool(parts.netloc) and parts.scheme in {"http", "https"}
 
 WEB_DIR = settings.WEB_DIR / "avatar"
 WEB_DIR.mkdir(parents=True, exist_ok=True)
@@ -550,7 +559,19 @@ def get_settings() -> dict[str, Any]:
 
 @app.post("/api/settings")
 def post_settings(payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    settings.save(payload or {})
+    """与 MV 共用 settings.json；校验口径保持一致，避免数字人页写坏配置。"""
+    patch = dict(payload or {})
+    if isinstance(patch.get("comfy_url"), str) and patch["comfy_url"].strip() \
+            and not _valid_url(patch["comfy_url"]):
+        raise HTTPException(400, "ComfyUI 地址不合法，请填写 http://127.0.0.1:8188 这样的地址。")
+    llm = patch.get("llm")
+    if isinstance(llm, dict) and isinstance(llm.get("base_url"), str) \
+            and llm["base_url"].strip() and not _valid_url(llm["base_url"]):
+        raise HTTPException(400, "LLM Base URL 不合法，请填写 http://host:port/v1 这样的地址。")
+    if isinstance(llm, dict) and isinstance(llm.get("api_key"), str) \
+            and llm["api_key"].startswith("••••"):
+        llm.pop("api_key", None)
+    settings.save(patch)
     return {"ok": True, "settings": settings.public()}
 
 
