@@ -145,12 +145,33 @@ def test_tail_frame_requires_previous() -> None:
         raise AssertionError("上一段没有片段时必须报错")
 
 
+def test_relay_invalidates_downstream() -> None:
+    project = avatar_store.create("relay 失效", 2)
+    pid = project["id"]
+    project["segments"] = [
+        {"output": "takes/a.mp4", "selected_take": "t1", "status": "completed"},
+        {"output": "takes/b.mp4", "selected_take": "t2", "status": "completed"},
+        {"output": "takes/c.mp4", "selected_take": "t3", "status": "completed"},
+    ]
+    avatar_store.save(project)
+    runner = avatar_job.AvatarRunner()
+    cleared = runner._invalidate_relay_downstream(pid, 0)
+    require(cleared == 2, f"重跑第 1 段应清空后 2 段，实际 {cleared}")
+    latest = avatar_store.get(pid)
+    require(latest["segments"][0]["output"] == "takes/a.mp4", "第 1 段本身必须保留")
+    require(not latest["segments"][1]["output"], "第 2 段 output 应清空")
+    require(not latest["segments"][2]["selected_take"], "第 3 段选择应清空")
+    require(latest["segments"][2]["status"] == "idle", "状态应回到 idle")
+    require(runner._invalidate_relay_downstream(pid, 2) == 0, "最后一段没有下游")
+
+
 def main() -> int:
     run("relay 开关识别", test_relay_flag)
     run("默认图不含 guide", test_graph_without_tail)
     run("relay 图插入 AddGuide", test_graph_with_tail)
     run("末帧抽取", test_tail_frame_extract)
     run("缺上一段报错", test_tail_frame_requires_previous)
+    run("重跑上游作废下游", test_relay_invalidates_downstream)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))

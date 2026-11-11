@@ -861,6 +861,24 @@ class AvatarRunner:
         return names
 
     # ------------------------------ 单段 ------------------------------
+    def _invalidate_relay_downstream(self, project_id: str, index: int) -> int:
+        """relay 下第 index 段重生成后，后续段的 take 依赖它的末帧，必须作废重跑。"""
+        cleared = 0
+
+        def apply(latest: dict[str, Any]) -> None:
+            nonlocal cleared
+            for position, row in enumerate(latest.get("segments") or []):
+                if position <= index:
+                    continue
+                if row.get("output") or row.get("selected_take"):
+                    row["output"] = ""
+                    row["selected_take"] = ""
+                    row["status"] = "idle"
+                    cleared += 1
+
+        store.mutate(project_id, apply)
+        return cleared
+
     def _tail_frame(self, project_id: str, project: dict, index: int) -> str:
         """抽上一段选中 take 的最后一帧并上传，作为本段第 0 帧的软引导。
 
@@ -917,8 +935,15 @@ class AvatarRunner:
         if not generation.get("seed"):
             generation["seed"] = fallback_seed
         tail_name = ""
-        if relay_enabled(project, generation) and index > 0:
-            tail_name = self._tail_frame(project_id, project, index)
+        if relay_enabled(project, generation):
+            segments_now = project.get("segments") or []
+            if index + 1 < len(segments_now) and self._invalidate_relay_downstream(
+                    project_id, index):
+                # 磁盘已清空下游 take，内存同步一份，避免后续代码读到旧 output
+                for position in range(index + 1, len(segments_now)):
+                    segments_now[position].update(output="", selected_take="", status="idle")
+            if index > 0:
+                tail_name = self._tail_frame(project_id, project, index)
         graph = workflow.build(generation, prompt_text, segment_refs, use_audio,
                                frames, int(generation.get("fps") or config.FPS),
                                available=self._available,
