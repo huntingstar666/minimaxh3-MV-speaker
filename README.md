@@ -94,6 +94,7 @@ python skills/mv-pack-builder/scripts/validate_avatar_pack.py .\my-avatar --requ
 - **首次安装 / 缺节点缺模型**：[docs/首次安装与环境体检.md](docs/首次安装与环境体检.md)；
 - 分享/部署：[docs/分享与部署.md](docs/分享与部署.md)；
 - 数据链路与限制：[docs/数据链路与已知限制.md](docs/数据链路与已知限制.md)；
+- 审查与维护记录：[docs/BUG审查-20261111.md](docs/BUG审查-20261111.md)；
 - 资源/显存管理：[docs/资源与显存管理.md](docs/资源与显存管理.md)。
 
 ## 1. 快速开始
@@ -454,9 +455,14 @@ detailed_description: → overall_soundscape: → non_diegetic_music:
 python smoke_test.py
 python setup_check_test.py   # 环境体检 / 安装动作边界
 python mv_seam_test.py       # MV 逐窗 seam / 断点续跑
+python mixed_jobs_test.py    # MV mixed 链级生成 / 只重拼 / 输出帧率
+python avatar_relay_test.py  # 数字人 force / 锚定模板 / 放大器依赖
+python avatar_pack_smoke_test.py  # .h3avatar 导入导出 / seam_overlap roundtrip
 ```
 
 `smoke_test.py` 会自动：创建临时数据目录（不碰 `data/` 真实项目）、用合成音频建项目并分析、检查提示词保存顺序、全局风格/滤镜/运镜前缀、切点 no-op、AI 重写、任务线程写盘不覆盖用户编辑、结构变化后旧任务结果不回写，结束后清理临时数据。全部通过退出码为 0。
+
+最近一轮逐项修复与复核记录见 [docs/BUG审查-20261111.md](docs/BUG审查-20261111.md)；维护约定（输出帧率必须传给 concat、数字人三种生成入口、锚定模板生命周期、放大器依赖、成片过期口径）见 [docs/数据链路与已知限制.md](docs/数据链路与已知限制.md) §7。
 
 版本管理使用 git（`data/`、`.venv/`、`__pycache__/` 已忽略）：
 
@@ -570,6 +576,7 @@ VAEDecode（视频） + VAEDecodeAudio（生成音轨） → VHS_VideoCombine
 ### 11.5 拼接是怎么生效的
 
 - **选片**：每段以 `selected_take` 为准；重跑会新增 take 不覆盖旧的。改台词 / 改切点会让旧 take 的 `segment_signature` 不匹配，生成结果直接丢弃，避免错配。
+- **三种生成入口**：`开始生成` 只补未完成/未选片的段；`全部重新生成` 发送 `force:true`，按当前模型/步数/种子/段间模式重跑全部段；`单段重跑` 只重跑该段，并先把当前 generation（含右栏未保存改动）落库。切到锚定、尾帧接力或改了全局参数后，用「全部重新生成」而不是「开始生成」。
 - **合成**：`POST /api/projects/{id}/assemble` 只跑 ffmpeg，不碰 ComfyUI。
   - A：每段 `media.normalize()` 成精确 `edit_frames` 帧（去音轨、偶数尺寸、crf 18）→ concat demuxer → 混入 `source.wav`（**原始完整音轨**）。
   - B/C：每段 normalize 成 `frames` 帧 → `ffmpeg -vn` 抽每段生成音轨 → concat 音频 → concat 视频 → 混流。
