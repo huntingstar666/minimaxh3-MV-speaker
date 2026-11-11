@@ -660,8 +660,8 @@ const api = {
   patchDesign: (id, body) => request(`${projectPath(id)}/design`, { method: "PATCH", body }),
   suggestDesign: (id, body) => request(`${projectPath(id)}/design/suggest`, { method: "POST", body }),
   generate: (id, body) => request(`${projectPath(id)}/generate`, { method: "POST", body }),
-  regenerate: (id, index) =>
-    request(`${projectPath(id)}/segments/${index}/regenerate`, { method: "POST", body: {} }),
+  regenerate: (id, index, body = {}) =>
+    request(`${projectPath(id)}/segments/${index}/regenerate`, { method: "POST", body }),
   cancel: (id) => request(`${projectPath(id)}/cancel`, { method: "POST", body: {} }),
   run: (id) => request(`${projectPath(id)}/run`),
   selectTake: (id, index, takeId) =>
@@ -5791,7 +5791,7 @@ async function regenerateSegment(index) {
     if (!ok) return;
   }
   await withBusy(null, async () => {
-    const data = await api.regenerate(p.id, index);
+    const data = await api.regenerate(p.id, index, { generation: readGeneration() });
     state.run = data.run || state.run;
     if (state.project) state.project.run = state.run;
     renderRun(state.run);

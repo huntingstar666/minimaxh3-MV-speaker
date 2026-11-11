@@ -1829,9 +1829,15 @@ def generate(project_id: str, payload: dict[str, Any] | None = None) -> dict[str
 def regenerate(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     project = _project(project_id)
     _row(project, index)
-    _validate_anchor(project, _merged_generation(project, payload or {}), check_nodes=True)
+    payload = payload or {}
+    generation = _merged_generation(project, payload)
+    _validate_anchor(project, generation, check_nodes=True)
+    if isinstance(payload.get("generation"), dict) or "stitch" in payload:
+        # 与 /generate 一致：单段重跑携带的参数也落库，避免界面与项目值不一致
+        project["generation"] = generation
+        store.save(project)
     try:
-        state = job.runner.start(project_id, {**(payload or {}), "only": [index], "force": [index]})
+        state = job.runner.start(project_id, {**payload, "only": [index], "force": [index]})
     except Exception as error:  # noqa: BLE001
         raise HTTPException(400, str(error)) from error
     return {"ok": True, "run": state}
