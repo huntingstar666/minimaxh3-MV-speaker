@@ -132,6 +132,35 @@ def test_audio_risk() -> None:
     require(noisy["rms_db"] > -40, f"dBFS 应高于阈值：{noisy['rms_db']}")
 
 
+def test_plan_bundle() -> None:
+    rows = [{"frames": 124}, {"frames": 141}, {"frames": 158}]
+    data = seam.plan(rows, 2)
+    require(data["overlap"] == 5, f"默认 overlap 应为 5：{data['overlap']}")
+    require(len(data["windows"]) == len(rows), "每段一窗")
+    require(len(data["units"]) == len(rows), "账本长度应与窗口一致")
+    total_visible = sum(int(window["visible"]) for window in data["windows"])
+    require(data["total_frames"] == total_visible,
+            f"交付帧数应等于 Σvisible：{data['total_frames']} != {total_visible}")
+    require(sum(int(unit["keep"]) for unit in data["units"]) == data["total_frames"],
+            "Σkeep 必须等于交付帧数")
+    require(data["total_frames"] >= sum(int(row["frames"]) for row in rows),
+            "交付帧数不应少于目标帧数")
+    require(0 <= data["overshoot"] < 17, f"overshoot={data['overshoot']} 应在 [0,17)")
+
+
+def test_reusable() -> None:
+    row = {"selected_take": "t_0001", "output": "takes/seg_0000/t_0001.mp4"}
+    record = {"fingerprint": "abc", "take_id": "t_0001"}
+    require(seam.reusable(record, "abc", row, True), "同指纹同 take 应复用")
+    require(not seam.reusable(None, "abc", row, True), "没有记录不能复用")
+    require(not seam.reusable(record, "xyz", row, True), "指纹变了必须重跑")
+    require(not seam.reusable(record, "abc", {**row, "selected_take": "t_0002"}, True),
+            "换了 take 必须重跑")
+    require(not seam.reusable(record, "abc", row, False), "文件丢失必须重跑")
+    require(not seam.reusable(record, "abc", {**row, "output": ""}, True),
+            "没有 output 必须重跑")
+
+
 def test_valid_windows() -> None:
     ok = {"status": "completed", "file": "w.mp4"}
     require(seam.valid_windows([ok, ok, ok]) == [0, 1, 2], "全完成应全部保留")
@@ -167,6 +196,8 @@ def main() -> int:
     run("超长段报错", test_too_long_segment)
     run("帧转采样", test_frames_to_samples)
     run("段首音频风险", test_audio_risk)
+    run("计划束", test_plan_bundle)
+    run("窗口复用判定", test_reusable)
     run("续跑缺口检测", test_valid_windows)
     run("窗口指纹", test_window_fingerprint)
 

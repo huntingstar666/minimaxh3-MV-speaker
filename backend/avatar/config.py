@@ -158,8 +158,10 @@ DEFAULT_GENERATION: dict = {
     "filename_prefix": "h3dh",
     "seed": 0,
     # 方案1：首尾帧锚定
-    # stitch: hard | anchor
+    # stitch: hard | anchor（模式 1）/ hard | relay | seam（模式 2/3）
     "stitch": "hard",
+    # seam：相邻窗重叠帧数，必须是 5+17k（5 / 22 / 39）。5 = 上一窗只拥有 5 帧
+    "seam_overlap": 5,
     "anchor_ref": "first",
     "anchor_seed": 0,
     # 中间锚点：none | center | thirds | custom

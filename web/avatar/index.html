@@ -204,6 +204,14 @@
         <p class="av-anchor-hint" id="stitch-static-hint" hidden>
           模式 2/3 每段独立生成、固定硬切，不跨段传递；音轨由每段 H3 生成后按段拼接。
         </p>
+        <div class="av-seam-overlap" id="seam-overlap-row" hidden>
+          <span>接缝重叠</span>
+          <select id="f-seam-overlap" class="input">
+            <option value="5">5 帧 · 推荐</option>
+            <option value="22">22 帧</option>
+            <option value="39">39 帧</option>
+          </select>
+        </div>
         <button class="av-setting-row av-anchor-entry" id="anchor-entry" type="button" data-sheet="anchor" hidden>
           <span class="av-setting-icon"><svg><use href="#i-layers"/></svg></span>
           <span class="av-setting-text"><b>锚定细节</b><em>预处理 · 采样 · 钉帧 · 缩放</em></span>

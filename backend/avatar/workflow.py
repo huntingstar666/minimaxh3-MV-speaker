@@ -15,6 +15,8 @@ SetLatentNoiseMask/LTXVConcatAVLatent，也没有把原始音轨混回成片—�
 """
 from __future__ import annotations
 
+import json
+import random
 import threading
 import time
 from typing import Any
@@ -45,6 +47,14 @@ def available_nodes(force: bool = False) -> dict[str, bool]:
             "add_guide": "MiniMaxH3AddGuide",
             "image_scale": "ImageScale",
             "sigma_shift": "MiniMaxH3SigmaShift",
+            # seam 单窗图需要的节点（模式 2/3 接缝接续）
+            "seam_window": "MiniMaxH3FiniteLatentContinuation",
+            "seam_plan": "MiniMaxH3TimelinePlanner",
+            "seam_encoder": "MiniMaxH3TimelineEncoder",
+            "seam_finalize": "MiniMaxH3FiniteSegmentFinalize",
+            "seam_latent": "MiniMaxH3AVLatentSave",
+            "preview_any": "PreviewAny",
+            "save_audio": "SaveAudio",
         }
         try:
             infos = comfy.object_info_many(list(names.values()))
@@ -399,6 +409,254 @@ def build(generation: dict[str, Any], prompt: str, refs: list[str],
         "_meta": {"title": "合并视频（含生成音轨）"},
     }
     return nodes
+
+
+def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
+                      prompt: str, window: dict[str, Any], previous_latent: str,
+                      cache_dir: str, seed: int,
+                      available: dict[str, bool] | None = None) -> dict[str, Any]:
+    """模式 2/3 seam 的单窗图（逐窗提交 + latent 续接 + prev-owned 裁头）。
+
+    `timeline` 只含当前窗一个 segment（startFrame=0，endFrame=length）；
+    `previous_latent` 是上一窗 AV latent 的绝对路径，首窗传空；
+    `window["overlap"]` 同时控制续接 mask 与 Finalize 的裁头帧数。
+    """
+    available = available if available is not None else available_nodes()
+    fps = int(generation.get("fps") or config.FPS)
+    length = int(window["length"])
+    overlap = int(window.get("overlap") or 0)
+    index = int(window["index"])
+    nodes: dict[str, Any] = {
+        "unet": {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": generation["unet"], "weight_dtype": "default"},
+            "_meta": {"title": "UNET 加载器"},
+        },
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": generation["clip"], "type": "minimax", "device": "default"},
+            "_meta": {"title": "CLIP 加载器"},
+        },
+        "vae_video": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": generation["vae_video"]},
+            "_meta": {"title": "视频 VAE"},
+        },
+        "vae_audio": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": generation["vae_audio"]},
+            "_meta": {"title": "音频 VAE"},
+        },
+        "res": {
+            "class_type": "ResolutionSelector",
+            "inputs": {
+                "aspect_ratio": generation.get("aspect_ratio", "9:16 (Portrait Widescreen)"),
+                "megapixels": float(generation.get("megapixels", 1.0)),
+                "multiple": int(generation.get("multiple", 32)),
+            },
+            "_meta": {"title": "分辨率"},
+        },
+    }
+    model_ref = "unet"
+    attention = str(generation.get("attention") or "").strip()
+    if attention and available.get("attention", True):
+        nodes["attention"] = {
+            "class_type": "ModelAttentionBackend",
+            "inputs": {"attention": attention, "model": [model_ref, 0]},
+            "_meta": {"title": "注意力后端"},
+        }
+        model_ref = "attention"
+    lora = str(generation.get("lora") or "").strip()
+    if lora and available.get("lora", True):
+        nodes["lora"] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {
+                "lora_name": lora,
+                "strength_model": float(generation.get("lora_strength", 1.0)),
+                "model": [model_ref, 0],
+            },
+            "_meta": {"title": "LoRA"},
+        }
+        model_ref = "lora"
+    nodes["sampler_select"] = {
+        "class_type": "KSamplerSelect",
+        "inputs": {"sampler_name": generation.get("sampler", "euler")},
+        "_meta": {"title": "采样器"},
+    }
+    nodes["scheduler"] = {
+        "class_type": "BasicScheduler",
+        "inputs": {
+            "scheduler": generation.get("scheduler", "simple"),
+            "steps": int(generation.get("steps", 6)),
+            "denoise": 1,
+            "model": [model_ref, 0],
+        },
+        "_meta": {"title": "调度器"},
+    }
+    nodes["planner"] = {
+        "class_type": "MiniMaxH3TimelinePlanner",
+        "inputs": {
+            "width": ["res", 0],
+            "height": ["res", 1],
+            "generation_seconds": round(length / fps, 6),
+            "timeline_data": json.dumps(timeline, ensure_ascii=False),
+        },
+        "_meta": {"title": "素材规划台（单窗）"},
+    }
+    nodes["encode"] = {
+        "class_type": "MiniMaxH3TimelineEncoder",
+        "inputs": {
+            "clip": ["clip", 0],
+            "vae": ["vae_video", 0],
+            "audio_vae": ["vae_audio", 0],
+            "plan": ["planner", 0],
+            "prompt": prompt,
+            "ref_image_size": generation.get("ref_image_size", "match"),
+        },
+        "_meta": {"title": "H3 编码（参考图 + 音色）"},
+    }
+    continuation: dict[str, Any] = {
+        "positive": ["encode", 0],
+        "target_latent": ["encode", 1],
+        "iteration": 0 if index == 0 else 1,
+        "overlap_frames": overlap,
+        # 音频不续接：段首音频由上一窗拥有，Finalize 会裁掉
+        "continue_audio_latent": False,
+        "model": [model_ref, 0],
+        "sigmas": ["scheduler", 0],
+    }
+    if previous_latent and index > 0:
+        nodes["prev_latent"] = {
+            "class_type": "MiniMaxH3AVLatentLoad",
+            "inputs": {"latent_path": str(previous_latent)},
+            "_meta": {"title": "上一窗 AV latent"},
+        }
+        continuation["previous_latent"] = ["prev_latent", 0]
+    nodes["continue"] = {
+        "class_type": "MiniMaxH3FiniteLatentContinuation",
+        "inputs": continuation,
+        "_meta": {"title": "latent 续接"},
+    }
+    if int(seed) <= 0:
+        seed = random.randint(1, 2 ** 31 - 1)
+    nodes["noise"] = {
+        "class_type": "RandomNoise",
+        "inputs": {"noise_seed": int(seed)},
+        "_meta": {"title": "噪声"},
+    }
+    nodes["guider"] = {
+        "class_type": "BasicGuider",
+        "inputs": {"model": ["continue", 3], "conditioning": ["continue", 0]},
+        "_meta": {"title": "引导"},
+    }
+    nodes["sample"] = {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+            "noise": ["noise", 0],
+            "guider": ["guider", 0],
+            "sampler": ["sampler_select", 0],
+            "sigmas": ["scheduler", 0],
+            "latent_image": ["continue", 1],
+        },
+        "_meta": {"title": "采样"},
+    }
+    nodes["decode_video"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["sample", 0], "vae": ["vae_video", 0]},
+        "_meta": {"title": "视频解码"},
+    }
+    nodes["decode_audio"] = {
+        "class_type": "VAEDecodeAudio",
+        "inputs": {"samples": ["sample", 0], "vae": ["vae_audio", 0]},
+        "_meta": {"title": "音频解码（原始长度）"},
+    }
+    nodes["finalize"] = {
+        "class_type": "MiniMaxH3FiniteSegmentFinalize",
+        "inputs": {
+            "sampled_latent": ["sample", 0],
+            "images": ["decode_video", 0],
+            "audio": ["decode_audio", 0],
+            "iteration": 0 if index == 0 else 1,
+            "overlap_frames": ["continue", 2],
+            "trim_audio_head": True,
+        },
+        "_meta": {"title": "裁掉上一窗拥有的段首"},
+    }
+    nodes["save_latent"] = {
+        "class_type": "MiniMaxH3AVLatentSave",
+        "inputs": {
+            "latent": ["sample", 0],
+            "cache_dir": str(cache_dir),
+            "segment_index": index + 1,
+        },
+        "_meta": {"title": "保存 AV latent"},
+    }
+    nodes["latent_path"] = {
+        "class_type": "PreviewAny",
+        "inputs": {"source": ["save_latent", 0]},
+        "_meta": {"title": "latent 路径（回传给下一窗）"},
+    }
+    if available.get("save_audio", True):
+        nodes["raw_audio"] = {
+            "class_type": "SaveAudio",
+            "inputs": {
+                "audio": ["decode_audio", 0],
+                "filename_prefix": f"h3seamaudio/{generation.get('filename_prefix') or 'h3dh'}",
+            },
+            "_meta": {"title": "保存原始音轨（段首风险检测）"},
+        }
+    nodes[OUTPUT_NODE] = {
+        "class_type": "VHS_VideoCombine",
+        "inputs": {
+            "images": ["finalize", 1],
+            "audio": ["finalize", 2],
+            "frame_rate": fps,
+            "loop_count": 0,
+            "filename_prefix": str(generation.get("filename_prefix") or "h3dh"),
+            "format": "video/h264-mp4",
+            "pix_fmt": "yuv420p",
+            "crf": int(generation.get("crf", 12)),
+            "save_metadata": False,
+            "trim_to_audio": False,
+            "pingpong": False,
+            "save_output": True,
+        },
+        "_meta": {"title": "合并视频（含生成音轨）"},
+    }
+    return nodes
+
+
+def seam_window_timeline(window: dict[str, Any], images: list[dict[str, Any]],
+                         audios: list[dict[str, Any]], segment_images: list[str],
+                         segment_audios: list[str], prompt: str,
+                         fps: int = config.FPS) -> dict[str, Any]:
+    """构造单窗 TimelinePlanner 数据（一个 segment、startFrame=0）。"""
+    seconds = int(window["length"]) / int(fps)
+    return {
+        "version": 9,
+        "fps": int(fps),
+        "globalPrompt": "",
+        "secondPass": False,
+        "secondPassModel": "",
+        "secondPassHighSteps": 2,
+        "selection": {"start": 0.0, "duration": seconds},
+        "videoAudioEnabled": False,
+        "videoClips": [],
+        "images": images,
+        "audios": audios,
+        "segmentConfig": {
+            "count": 1,
+            "activeIndex": 0,
+            "mode": "timeline",
+            "segments": [{
+                "images": list(segment_images),
+                "audios": list(segment_audios),
+                "prompt": str(prompt),
+                "startFrame": 0,
+                "endFrame": int(window["length"]),
+            }],
+        },
+    }
 
 
 def anchor_mid_frames(generation: dict[str, Any], frames: int) -> list[int]:

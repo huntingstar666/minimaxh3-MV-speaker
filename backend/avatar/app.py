@@ -210,12 +210,21 @@ def _validate_anchor(project: dict[str, Any], generation: dict[str, Any],
                      check_nodes: bool = False) -> None:
     stitch = str(generation.get("stitch") or "hard").strip().lower()
     mode = int(project.get("mode") or 0)
-    allowed = {"hard", "anchor"} if mode == config.MODE_AUDIO_DRIVE else {"hard", "relay"}
+    allowed = {"hard", "anchor"} if mode == config.MODE_AUDIO_DRIVE else {"hard", "relay", "seam"}
     if stitch not in allowed:
         raise HTTPException(
             400, "stitch 只能是 " + " 或 ".join(sorted(allowed))
                  + ("（模式 1 用 anchor）" if mode == config.MODE_AUDIO_DRIVE
-                    else "（模式 2/3 用 relay）") + "。")
+                    else "（模式 2/3 用 relay 或 seam）") + "。")
+    if stitch == "seam":
+        raw = generation.get("seam_overlap", 5)
+        try:
+            overlap = 5 if raw in (None, "") else int(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "seam_overlap 必须是整数。") from None
+        if overlap < 5 or (overlap - 5) % 17:
+            raise HTTPException(400, "seam_overlap 必须是 5+17k（5 / 22 / 39）。")
+        return
     if stitch != "anchor":
         return
     if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:

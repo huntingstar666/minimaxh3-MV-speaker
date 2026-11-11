@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""数字人段间模式接口校验：模式 1 / 2 / 3 各自允许的 stitch 与 seam_overlap。
+
+不跑 GPU，只验证 PATCH /avatar/api/projects/{id} 的 400/200 行为：
+- 模式 1：hard / anchor；选择 relay / seam 必须 400；
+- 模式 2/3：hard / relay / seam；seam_overlap 必须是 5+17k（5/22/39）。
+
+运行：在 h3-workbench 项目根目录执行
+    .\\.venv\\Scripts\\python.exe avatar_stitch_api_test.py
+"""
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+os.environ["H3WB_DATA"] = tempfile.mkdtemp(prefix="h3wb-stitch-api-")
+sys.path.insert(0, str(ROOT))
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from backend.avatar.app import app  # noqa: E402
+
+failures: list[str] = []
+client = TestClient(app)
+
+
+def check(name: str, ok: bool, detail: str = "") -> None:
+    print(("PASS " if ok else "FAIL ") + name + (f"  [{detail}]" if detail else ""))
+    if not ok:
+        failures.append(name)
+
+
+def run(name: str, fn) -> None:
+    try:
+        fn()
+    except AssertionError as exc:
+        check(name, False, str(exc))
+    except Exception as exc:  # noqa: BLE001
+        check(name, False, f"{type(exc).__name__}: {exc}")
+    else:
+        check(name, True)
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+def create(mode: int) -> str:
+    response = client.post("/api/projects",
+                           data={"name": f"stitch-{mode}", "mode": str(mode)})
+    require(response.status_code == 200, f"新建项目失败：{response.status_code} {response.text}")
+    return response.json()["project"]["id"]
+
+
+def patch(project_id: str, generation: dict) -> int:
+    return client.patch(f"/api/projects/{project_id}", json={"generation": generation}).status_code
+
+
+def test_seam_overlap_values() -> None:
+    pid = create(2)
+    for overlap in (5, 22, 39):
+        code = patch(pid, {"stitch": "seam", "seam_overlap": overlap})
+        require(code == 200, f"overlap={overlap} 应允许，实际 {code}")
+    for bad in (0, 1, 6, 21, 23, 40):
+        code = patch(pid, {"stitch": "seam", "seam_overlap": bad})
+        require(code == 400, f"overlap={bad} 应拒绝，实际 {code}")
+
+
+def test_mode2_modes() -> None:
+    pid = create(2)
+    require(patch(pid, {"stitch": "hard"}) == 200, "模式 2 hard 应允许")
+    require(patch(pid, {"stitch": "relay"}) == 200, "模式 2 relay 应允许")
+    require(patch(pid, {"stitch": "seam", "seam_overlap": 5}) == 200, "模式 2 seam 应允许")
+    require(patch(pid, {"stitch": "anchor"}) == 400, "模式 2 anchor 应拒绝")
+
+
+def test_mode3_modes() -> None:
+    pid = create(3)
+    require(patch(pid, {"stitch": "seam", "seam_overlap": 22}) == 200, "模式 3 seam 应允许")
+    require(patch(pid, {"stitch": "anchor"}) == 400, "模式 3 anchor 应拒绝")
+
+
+def test_mode1_rejects_other_modes() -> None:
+    pid = create(1)
+    require(patch(pid, {"stitch": "hard"}) == 200, "模式 1 hard 应允许")
+    require(patch(pid, {"stitch": "anchor"}) == 200, "模式 1 anchor 应允许")
+    require(patch(pid, {"stitch": "relay"}) == 400, "模式 1 relay 应拒绝")
+    require(patch(pid, {"stitch": "seam", "seam_overlap": 5}) == 400,
+            "模式 1 seam 应拒绝")
+
+
+def test_default_overlap_recorded() -> None:
+    pid = create(2)
+    response = client.patch(f"/api/projects/{pid}",
+                            json={"generation": {"stitch": "seam"}})
+    require(response.status_code == 200, f"不传 overlap 应允许：{response.status_code}")
+    generation = response.json()["project"]["generation"]
+    require(int(generation.get("seam_overlap") or 0) == 5,
+            f"默认 overlap 应为 5：{generation.get('seam_overlap')}")
+
+
+def main() -> int:
+    run("seam_overlap 合法性", test_seam_overlap_values)
+    run("模式 2 可选模式", test_mode2_modes)
+    run("模式 3 可选模式", test_mode3_modes)
+    run("模式 1 拒绝 relay/seam", test_mode1_rejects_other_modes)
+    run("默认 overlap", test_default_overlap_recorded)
+
+    if failures:
+        print(f"\n{len(failures)} 项失败：" + "、".join(failures))
+        return 1
+    print("\n全部通过")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -90,6 +90,21 @@ def plan_windows(segments: list[dict[str, Any]], mode: int,
     return windows
 
 
+def plan(segments: list[dict[str, Any]], mode: int,
+         overlap: int | None = None) -> dict[str, Any]:
+    """一次性给出窗口、帧账本与交付总帧数（生成与合成共用同一份计划）。"""
+    used = default_overlap(mode) if overlap is None else int(overlap)
+    windows = plan_windows(segments, mode, used)
+    ledger = units(windows, used)
+    return {
+        "overlap": used,
+        "windows": windows,
+        "units": ledger,
+        "total_frames": int(windows[-1]["total_visible"]) if windows else 0,
+        "overshoot": int(windows[-1].get("overshoot") or 0) if windows else 0,
+    }
+
+
 def units(windows: list[dict[str, Any]], overlap: int | None = None) -> list[dict[str, Any]]:
     """模式 2 的帧账本：固定 prev-owned，当前窗裁头 `guide`，尾部不裁。
 
@@ -156,6 +171,21 @@ def valid_windows(results: list[dict[str, Any] | None]) -> list[int]:
             break
         valid.append(index)
     return valid
+
+
+def reusable(record: dict[str, Any] | None, fingerprint: str,
+             row: dict[str, Any], file_ok: bool) -> bool:
+    """续跑判定：指纹一致、选中的 take 没换、片段文件还在。"""
+    if not isinstance(record, dict):
+        return False
+    if str(record.get("fingerprint") or "") != str(fingerprint or ""):
+        return False
+    take = str(record.get("take_id") or "")
+    if not take or take != str(row.get("selected_take") or ""):
+        return False
+    if not str(row.get("output") or "").strip():
+        return False
+    return bool(file_ok)
 
 
 def frames_to_samples(frames: int, sample_rate: int, fps: int | None = None) -> int:

@@ -50,12 +50,12 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-def make_take(path: Path, seconds: float) -> None:
+def make_take(path: Path, seconds: float, sample_rate: int = RATE) -> None:
     """生成一段带音轨的测试视频。"""
     audio.command([
         audio.ffmpeg(), "-y", "-v", "error",
         "-f", "lavfi", "-i", f"testsrc=size=320x568:rate={FPS}:duration={seconds}",
-        "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate={RATE}:duration={seconds}",
+        "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate={sample_rate}:duration={seconds}",
         "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", str(path),
     ], timeout=180)
@@ -113,11 +113,26 @@ def test_no_frames_keeps_source() -> None:
             f"不传 frames 应保留约 3 秒音频，实际 {samples} 样本")
 
 
+def test_resamples_before_trim() -> None:
+    """H3 take 的 AAC 可能是 32kHz；必须先重采样再按样本数裁，否则长度放大 1.378 倍。"""
+    work = Path(tempfile.mkdtemp(prefix="h3wb-af-"))
+    take = work / "take.mp4"
+    make_take(take, 6.0, sample_rate=32000)
+    target = work / "seg.wav"
+    avatar_job.AvatarRunner._extract_audio(take, target, 141)
+    samples, rate, channels = wav_info(target)
+    expected = int(round(141 * RATE / FPS))
+    require(samples == expected, f"32kHz 源应得 {expected} 样本，实际 {samples}")
+    require(rate == RATE, f"采样率应统一 44100，实际 {rate}")
+    require(channels == 2, f"声道应统一 2，实际 {channels}")
+
+
 def main() -> int:
     run("按帧数精确裁剪", test_exact_frames)
     run("短音频补静音", test_pads_when_short)
     run("长音频裁尾", test_trims_when_long)
     run("不传帧数保持原长度", test_no_frames_keeps_source)
+    run("先重采样再裁样本", test_resamples_before_trim)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))

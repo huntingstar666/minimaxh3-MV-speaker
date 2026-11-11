@@ -721,6 +721,10 @@ function readGeneration() {
   pickText("#a-scheduler", "scheduler");
 
   gen.stitch = $("#f-stitch")?.value || defaults.stitch || "hard";
+  if (gen.stitch === "seam") {
+    const seamOverlap = Number($("#f-seam-overlap")?.value);
+    if (Number.isFinite(seamOverlap) && seamOverlap > 0) gen.seam_overlap = seamOverlap;
+  }
   gen.anchor_ref = "first";
   gen.anchor_seed = gen.seed;
   if (gen.stitch === "anchor") {
@@ -766,6 +770,7 @@ function fillGeneration(gen) {
 
   const stitch = g.stitch || "hard";
   if ($("#f-stitch")) $("#f-stitch").value = stitch;
+  if ($("#f-seam-overlap")) $("#f-seam-overlap").value = String(g.seam_overlap || 5);
   setSegmented("f-stitch-seg", stitch);
   const mid = g.anchor_mid || "center";
   if ($("#f-anchor-mid")) $("#f-anchor-mid").value = mid;
@@ -883,6 +888,9 @@ function syncAnchorUI() {
   if (stitchInput.value === "relay" && anchorAvailable) {
     stitchInput.value = "hard";
   }
+  if (stitchInput.value === "seam" && anchorAvailable) {
+    stitchInput.value = "hard";
+  }
   const on = stitchInput.value === "anchor" && anchorAvailable;
   const fields = $("#anchor-fields");
   if (fields) fields.hidden = !on;
@@ -896,7 +904,7 @@ function syncAnchorUI() {
   if (stitchSeg) {
     const options = anchorAvailable
       ? [["hard", "硬切"], ["anchor", "首尾帧锚定"]]
-      : [["hard", "硬切"], ["relay", "尾帧接力"]];
+      : [["hard", "硬切"], ["relay", "尾帧接力"], ["seam", "接缝接续"]];
     const signature = options.map((item) => item[0]).join("|");
     if (stitchSeg.dataset.options !== signature) {
       stitchSeg.dataset.options = signature;
@@ -911,13 +919,16 @@ function syncAnchorUI() {
   if (stitchStatic) {
     stitchStatic.hidden = anchorAvailable;
     stitchStatic.textContent = "尾帧接力：把上一段末帧作为本段第 0 帧的软引导，姿态/背景更连续；"
-      + "每段仍用自己的音色生成台词，音轨按段拼接。";
+      + "接缝接续：相邻段多生成 5 帧重叠，上一段拥有重叠区，合成时裁头拼接，画面与声音都不留缝；"
+      + "两者每段仍用自己的音色生成台词，音轨按段拼接。";
   }
+  const seamRow = $("#seam-overlap-row");
+  if (seamRow) seamRow.hidden = !(stitchInput.value === "seam" && !anchorAvailable);
   const note = $("#anchor-mode-note");
   if (note) {
     note.textContent = anchorAvailable
       ? (on ? "仅模式 1 · 固定种子" : "模式 1 · 可锚定")
-      : "模式 2/3 · 尾帧接力可选";
+      : "模式 2/3 · 尾帧接力 / 接缝接续";
   }
   const seedField = $("#f-seed")?.closest(".field");
   const seedLabel = seedField?.querySelector("label");

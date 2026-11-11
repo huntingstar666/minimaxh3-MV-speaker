@@ -1,8 +1,9 @@
-"""数字人任务编排：素材上传 → 逐段生成（H3 原生音频）→ 拼接 → 成片。
+"""数字人任务编排：素材上传 → 逐段/逐窗生成（H3 原生音频）→ 拼接 → 成片。
 
 与 MV 的 jobs.py 独立：
 - 音轨不是原始音频，而是每段 H3 生成的音轨；拼接时把各段音轨按顺序拼起来再混进成片；
-- 没有 seam 模式（新工作流本身就是逐段独立生成）；
+- 模式 2/3 支持 `relay`（上一段末帧软引导）与 `seam`（逐窗提交 + AV latent 续接，
+  Finalize 裁头后拼接）；模式 1 用原始音频硬切/首尾帧锚定；
 - 生成参数、提示词、takes 全部按数字人项目自己的字段走。
 """
 from __future__ import annotations
@@ -22,13 +23,31 @@ from .. import audio as audio_utils
 from .. import asr, comfy, llm, maintenance, media, settings
 from .. import workflow as mv_workflow
 from ..jobs import GPU_LOCK
-from . import audio_pipeline, config, design as design_mod, llm_client, plan, store, workflow
+from . import audio_pipeline, config, design as design_mod, llm_client, plan, seam, store, workflow
 
 MAX_TAKES_PER_SEGMENT = 10
 TAKE_RUNNER_FIELDS = ("status", "error", "output", "started", "finished", "prompt_id",
                       "prompt_text", "takes", "selected_take", "prompt", "prompt_source",
                       "prompt_warnings", "prompt_meta", "beats", "generation_frames",
                       "edit_frames", "frames")
+
+
+def seam_window_prompt(prompt: str, overlap: int, fps: int = config.FPS) -> str:
+    """seam 第 2 窗起的段首约束：先延续上一窗，再从 overlap 之后开口。
+
+    `overlap` 帧会被上一窗拥有并裁掉；如果模型在这段里就开始念本段第一句，
+    开头就会吞字，所以要在提示词里明确要求先静默/延续尾音。
+    """
+    seconds = max(int(overlap), 0) / max(int(fps), 1)
+    if seconds <= 0:
+        return prompt
+    suffix = (
+        f"开头 {seconds:.2f} 秒是上一段结尾的延续：保持人物位置、身体朝向、手部动作、背景、"
+        f"机位、光线、色温与上一段连续；这 {seconds:.2f} 秒内保持静默或只延续上一段尾音，"
+        f"不要开始新的台词；从 {seconds:.2f} 秒后开始说本段第一句，使用当前分配的音色；"
+        "不要重复上一段已经说过的字。"
+    )
+    return prompt.rstrip() + "\n\n" + suffix
 
 
 def segment_signature(row: dict[str, Any]) -> str:
@@ -53,6 +72,11 @@ def anchor_enabled(project: dict[str, Any], generation: dict[str, Any]) -> bool:
 def relay_enabled(project: dict[str, Any], generation: dict[str, Any]) -> bool:
     """模式 2/3 的尾帧接力：每段独立生成，但把上一段真实末帧锚到本段第 0 帧。"""
     return str(generation.get("stitch") or project.get("stitch") or "hard") == "relay"
+
+
+def seam_enabled(project: dict[str, Any], generation: dict[str, Any]) -> bool:
+    """模式 2/3 的接缝接续：多生成重叠帧，上一窗拥有重叠区，合成时裁头拼接。"""
+    return str(generation.get("stitch") or project.get("stitch") or "hard") == "seam"
 
 
 _ANCHOR_UPLOADS: dict[str, str] = {}
@@ -451,6 +475,11 @@ class AvatarRunner:
             ref_names = self._upload_refs(project_id, project)
             audio_names = self._upload_voices(project_id, project)
             project = store.get(project_id)
+            if seam_enabled(project, generation):
+                self._run_seam(project_id, project, generation, ref_names, audio_names,
+                               options)
+                self._finish_run(project_id)
+                return
             segments = project.get("segments") or []
             only = {int(value) for value in (options or {}).get("only") or []}
             force_raw = (options or {}).get("force")
@@ -906,36 +935,221 @@ class AvatarRunner:
         return comfy.upload(f"h3dh_{_safe_id(project_id)}_relay_{index:04d}.jpg",
                             out.read_bytes())
 
+    def _run_seam(self, project_id: str, project: dict[str, Any],
+                  generation: dict[str, Any], ref_names: list[str],
+                  audio_names: list[str], options: dict[str, Any]) -> None:
+        """模式 2/3 接缝接续：逐窗提交 + latent 续接；上一窗拥有重叠区。"""
+        mode = int(project.get("mode") or 0)
+        if mode == config.MODE_AUDIO_DRIVE:
+            raise ValueError("接缝接续当前仅支持模式 2/3（模式 1 直接用原始音轨硬切）。")
+        required = {
+            "seam_window": "latent 续接", "seam_plan": "素材规划台",
+            "seam_encoder": "H3 编码", "seam_finalize": "分段收尾",
+            "seam_latent": "AV latent 缓存", "preview_any": "latent 路径回传",
+        }
+        missing = [label for key, label in required.items()
+                   if not (self._available or {}).get(key)]
+        if missing:
+            raise ValueError("ComfyUI 缺少接缝接续节点：" + "、".join(missing)
+                             + "（请安装 minimaxh3-long-video-seam）")
+        try:
+            plan_data = seam.plan(project.get("segments") or [], mode,
+                                  generation.get("seam_overlap"))
+        except ValueError as error:
+            raise ValueError(str(error)) from None
+        windows = plan_data["windows"]
+        overlap = int(plan_data["overlap"])
+        generation = dict(generation)
+        generation["seam_overlap"] = overlap
+        records = {int(item.get("index", -1)): item
+                   for item in ((project.get("seam") or {}).get("windows") or [])
+                   if isinstance(item, dict)}
+        force_raw = (options or {}).get("force")
+        force = ({int(value) for value in force_raw} if isinstance(force_raw, list)
+                 else (set(range(len(project.get("segments") or []))) if force_raw else set()))
+        base = store.project_dir(project_id)
+        # latent 是链式依赖：只能复用连续前缀，缺口之后的窗口必须一起重跑
+        results: list[dict[str, Any] | None] = []
+        for window in windows:
+            index = int(window["index"])
+            row = store.find_segment(store.get(project_id), index)
+            fingerprint = seam.window_fingerprint(row, window, generation, mode, overlap)
+            record = records.get(index) or {}
+            output = str(row.get("output") or "").strip()
+            file_ok = bool(output) and (base / output).is_file()
+            ok = (index not in force
+                  and seam.reusable(record, fingerprint, row, file_ok)
+                  and bool(str(record.get("latent") or "")))
+            results.append(record if ok else None)
+        valid = seam.valid_windows(results)
+        start = len(valid)
+        only = {int(value) for value in (options or {}).get("only") or []}
+        if only:
+            # 指定窗口等同“从该窗起重跑”：它后面的 latent 链都要重建
+            start = min(start, min(only))
+        targets = windows[start:]
+        self._log(project_id,
+                  f"接缝接续：{len(windows)} 窗 · 重叠 {overlap} 帧 · 复用 {len(valid)} 窗 · "
+                  f"从第 {start + 1} 窗起重跑（{len(targets)} 窗）")
+        previous = ""
+        if start > 0:
+            previous = str((records.get(int(windows[start - 1]["index"])) or {})
+                           .get("latent") or "")
+            if not previous:
+                raise ValueError("上一窗的 AV latent 记录丢失，请从第 1 窗重新生成。")
+        total = max(1, len(targets))
+        llm_config = dict(settings.load().get("llm") or {})
+        cache_dir = f"h3wb/avatarseam/{_safe_id(project_id)}"
+        for position, window in enumerate(targets):
+            if (self.cancel_events.get(project_id) or threading.Event()).is_set():
+                raise comfy.ComfyError("任务已取消。")
+            index = int(window["index"])
+            row = store.find_segment(store.get(project_id), index)
+            fingerprint = seam.window_fingerprint(row, window, generation, mode, overlap)
+            previous = self._generate_segment(
+                project_id, project, index, row, generation, ref_names, audio_names,
+                llm_config, position / total, 1.0 / total, total, position + 1,
+                window=window, fingerprint=fingerprint, previous_latent=previous,
+                cache_dir=cache_dir)
+
+    def _record_seam_window(self, project_id: str, window: dict[str, Any],
+                            fingerprint: str, take: dict[str, Any], latent: str,
+                            audio_risk: dict[str, Any] | None) -> None:
+        """记住窗口的 take / latent / 风险：续跑时同指纹且 latent 还在才复用。"""
+        index = int(window["index"])
+
+        def apply(latest: dict[str, Any]) -> None:
+            state = latest.get("seam")
+            if not isinstance(state, dict):
+                state = {}
+                latest["seam"] = state
+            state["mode"] = int(latest.get("mode") or 0)
+            items = [item for item in state.get("windows") or [] if isinstance(item, dict)]
+            items = [item for item in items if int(item.get("index", -1)) != index]
+            items.append({
+                "index": index, "fingerprint": str(fingerprint),
+                "take_id": str(take.get("take_id") or ""), "file": str(take.get("file") or ""),
+                "latent": str(latent), "length": int(window["length"]),
+                "head": int(window["overlap"]), "keep": int(window["visible"]),
+                "status": "completed", "audio_risk": audio_risk or None,
+                "updated": time.time(),
+            })
+            items.sort(key=lambda item: int(item.get("index", 0)))
+            state["windows"] = items
+            state["take_signature"] = take_signature(latest)
+            if isinstance(latest.get("final"), dict):
+                latest["final"]["stale"] = True
+
+        store.mutate(project_id, apply)
+
+    def _seam_timeline(self, project: dict[str, Any], row: dict[str, Any],
+                       window: dict[str, Any], ref_names: list[str],
+                       audio_names: list[str], prompt: str) -> dict[str, Any]:
+        """把当前段整理成单窗 TimelinePlanner 数据（图片/音色都按全局顺序编号）。"""
+        ref_indices = plan.segment_ref_indices(project, row)
+        segment_images = [f"ref{value}" for value in ref_indices
+                          if value < len(ref_names)]
+        images = [{"id": f"ref{index}", "file": name}
+                  for index, name in enumerate(ref_names)]
+        voices = [item for item in (project.get("voices") or []) if isinstance(item, dict)]
+        audios: list[dict[str, Any]] = []
+        segment_audios: list[str] = []
+        if int(project.get("mode") or 0) == config.MODE_VOICE_REF:
+            for index, name in enumerate(audio_names):
+                voice = voices[index] if index < len(voices) else {}
+                audios.append({
+                    "id": f"voice{index}", "file": name,
+                    "name": str(voice.get("name") or f"音色 {index + 1}"),
+                    "audioMode": "reference",
+                    "start": 0.0,
+                    "duration": float(voice.get("duration") or 12.0),
+                    "trimStart": 0.0,
+                })
+                segment_audios.append(f"voice{index}")
+        return workflow.seam_window_timeline(window, images, audios, segment_images,
+                                             segment_audios, prompt)
+
+    @staticmethod
+    def _history_text(entry: dict[str, Any], node_id: str) -> str:
+        item = ((entry or {}).get("outputs") or {}).get(node_id) or {}
+        values = item.get("text") or []
+        return str(values[0]).strip() if values else ""
+
+    def _window_audio_risk(self, project_id: str, index: int, entry: dict[str, Any],
+                           length: int, head: int) -> dict[str, Any]:
+        """从 SaveAudio 的原始音轨检测段首是否已有语音（只提示，不阻断）。"""
+        if head <= 0:
+            return {}
+        files = comfy.extract_outputs(entry, "raw_audio")
+        if not files:
+            return {}
+        item = files[0]
+        try:
+            data = comfy.view(item["filename"], item["subfolder"], item["kind"])
+            folder = store.project_dir(project_id) / "takes" / f"seg_{index:04d}"
+            folder.mkdir(parents=True, exist_ok=True)
+            suffix = Path(item["filename"]).suffix or ".flac"
+            raw = folder / f"raw_w{index:04d}{suffix}"
+            raw.write_bytes(data)
+            wav = folder / f"raw_w{index:04d}.wav"
+            self._extract_audio(raw, wav, int(length))
+            samples, rate = audio_utils.read_wav(wav)
+            risk = seam.audio_risk(samples, rate, int(head))
+        except Exception as error:  # noqa: BLE001 风险检测失败不影响出片
+            self._log(project_id, f"第 {index + 1} 段：段首风险检测失败（继续出片）：{error}",
+                      "warning")
+            return {}
+        if risk.get("risk"):
+            self._log(project_id,
+                      f"第 {index + 1} 段：段首 {head} 帧已有语音"
+                      f"（{risk.get('rms_db')} dBFS / ZCR {risk.get('zcr')}），"
+                      "会被上一窗裁掉，可能吞字；建议加大重叠或调整断句", "warning")
+        return risk
+
     def _generate_segment(self, project_id: str, project: dict[str, Any], index: int,
                           row: dict[str, Any], generation: dict[str, Any],
                           ref_names: list[str], audio_names: list[str],
                           llm_config: dict[str, Any], base: float, span: float,
-                          total: int, ordinal: int) -> None:
+                          total: int, ordinal: int,
+                          window: dict[str, Any] | None = None,
+                          fingerprint: str = "",
+                          previous_latent: str = "",
+                          cache_dir: str = "") -> str:
         label = f"第 {ordinal}/{total} 段"
         if anchor_enabled(project, generation):
             raise ValueError("首尾帧模式当前仅支持模式 1（音频驱动）。")
         fallback_seed = random.randint(1, 2 ** 31 - 1)
+        detail = (f"{row.get('chars')} 字 / {window['length']} 帧（含重叠）"
+                  if window else f"{row.get('chars')} 字 / {row.get('frames')} 帧")
         self._update(project_id, persist=True, segment=index, stage="prompt",
-                     message=f"{label}：生成提示词（{row.get('chars')} 字 / {row.get('frames')} 帧）",
+                     message=f"{label}：生成提示词（{detail}）",
                      progress=round(base + span * 0.03, 4))
         prompt_text, meta = self._ensure_prompt(project_id, project, row, llm_config)
         ref_indices = plan.segment_ref_indices(project, row)
         segment_refs = [ref_names[index] for index in ref_indices
                         if index < len(ref_names)]
-        frames = int(row.get("frames") or 0)
-        if frames <= 0:
-            frames = plan.frames_for_seconds(plan.seconds_for_text(
-                row.get("text") or "", project.get("chars_per_second") or 5,
-                project.get("max_seconds")))
+        if window:
+            # seam 窗口长度已经是 5+17k，直接按窗口生成，不再按段帧数吸附
+            frames = int(window["length"])
         else:
-            # 切模式残留/旧数据可能是任意帧数；H3 只接受 5+17k（124–362）
-            frames = plan.snap_frames(frames)
+            frames = int(row.get("frames") or 0)
+            if frames <= 0:
+                frames = plan.frames_for_seconds(plan.seconds_for_text(
+                    row.get("text") or "", project.get("chars_per_second") or 5,
+                    project.get("max_seconds")))
+            else:
+                # 切模式残留/旧数据可能是任意帧数；H3 只接受 5+17k（124–362）
+                frames = plan.snap_frames(frames)
         use_audio = audio_names if int(project.get("mode") or 0) == config.MODE_VOICE_REF else None
         generation = dict(generation)
-        if not generation.get("seed"):
+        if window:
+            # seam 的种子必须稳定：指纹不含随机 seed，换一次就会全部重跑
+            generation["seed"] = int(generation.get("seed") or 0) or int(
+                hashlib.sha1(f"{project_id}:seam".encode("utf-8")).hexdigest()[:8], 16)
+        elif not generation.get("seed"):
             generation["seed"] = fallback_seed
         tail_name = ""
-        if relay_enabled(project, generation):
+        if window is None and relay_enabled(project, generation):
             segments_now = project.get("segments") or []
             if index + 1 < len(segments_now) and self._invalidate_relay_downstream(
                     project_id, index):
@@ -944,10 +1158,23 @@ class AvatarRunner:
                     segments_now[position].update(output="", selected_take="", status="idle")
             if index > 0:
                 tail_name = self._tail_frame(project_id, project, index)
-        graph = workflow.build(generation, prompt_text, segment_refs, use_audio,
-                               frames, int(generation.get("fps") or config.FPS),
-                               available=self._available,
-                               tail_image=tail_name or None)
+        if window:
+            window_prompt = prompt_text
+            if int(window["index"]) > 0:
+                window_prompt = seam_window_prompt(
+                    prompt_text, int(window["overlap"]),
+                    int(generation.get("fps") or config.FPS))
+            timeline = self._seam_timeline(project, row, window, ref_names, audio_names,
+                                           window_prompt)
+            graph = workflow.build_seam_window(
+                generation, timeline, window_prompt, window, previous_latent,
+                cache_dir or f"h3wb/avatarseam/{_safe_id(project_id)}",
+                int(generation.get("seed") or 0), available=self._available)
+        else:
+            graph = workflow.build(generation, prompt_text, segment_refs, use_audio,
+                                   frames, int(generation.get("fps") or config.FPS),
+                                   available=self._available,
+                                   tail_image=tail_name or None)
         self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",
                      progress=round(base + span * 0.06, 4))
         if (self.cancel_events.get(project_id) or threading.Event()).is_set():
@@ -977,16 +1204,30 @@ class AvatarRunner:
             raise comfy.ComfyError(f"{label}：ComfyUI 没有返回视频文件。")
         data = comfy.view(video_file["filename"], video_file["subfolder"], video_file["kind"])
         data, overlaid = self._maybe_overlay(project_id, project, row, data)
+        latent = ""
+        risk: dict[str, Any] = {}
+        if window:
+            latent = self._history_text(entry, "latent_path")
+            if not latent:
+                raise comfy.ComfyError(f"{label}：没有拿到本窗 AV latent，无法续接下一窗。")
+            risk = self._window_audio_risk(project_id, index, entry, int(window["length"]),
+                                           int(window["overlap"]))
         take = self._store_take(project_id, project, index, row, data, prompt_text,
-                                generation.get("seed"), frames, overlay=overlaid,
-                                expected_text=str(row.get("text") or ""))
+                                generation.get("seed"),
+                                int(window["visible"]) if window else frames,
+                                overlay=overlaid,
+                                expected_text=str(row.get("text") or ""),
+                                generation_frames=int(window["length"]) if window else None)
         patch = {"status": "completed", "error": None, "output": take["file"],
                  "finished": time.time(), "prompt_id": prompt_id, "prompt_text": prompt_text,
                  "prompt": prompt_text, "prompt_source": row.get("prompt_source") or "fallback",
                  "prompt_meta": meta}
         self._commit_segment(project_id, index, patch, expected_text=str(row.get("text") or ""))
+        if window:
+            self._record_seam_window(project_id, window, fingerprint, take, latent, risk)
         self._log(project_id, f"{label} 完成（{len(data) / 1024 / 1024:.1f} MB）")
         self._update(project_id, progress=round(base + span, 4))
+        return latent
 
     def _commit_segment(self, project_id: str, index: int, patch: dict[str, Any],
                         expected_text: str) -> None:
@@ -1016,7 +1257,8 @@ class AvatarRunner:
     def _store_take(self, project_id: str, project: dict[str, Any], index: int,
                     row: dict[str, Any], data: bytes, prompt_text: str,
                     seed: int | None, frames: int, overlay: bool = False,
-                    expected_text: str = "") -> dict[str, Any]:
+                    expected_text: str = "",
+                    generation_frames: int | None = None) -> dict[str, Any]:
         base = store.project_dir(project_id)
         folder = base / "takes" / f"seg_{index:04d}"
         folder.mkdir(parents=True, exist_ok=True)
@@ -1043,7 +1285,7 @@ class AvatarRunner:
             "thumb": thumb_rel,
             "created": time.time(),
             "frames": int(frames),
-            "generation_frames": int(row.get("generation_frames") or frames),
+            "generation_frames": int(generation_frames or row.get("generation_frames") or frames),
             "seconds": float(row.get("seconds") or (frames / config.FPS)),
             "overlay": bool(overlay),
             "bytes": len(data),
@@ -1106,15 +1348,18 @@ class AvatarRunner:
     def _extract_audio(take: Path, target: Path, frames: int | None = None) -> None:
         """从 take 抽音轨。
 
-        给定 ``frames`` 时用 ``apad,atrim=end_sample`` 精确裁/补到 ``frames/FPS`` 秒：
-        H3 每次 take 的音频长度不一定等于交付帧数，不裁会让成片音轨比视频长，
-        多段叠加后越拖越偏。``apad`` 保证短了补静音，样本数严格等于目标。
+        给定 ``frames`` 时用 ``aresample=44100,apad,atrim=end_sample`` 精确裁/补到
+        ``frames/FPS`` 秒：H3 每次 take 的音频长度和采样率都不一定等于交付规格，
+        不裁会让成片音轨比视频长，多段叠加后越拖越偏。``apad`` 保证短了补静音，
+        样本数严格等于目标。
         """
         args = [audio_utils.ffmpeg(), "-y", "-v", "error", "-i", str(take), "-vn",
                 "-ac", "2", "-ar", "44100"]
         if frames and int(frames) > 0:
             samples = int(round(int(frames) * 44100 / config.FPS))
-            args += ["-af", f"apad,atrim=end_sample={samples}"]
+            # 先把源音轨重采样到 44100 再 atrim：atrim 的 end_sample 按输入采样率计，
+            # 直接 atrim 会把 32kHz 的音频按 44.1k 的样本数裁，长度放大 44100/32000 倍。
+            args += ["-af", f"aresample=44100,apad,atrim=end_sample={samples}"]
         args += ["-c:a", "pcm_s16le", str(target)]
         audio_utils.command(args, timeout=600)
 
@@ -1133,6 +1378,9 @@ class AvatarRunner:
         project = store.get(project_id)
         if int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE:
             return self._assemble_mode1(project_id, project)
+        generation = project.get("generation") or {}
+        if seam_enabled(project, generation):
+            return self._assemble_seam(project_id, project, generation)
         segments = project.get("segments") or []
         if not segments:
             raise ValueError("还没有分段。")
@@ -1232,6 +1480,105 @@ class AvatarRunner:
             "take_signature": take_signature(project),
             "stale": False,
             "audio_source": "original",
+        }
+        store.mutate(project_id, lambda latest: latest.__setitem__("final", meta))
+        shutil.rmtree(work, ignore_errors=True)
+        return meta
+
+    # ------------------------------ 接缝接续：合成 ------------------------------
+    @staticmethod
+    def _slice_window_audio(source: Path, target: Path, head: int, keep: int,
+                            fps: int = config.FPS) -> None:
+        """从原始窗音轨裁出交付区间 `[head, head+keep)`（44.1kHz 双声道）。"""
+        start = seam.frames_to_samples(head, 44100, fps)
+        end = start + seam.frames_to_samples(keep, 44100, fps)
+        audio_utils.command([
+            audio_utils.ffmpeg(), "-y", "-v", "error", "-i", str(source), "-vn",
+            "-ac", "2", "-ar", "44100",
+            "-af", f"apad,atrim=start_sample={start}:end_sample={end},asetpts=PTS-STARTPTS",
+            "-c:a", "pcm_s16le", str(target),
+        ], timeout=600)
+
+    def _assemble_seam(self, project_id: str, project: dict[str, Any],
+                       generation: dict[str, Any]) -> dict[str, Any]:
+        """模式 2/3 接缝接续：Finalize 已裁头，逐窗归一化到 keep 帧后拼接。"""
+        segments = project.get("segments") or []
+        if not segments:
+            raise ValueError("还没有分段。")
+        plan_data = seam.plan(segments, int(project.get("mode") or 0),
+                              generation.get("seam_overlap"))
+        base = store.project_dir(project_id)
+        work = base / "takes" / "_seam"
+        work.mkdir(parents=True, exist_ok=True)
+        clips: list[Path] = []
+        wavs: list[Path] = []
+        risks: list[dict[str, Any]] = []
+        records = {int(item.get("index", -1)): item
+                   for item in ((project.get("seam") or {}).get("windows") or [])
+                   if isinstance(item, dict)}
+        for window, unit in zip(plan_data["windows"], plan_data["units"]):
+            index = int(window["index"])
+            row = segments[index]
+            record = records.get(index) or {}
+            if not record:
+                raise ValueError(f"第 {index + 1} 段还不是接缝接续生成的片段，请先用接缝接续生成。")
+            if int(record.get("length") or 0) != int(window["length"]):
+                raise ValueError(
+                    f"第 {index + 1} 段的窗口长度已变化（{record.get('length')} → "
+                    f"{window['length']} 帧），请重新生成该段后再合成。")
+            output = str(row.get("output") or "").strip()
+            take_path = base / output if output else None
+            if take_path is None or not take_path.is_file():
+                raise ValueError(f"第 {index + 1} 段还没有可用片段，请先生成。")
+            keep = int(unit["keep"])
+            clip = work / f"w{index:04d}.mp4"
+            media.normalize(take_path, clip, keep, crf=18, fps=config.FPS)
+            count = media.video_frame_count(clip)
+            if count != keep:
+                raise ValueError(
+                    f"第 {index + 1} 段片段只有 {count} 帧，应为 {keep} 帧（请重新生成该段）。")
+            wav = work / f"w{index:04d}.wav"
+            raw = take_path.parent / f"raw_w{index:04d}.wav"
+            if raw.is_file():
+                # 直接用未裁头的原始音轨按 [head, head+keep) 裁，避免依赖 Finalize
+                # 里可能被污染的 H3_FPS（30fps 跑过之后会按 30 算采样）
+                self._slice_window_audio(raw, wav, int(unit["head"]), keep)
+            else:
+                self._extract_audio(take_path, wav, keep)
+            clips.append(clip)
+            wavs.append(wav)
+            if isinstance(record.get("audio_risk"), dict) and record["audio_risk"].get("risk"):
+                risks.append({"index": index, **record["audio_risk"]})
+        combined = work / "voice.wav"
+        self._concat_audio(wavs, combined, work)
+        total_frames = int(plan_data["total_frames"])
+        final_path = base / "final" / "final.mp4"
+        media.concat(clips, combined, final_path, total_frames, work)
+        thumb = base / "final" / "cover.jpg"
+        media.thumbnail(final_path, thumb, min(0.8, max(total_frames / config.FPS / 3, 0.2)))
+        final_audio = base / "final" / "audio.wav"
+        try:
+            final_audio.write_bytes(combined.read_bytes())
+        except OSError:
+            pass
+        meta = {
+            "path": "final/final.mp4",
+            "thumb": "final/cover.jpg",
+            "audio": "final/audio.wav",
+            "duration": round(media.duration(final_path) or total_frames / config.FPS, 3),
+            "duration_frames": total_frames,
+            "fps": config.FPS,
+            "bytes": final_path.stat().st_size if final_path.is_file() else 0,
+            "created": time.time(),
+            "segments": len(segments),
+            "take_signature": take_signature(project),
+            "stale": False,
+            "stitch": "seam",
+            "seam": {"overlap": int(plan_data["overlap"]),
+                     "windows": len(plan_data["windows"]),
+                     "target": int(sum(int(w["target_visible"]) for w in plan_data["windows"])),
+                     "overshoot": int(plan_data["overshoot"]),
+                     "audio_risk": risks},
         }
         store.mutate(project_id, lambda latest: latest.__setitem__("final", meta))
         shutil.rmtree(work, ignore_errors=True)
