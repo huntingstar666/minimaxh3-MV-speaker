@@ -160,7 +160,8 @@ def anchor_selflift_generation(generation: dict[str, Any],
 
 def build(generation: dict[str, Any], prompt: str, refs: list[str],
           audio_file: str | list[str] | None, frames: int, fps: int = config.FPS,
-          available: dict[str, bool] | None = None) -> dict[str, Any]:
+          available: dict[str, bool] | None = None,
+          tail_image: str | None = None) -> dict[str, Any]:
     """构建单段数字人生成图（模式 2 可传多个音色素材，模式 3 传 None）。
 
     `audio_file` 编号顺序必须与提示词里的 <Audio 1..n> 一致：
@@ -276,6 +277,39 @@ def build(generation: dict[str, Any], prompt: str, refs: list[str],
         "inputs": {"conditioning": ["refvideo", 0]},
         "_meta": {"title": "负向条件"},
     }
+    # relay：把上一段真实末帧锚到本段第 0 帧做软引导；音频链路完全不变
+    tail_name = str(tail_image or "").strip()
+    positive_ref: list[Any] = ["refvideo", 0]
+    if tail_name:
+        nodes["tail_image"] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": tail_name},
+            "_meta": {"title": "上一段末帧"},
+        }
+        nodes["tail_scaled"] = {
+            "class_type": "ImageScale",
+            "inputs": {
+                "image": ["tail_image", 0],
+                "upscale_method": "lanczos",
+                "width": ["res", 0],
+                "height": ["res", 1],
+                "crop": "center",
+            },
+            "_meta": {"title": "末帧对齐画幅"},
+        }
+        nodes["guide"] = {
+            "class_type": "MiniMaxH3AddGuide",
+            "inputs": {
+                "positive": ["refvideo", 0],
+                "latent": ["refvideo", 1],
+                "frame_idx": 0,
+                "vae": ["vae_video", 0],
+                "image": ["tail_scaled", 0],
+            },
+            "_meta": {"title": "首帧接力（上一段末帧）"},
+        }
+        positive_ref = ["guide", 0]
+        nodes["zero"]["inputs"]["conditioning"] = positive_ref
     nodes["sampler_select"] = {
         "class_type": "KSamplerSelect",
         "inputs": {"sampler_name": generation.get("sampler", "euler")},
@@ -326,7 +360,7 @@ def build(generation: dict[str, Any], prompt: str, refs: list[str],
             "tiling_tiles": int(generation.get("tiling_tiles", 2)),
             "tiling_axis": generation.get("tiling_axis", "auto"),
             "low_res_model": [model_ref, 0],
-            "positive": ["refvideo", 0],
+            "positive": positive_ref,
             "negative": ["zero", 0],
             "vae": ["vae_video", 0],
             # 关键差异：latent 直接来自 Ref2VA，不经过 LTXVConcatAVLatent

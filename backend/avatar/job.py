@@ -50,6 +50,11 @@ def anchor_enabled(project: dict[str, Any], generation: dict[str, Any]) -> bool:
     return str(generation.get("stitch") or project.get("stitch") or "hard") == "anchor"
 
 
+def relay_enabled(project: dict[str, Any], generation: dict[str, Any]) -> bool:
+    """模式 2/3 的尾帧接力：每段独立生成，但把上一段真实末帧锚到本段第 0 帧。"""
+    return str(generation.get("stitch") or project.get("stitch") or "hard") == "relay"
+
+
 _ANCHOR_UPLOADS: dict[str, str] = {}
 
 
@@ -856,6 +861,33 @@ class AvatarRunner:
         return names
 
     # ------------------------------ 单段 ------------------------------
+    def _tail_frame(self, project_id: str, project: dict, index: int) -> str:
+        """抽上一段选中 take 的最后一帧并上传，作为本段第 0 帧的软引导。
+
+        用 `-sseof -1 -update 1` 从末尾 1 秒逐帧解码、覆盖写同一文件，
+        最终留下的是真正的最后一帧；不用 `-sseof -0.1` 这种近似时间点。
+        """
+        segments = project.get("segments") or []
+        previous = ""
+        if 0 <= index - 1 < len(segments):
+            previous = str(segments[index - 1].get("output") or "").strip()
+        if not previous:
+            raise ValueError(f"第 {index} 段还没有可用片段，尾帧接力需要先生成上一段。")
+        base = store.project_dir(project_id)
+        source = base / previous
+        if not source.is_file():
+            raise ValueError(f"第 {index} 段的片段文件不存在，请先生成上一段。")
+        out = base / "takes" / "_relay" / f"tail_{index:04d}.jpg"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        audio_utils.command([
+            audio_utils.ffmpeg(), "-y", "-v", "error", "-sseof", "-1",
+            "-i", str(source), "-update", "1", "-q:v", "2", str(out),
+        ], timeout=180)
+        if not out.is_file() or out.stat().st_size <= 0:
+            raise ValueError("抽取上一段末帧失败，请检查 ffmpeg。")
+        return comfy.upload(f"h3dh_{_safe_id(project_id)}_relay_{index:04d}.jpg",
+                            out.read_bytes())
+
     def _generate_segment(self, project_id: str, project: dict[str, Any], index: int,
                           row: dict[str, Any], generation: dict[str, Any],
                           ref_names: list[str], audio_names: list[str],
@@ -884,9 +916,13 @@ class AvatarRunner:
         generation = dict(generation)
         if not generation.get("seed"):
             generation["seed"] = fallback_seed
+        tail_name = ""
+        if relay_enabled(project, generation) and index > 0:
+            tail_name = self._tail_frame(project_id, project, index)
         graph = workflow.build(generation, prompt_text, segment_refs, use_audio,
                                frames, int(generation.get("fps") or config.FPS),
-                               available=self._available)
+                               available=self._available,
+                               tail_image=tail_name or None)
         self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",
                      progress=round(base + span * 0.06, 4))
         if (self.cancel_events.get(project_id) or threading.Event()).is_set():

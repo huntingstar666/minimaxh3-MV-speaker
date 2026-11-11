@@ -209,8 +209,13 @@ def _merged_generation(project: dict[str, Any], payload: dict[str, Any]) -> dict
 def _validate_anchor(project: dict[str, Any], generation: dict[str, Any],
                      check_nodes: bool = False) -> None:
     stitch = str(generation.get("stitch") or "hard").strip().lower()
-    if stitch not in {"hard", "anchor"}:
-        raise HTTPException(400, "stitch 必须是 hard 或 anchor。")
+    mode = int(project.get("mode") or 0)
+    allowed = {"hard", "anchor"} if mode == config.MODE_AUDIO_DRIVE else {"hard", "relay"}
+    if stitch not in allowed:
+        raise HTTPException(
+            400, "stitch 只能是 " + " 或 ".join(sorted(allowed))
+                 + ("（模式 1 用 anchor）" if mode == config.MODE_AUDIO_DRIVE
+                    else "（模式 2/3 用 relay）") + "。")
     if stitch != "anchor":
         return
     if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
