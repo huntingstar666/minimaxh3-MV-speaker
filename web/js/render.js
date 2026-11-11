@@ -203,6 +203,9 @@ export function renderSettingsForm() {
   $("#set-comfy").value = settings.comfy_url || "";
   $("#set-ffmpeg").value = settings.ffmpeg || "ffmpeg";
   $("#set-ffprobe").value = settings.ffprobe || "ffprobe";
+  const setupRoot = state.setup?.comfy?.root || "";
+  const dirInput = $("#set-comfy-dir");
+  if (dirInput && document.activeElement !== dirInput) dirInput.value = setupRoot;
   renderLLMForm();
 }
 

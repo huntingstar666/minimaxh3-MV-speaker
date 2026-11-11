@@ -8,7 +8,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -103,7 +103,8 @@ def object_info(node: str) -> dict[str, Any] | None:
         return None
     try:
         with http(3) as client:
-            response = client.get(_url(f"/object_info/{node}"))
+            # 节点名可能带空格（如 easy cleanGpuUsed），必须编码后再拼 URL
+            response = client.get(_url(f"/object_info/{quote(node, safe='')}"))
             if response.status_code >= 400:
                 return None
             data = response.json()

@@ -118,6 +118,7 @@ async function init() {
     $("#asr-hint").textContent = audioSupport
       ? "识别词级时间戳，切点落在字与字之间（首次使用会下载模型）"
       : "本机未安装 faster-whisper，自动使用声学分段（仍可正常生成）";
+    loadSetup(true);
   });
 }
 
@@ -159,6 +160,221 @@ async function loadSettings() {
     state.directorDefaults = data.director_defaults;
   } catch (error) {
     toast(`读取配置失败：${error.message}`, "err");
+  }
+}
+
+// ------------------------------- 环境体检 -------------------------------
+let setupAutoOpened = false;
+
+function setupBadge(kind, text) {
+  return `<span class="setup-badge ${kind}">${escapeHtml(text)}</span>`;
+}
+
+function setupItem(badgeKind, badgeText, body) {
+  return `<div class="setup-item">${setupBadge(badgeKind, badgeText)}<span class="grow">${body}</span></div>`;
+}
+
+function setupGroup(title, badge, body) {
+  return `<div class="setup-group"><h4>${escapeHtml(title)}${badge}</h4>${body}</div>`;
+}
+
+function renderSetupReport(error = null) {
+  const box = $("#setup-report");
+  const summary = $("#setup-summary");
+  if (!box || !summary) return;
+  if (error) {
+    summary.textContent = "检测失败";
+    box.innerHTML = `<div class="settings-note">环境检测失败：${escapeHtml(error.message || error)}</div>`;
+    return;
+  }
+  const setup = state.setup;
+  if (!setup) {
+    summary.textContent = "未检测";
+    box.innerHTML = `<div class="settings-note">点击「重新检测」开始检查依赖、ComfyUI、节点与模型。</div>`;
+    return;
+  }
+  summary.textContent = setup.needs_attention
+    ? `待处理 ${(setup.blockers || []).length} 项`
+    : "环境就绪";
+  const blocks = [];
+
+  // Python / 二进制
+  const pyMissing = (setup.python?.items || []).filter((item) => item.required && !item.installed);
+  const pyRows = pyMissing.length
+    ? pyMissing.map((item) => setupItem("err", "缺失", `<b>${escapeHtml(item.label)}</b> · ${escapeHtml(item.package)}`)).join("")
+    : setupItem("ok", "完整", "工作台运行依赖已安装");
+  blocks.push(setupGroup("Python 依赖", setupBadge(pyMissing.length ? "err" : "ok", pyMissing.length ? `${pyMissing.length} 项` : "OK"), pyRows));
+
+  const binRows = (setup.binaries?.items || []).map((item) => setupItem(
+    item.ok ? "ok" : (item.required ? "err" : "warn"),
+    item.ok ? "可用" : "缺失",
+    `<b>${escapeHtml(item.label)}</b> · ${escapeHtml(item.path || item.configured || "")}`)).join("");
+  blocks.push(setupGroup("ffmpeg / ffprobe", setupBadge(setup.binaries?.ok ? "ok" : "err", setup.binaries?.ok ? "OK" : "缺失"), binRows));
+
+  // ComfyUI
+  const comfy = setup.comfy || {};
+  const comfyRows = [
+    setupItem(comfy.connected ? "ok" : "err", comfy.connected ? "已连接" : "未连接",
+      `<b>${escapeHtml(comfy.url || "—")}</b>${comfy.version ? ` · ${escapeHtml(comfy.version)}` : ""}`),
+    setupItem(comfy.rootValid ? "ok" : "warn", comfy.rootValid ? "已定位" : "未定位",
+      `<b>ComfyUI 目录</b> · ${escapeHtml(comfy.root || "未填写（在上方输入后保存）")}`),
+    comfy.error ? setupItem("warn", "提示", escapeHtml(comfy.error)) : "",
+  ].join("");
+  blocks.push(setupGroup("ComfyUI 服务", setupBadge(comfy.connected ? "ok" : "err", comfy.connected ? "正常" : "异常"), comfyRows));
+
+  // 节点
+  const packRows = (setup.nodes?.packs || []).map((pack) => {
+    if (!pack.reachable) {
+      return setupItem("warn", "待检测", `<b>${escapeHtml(pack.name)}</b> · 启动 ComfyUI 后检查`);
+    }
+    if (!pack.required) {
+      const note = (pack.missingOptional || []).length ? ` · 可选节点缺失 ${pack.missingOptional.length} 个` : "";
+      return setupItem("ok", "可选", `<b>${escapeHtml(pack.name)}</b>${escapeHtml(note)}`);
+    }
+    if (!(pack.missing || []).length) {
+      return setupItem("ok", "已装", `<b>${escapeHtml(pack.name)}</b>`);
+    }
+    const repo = pack.repo
+      ? `<a href="${escapeHtml(pack.repo)}" target="_blank" rel="noreferrer">仓库地址</a>` : "";
+    const install = pack.install === "git"
+      ? `<button class="link" data-setup-node="${escapeHtml(pack.id)}">git 安装</button>` : "";
+    return setupItem("err", "缺失",
+      `<b>${escapeHtml(pack.name)}</b> · 缺 ${pack.missing.length} 个节点<br>${repo} ${install}<br><span class="hint">${escapeHtml((pack.missing || []).join("、"))}</span>`);
+  }).join("");
+  blocks.push(setupGroup("节点包", setupBadge(setup.nodes?.ok ? "ok" : "err", setup.nodes?.ok ? "齐全" : "待补"), packRows));
+
+  // 模型
+  const modelRows = (setup.models?.items || []).map((item) => {
+    const matched = (item.matches || [])[0] || item.configured || "";
+    const dirs = (item.dirs || []).join("、");
+    if (item.present) {
+      return setupItem("ok", "已有", `<b>${escapeHtml(item.label)}</b>${matched ? ` · ${escapeHtml(matched)}` : ""}`);
+    }
+    const badge = item.required ? "err" : "warn";
+    return setupItem(badge, item.required ? "缺失" : "可选",
+      `<b>${escapeHtml(item.label)}</b><br><span class="hint">${escapeHtml(item.hint || "")}${dirs ? ` 目录：${escapeHtml(dirs)}` : ""}</span>`);
+  }).join("");
+  blocks.push(setupGroup("模型", setupBadge(setup.models?.ok ? "ok" : "warn", setup.models?.known ? (setup.models?.ok ? "齐全" : "待补") : "未扫描"), modelRows));
+
+  // 功能可用性
+  const featureRows = (setup.features || []).map((feature) => {
+    const kind = feature.state === "ready" ? "ok" : (feature.state === "optional" ? "warn" : (feature.state === "unknown" ? "warn" : "err"));
+    const text = feature.state === "ready" ? "可用" : (feature.state === "optional" ? "可选" : (feature.state === "unknown" ? "待检测" : "不可用"));
+    const detail = (feature.missing || []).length
+      ? `<br><span class="hint">${escapeHtml(feature.missing.join("；"))}</span>` : "";
+    return setupItem(kind, text, `<b>${escapeHtml(feature.name)}</b>${detail}`);
+  }).join("");
+  blocks.push(setupGroup("功能可用性", "", featureRows));
+
+  // 手动安装提示
+  const hintPacks = (setup.hints?.packs || []).filter((pack) => pack.clone || pack.requirements);
+  if (hintPacks.length) {
+    const commands = hintPacks.map((pack) => {
+      const lines = [pack.clone, pack.requirements].filter(Boolean).join("\n");
+      return `<b>${escapeHtml(pack.name)}</b>\n<pre class="setup-code">${escapeHtml(lines)}</pre>`;
+    }).join("");
+    blocks.push(`<details class="advanced"><summary>手动安装命令（可复制）</summary><div class="adv-body">${commands}</div></details>`);
+  }
+  box.innerHTML = blocks.join("");
+}
+
+function syncSetupDir() {
+  const input = $("#set-comfy-dir");
+  if (input && document.activeElement !== input) input.value = state.setup?.comfy?.root || "";
+}
+
+async function loadSetup(scan = true) {
+  const summary = $("#setup-summary");
+  if (scan && summary) summary.textContent = "检测中…";
+  try {
+    state.setup = await api.setupStatus(scan);
+    renderSetupReport();
+    syncSetupDir();
+    maybeOpenSetup();
+  } catch (error) {
+    renderSetupReport(error);
+  }
+}
+
+function maybeOpenSetup() {
+  if (!state.setup || setupAutoOpened) return;
+  let seen = false;
+  try { seen = localStorage.getItem("h3wb.setupSeen") === "1"; } catch { /* 隐私模式忽略 */ }
+  if (seen) return;
+  // 首次使用（没有项目）即使环境就绪也弹一次，让用户看到结论；
+  // 已有项目的环境异常时也弹，避免带着坏环境去生成。
+  if (!state.setup.first_run && !state.setup.needs_attention) return;
+  setupAutoOpened = true;
+  try { localStorage.setItem("h3wb.setupSeen", "1"); } catch { /* 隐私模式忽略 */ }
+  renderSettingsForm();
+  openModal("modal-settings");
+  toast(state.setup.needs_attention
+    ? "首次使用：请按「环境体检」补齐依赖、节点与模型，再开始生成。"
+    : "环境体检完成：依赖、ComfyUI、节点与模型都可用。", state.setup.needs_attention ? "warn" : "ok", 8000);
+}
+
+async function saveComfyDir() {
+  const path = ($("#set-comfy-dir")?.value || "").trim();
+  if (!path) {
+    toast("请先填写 ComfyUI 根目录（包含 custom_nodes / models）", "warn", 5000);
+    return;
+  }
+  busy("正在检测 ComfyUI 目录…");
+  try {
+    state.setup = await api.setComfyDir(path);
+    renderSetupReport();
+    syncSetupDir();
+    toast("ComfyUI 目录已保存并完成检测", "ok", 5000);
+  } catch (error) {
+    toast(error.message, "err", 8000);
+  } finally {
+    busy("", false);
+  }
+}
+
+async function installSetupPython(optional = false) {
+  const label = optional ? "语音识别依赖（faster-whisper）" : "工作台必需依赖";
+  const ok = await confirmDialog(
+    "安装 Python 依赖",
+    `将用当前工作台 Python 执行 pip 安装：\n${label}\n\n安装过程中不要关闭服务。`,
+    "开始安装");
+  if (!ok) return;
+  busy(`正在安装${label}…`);
+  try {
+    const result = await api.installPython({ confirm: true, optional });
+    if (result.status) state.setup = result.status;
+    renderSetupReport();
+    syncSetupDir();
+    toast("依赖安装完成；建议重启工作台后再生效", "ok", 7000);
+  } catch (error) {
+    toast(error.message, "err", 10000);
+  } finally {
+    busy("", false);
+  }
+}
+
+async function installSetupNode(packId) {
+  const pack = (state.setup?.nodes?.packs || []).find((item) => item.id === packId);
+  if (!pack) return;
+  const repo = pack.repo ? `\n仓库：${pack.repo}` : "";
+  const action = pack.install === "vendor" ? "复制项目内置节点" : "git clone 节点仓库";
+  const ok = await confirmDialog(
+    "安装节点包",
+    `将${action}：${pack.name}${repo}\n目标：${pack.destination}\n\n安装后需要手动重启 ComfyUI。`,
+    "开始安装");
+  if (!ok) return;
+  busy(`正在安装 ${pack.name}…`);
+  try {
+    const result = await api.installNode({ id: packId, confirm: true });
+    if (result.status) state.setup = result.status;
+    renderSetupReport();
+    syncSetupDir();
+    const tail = result.requirementsCommand ? `\n还需在 ComfyUI 的 Python 环境执行：${result.requirementsCommand}` : "";
+    toast(`节点安装完成；请重启 ComfyUI 生效。${tail}`, "ok", 10000);
+  } catch (error) {
+    toast(error.message, "err", 10000);
+  } finally {
+    busy("", false);
   }
 }
 
@@ -1645,6 +1861,15 @@ function bindEvents() {
   $("#btn-settings").addEventListener("click", () => {
     renderSettingsForm();
     openModal("modal-settings");
+    loadSetup(true);
+  });
+  $("#btn-setup-scan")?.addEventListener("click", () => loadSetup(true));
+  $("#btn-set-comfy-dir")?.addEventListener("click", saveComfyDir);
+  $("#btn-setup-install-python")?.addEventListener("click", () => installSetupPython(false));
+  $("#btn-setup-install-asr")?.addEventListener("click", () => installSetupPython(true));
+  $("#setup-report")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-setup-node]");
+    if (button) installSetupNode(button.dataset.setupNode);
   });
   $("#btn-save-settings").addEventListener("click", saveSettings);
   $("#btn-llm-test").addEventListener("click", testLlm);

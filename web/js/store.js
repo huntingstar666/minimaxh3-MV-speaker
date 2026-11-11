@@ -11,6 +11,7 @@ export const state = {
   health: null,
   options: null,
   settings: null,
+  setup: null,
   projects: [],
   project: null,
   run: null,

@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "platform": "h3-workbench",
+  "notes": [
+    "节点类名来自 backend/workflow.py 与 backend/avatar/workflow.py 实际提交的图。",
+    "模型只做检测与引导：本文件不提供权重下载地址，避免绕过模型许可。",
+    "source=null 表示需要用户自行提供权威来源；设置页可填写实际文件名。"
+  ],
+  "python": [
+    {"module": "fastapi", "package": "fastapi", "required": true, "label": "FastAPI"},
+    {"module": "uvicorn", "package": "uvicorn", "required": true, "label": "Uvicorn"},
+    {"module": "httpx", "package": "httpx", "required": true, "label": "httpx"},
+    {"module": "numpy", "package": "numpy", "required": true, "label": "NumPy"},
+    {"module": "multipart", "package": "python-multipart", "required": true, "label": "python-multipart"},
+    {"module": "websockets", "package": "websockets", "required": true, "label": "websockets"},
+    {"module": "faster_whisper", "package": "faster-whisper", "required": false, "label": "faster-whisper（语音识别，可选）"}
+  ],
+  "binaries": [
+    {"id": "ffmpeg", "settings": "ffmpeg", "required": true, "label": "ffmpeg"},
+    {"id": "ffprobe", "settings": "ffprobe", "required": true, "label": "ffprobe"}
+  ],
+  "node_packs": [
+    {
+      "id": "comfyui-core",
+      "name": "ComfyUI 本体（core 节点）",
+      "repo": "https://github.com/comfyanonymous/ComfyUI",
+      "install": "core",
+      "required": true,
+      "destination": "ComfyUI 本体（升级 ComfyUI，不装到 custom_nodes）",
+      "nodes": [
+        "UNETLoader", "CLIPLoader", "VAELoader", "LoadImage", "LoadAudio",
+        "ResolutionSelector", "MiniMaxH3ReferenceToVideo",
+        "LTXVAudioVAEEncode", "LTXVConcatAVLatent", "LTXVSeparateAVLatent",
+        "VAEDecode", "VAEDecodeAudio", "SolidMask", "SetLatentNoiseMask",
+        "KSamplerSelect", "BasicScheduler", "BasicGuider", "RandomNoise",
+        "SamplerCustomAdvanced", "CreateVideo", "SaveVideo", "PreviewAny"
+      ],
+      "optional_nodes": [
+        "LoraLoaderModelOnly", "ModelAttentionBackend", "MiniMaxH3SigmaShift",
+        "H3SigmaRefiner", "MiniMaxH3AddGuide", "ImageScale"
+      ]
+    },
+    {
+      "id": "selflift-avatar",
+      "name": "selflift-Avatar（SelfLift 双采采样器）",
+      "repo": "https://github.com/slmonker/selflift-Avatar",
+      "install": "git",
+      "destination": "custom_nodes/selflift-Avatar",
+      "required": true,
+      "nodes": ["SelfLiftAvatarH3Sampler"],
+      "optional_nodes": ["SelfLiftAvatarH3SamplerFix"],
+      "notes": "MV 与数字人所有出片路径都依赖 SelfLiftAvatarH3Sampler；Fix 版用于数字人双采，缺失时回退普通版。"
+    },
+    {
+      "id": "video-helper-suite",
+      "name": "ComfyUI-VideoHelperSuite",
+      "repo": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite",
+      "install": "git",
+      "destination": "custom_nodes/ComfyUI-VideoHelperSuite",
+      "required": true,
+      "nodes": ["VHS_VideoCombine"],
+      "notes": "所有成片都通过 VHS_VideoCombine 编码输出。"
+    },
+    {
+      "id": "minimaxh3-seam",
+      "name": "MiniMax H3 Long Video Seam（项目内置改版）",
+      "repo": "https://github.com/huntingstar666/minimaxh3-long-video-seam",
+      "install": "vendor",
+      "vendor": "vendor/minimaxh3-long-video-seam",
+      "destination": "custom_nodes/minimaxh3-long-video-seam",
+      "required": true,
+      "nodes": [
+        "MiniMaxH3TimelinePlanner", "MiniMaxH3TimelineEncoder",
+        "MiniMaxH3FiniteSegmentVideoSampler", "MiniMaxH3FiniteLatentContinuation",
+        "MiniMaxH3FiniteSegmentFinalize", "MiniMaxH3AVLatentSave",
+        "MiniMaxH3AVLatentLoad", "MiniMaxH3LockedAudioSlice",
+        "MiniMaxH3LockAudioLatent", "MiniMaxH3TimelineSelfLiftSampler"
+      ],
+      "optional_nodes": ["MiniMaxH3SilentAudioSlice"],
+      "notes": "seam / mixed / 数字人 seam 依赖；工作台启动时会尝试自动部署 vendor 副本，部署后需重启 ComfyUI。"
+    },
+    {
+      "id": "kjnodes",
+      "name": "ComfyUI-KJNodes（可选）",
+      "repo": "https://github.com/kijai/ComfyUI-KJNodes",
+      "install": "git",
+      "destination": "custom_nodes/ComfyUI-KJNodes",
+      "required": false,
+      "nodes": [],
+      "optional_nodes": ["ImageResizeKJv2", "INTConstant"],
+      "notes": "仅部分参考工作流/预览用；本工作台核心出片不依赖。"
+    },
+    {
+      "id": "easy-use",
+      "name": "ComfyUI-Easy-Use（可选）",
+      "repo": "https://github.com/yolain/ComfyUI-Easy-Use",
+      "install": "git",
+      "destination": "custom_nodes/ComfyUI-Easy-Use",
+      "required": false,
+      "nodes": [],
+      "optional_nodes": ["easy cleanGpuUsed", "easy clearCacheAll"],
+      "notes": "显存清理模板使用；本工作台不提交这两个节点。"
+    }
+  ],
+  "models": [
+    {
+      "id": "unet",
+      "label": "H3 UNET（diffusion_models）",
+      "setting": "unet",
+      "dirs": ["models/diffusion_models", "models/unet"],
+      "patterns": ["minimax_h3_fl2va", "minimax_h3_ref2va", "h3_hybrid", "cobijada", "w4a8"],
+      "required": true,
+      "used_by": ["MV", "数字人"],
+      "hint": "至少需要 1 个 H3 UNET；可在设置→模型选择已有文件。"
+    },
+    {
+      "id": "clip",
+      "label": "H3 文本编码器（text_encoders）",
+      "setting": "clip",
+      "dirs": ["models/text_encoders", "models/clip"],
+      "patterns": ["qwen3vl_32b_minimax_h3"],
+      "required": true,
+      "used_by": ["MV", "数字人"],
+      "hint": "文件名通常包含 qwen3vl_32b_minimax_h3。"
+    },
+    {
+      "id": "vae_video",
+      "label": "H3 视频 VAE（vae）",
+      "setting": "vae_video",
+      "dirs": ["models/vae"],
+      "patterns": ["minimax_h3_video_vae"],
+      "required": true,
+      "used_by": ["MV", "数字人"],
+      "hint": "文件名通常包含 minimax_h3_video_vae。"
+    },
+    {
+      "id": "vae_audio",
+      "label": "H3 音频 VAE（vae）",
+      "setting": "vae_audio",
+      "dirs": ["models/vae"],
+      "patterns": ["minimax_h3_audio_vae"],
+      "required": true,
+      "used_by": ["MV", "数字人"],
+      "hint": "文件名通常包含 minimax_h3_audio_vae。"
+    },
+    {
+      "id": "upscaler",
+      "label": "潜空间放大器（latent_upscale_models）",
+      "setting": "upscaler_model",
+      "dirs": ["models/latent_upscale_models", "models/upscale_models"],
+      "patterns": ["minimax_h3_latent_upscaler"],
+      "required": true,
+      "used_by": ["MV", "数字人双采"],
+      "hint": "SelfLift 二采必需；文件名通常包含 minimax_h3_latent_upscaler。"
+    },
+    {
+      "id": "lora",
+      "label": "加速 / 人物 LoRA（loras，可选）",
+      "setting": "lora",
+      "dirs": ["models/loras"],
+      "patterns": ["dmad", "h3_character_swap", "fl2v_turbo", "minimax_h3_lora"],
+      "required": false,
+      "used_by": ["加速", "人物一致性"],
+      "hint": "不装也能出片，只是步数与速度不同；在设置→加速 LoRA 选择。"
+    }
+  ],
+  "features": [
+    {
+      "id": "mv-hard",
+      "name": "MV 硬切出片",
+      "nodes": [
+        "UNETLoader", "CLIPLoader", "VAELoader", "LoadImage", "LoadAudio",
+        "ResolutionSelector", "MiniMaxH3ReferenceToVideo", "LTXVAudioVAEEncode",
+        "LTXVConcatAVLatent", "SolidMask", "SetLatentNoiseMask", "KSamplerSelect",
+        "BasicScheduler", "SelfLiftAvatarH3Sampler", "VAEDecode", "VHS_VideoCombine"
+      ],
+      "models": ["unet", "clip", "vae_video", "vae_audio", "upscaler"]
+    },
+    {
+      "id": "mv-seam",
+      "name": "MV seam / mixed（逐窗续接）",
+      "nodes": [
+        "UNETLoader", "CLIPLoader", "VAELoader", "LoadImage", "LoadAudio",
+        "ResolutionSelector", "MiniMaxH3ReferenceToVideo", "KSamplerSelect",
+        "BasicScheduler", "SelfLiftAvatarH3Sampler", "VAEDecode", "VHS_VideoCombine",
+        "MiniMaxH3TimelinePlanner", "MiniMaxH3TimelineEncoder",
+        "MiniMaxH3FiniteLatentContinuation", "MiniMaxH3FiniteSegmentFinalize",
+        "MiniMaxH3AVLatentSave", "MiniMaxH3AVLatentLoad",
+        "MiniMaxH3LockedAudioSlice", "MiniMaxH3LockAudioLatent",
+        "MiniMaxH3TimelineSelfLiftSampler"
+      ],
+      "models": ["unet", "clip", "vae_video", "vae_audio", "upscaler"]
+    },
+    {
+      "id": "avatar",
+      "name": "数字人模式 1/2/3",
+      "nodes": [
+        "UNETLoader", "CLIPLoader", "VAELoader", "LoadImage", "LoadAudio",
+        "ResolutionSelector", "MiniMaxH3ReferenceToVideo", "LTXVAudioVAEEncode",
+        "LTXVConcatAVLatent", "LTXVSeparateAVLatent", "SolidMask",
+        "SetLatentNoiseMask", "KSamplerSelect", "BasicScheduler",
+        "SelfLiftAvatarH3Sampler", "VAEDecode", "VAEDecodeAudio", "VHS_VideoCombine"
+      ],
+      "models": ["unet", "clip", "vae_video", "vae_audio", "upscaler"]
+    },
+    {
+      "id": "asr",
+      "name": "语音识别辅助切分",
+      "python": ["faster_whisper"],
+      "nodes": [],
+      "models": []
+    },
+    {
+      "id": "llm",
+      "name": "AI 提示词扩写（可选）",
+      "llm": true,
+      "nodes": [],
+      "models": []
+    },
+    {
+      "id": "pack",
+      "name": "MV / 数字人包导入导出",
+      "nodes": [],
+      "models": []
+    }
+  ]
+}

@@ -395,6 +395,23 @@
         <div class="field"><label>ffmpeg</label><input id="set-ffmpeg" class="input mono"></div>
         <div class="field"><label>ffprobe</label><input id="set-ffprobe" class="input mono"></div>
       </div>
+      <div class="section-label">环境体检 <span class="hint" id="setup-summary">未检测</span></div>
+      <div class="field">
+        <label>ComfyUI 根目录</label>
+        <div class="setup-dir-row">
+          <input id="set-comfy-dir" class="input mono" placeholder="D:\ComfyUI（包含 custom_nodes / models）">
+          <button class="btn ghost sm" id="btn-set-comfy-dir">保存并检测</button>
+        </div>
+      </div>
+      <div class="setup-actions">
+        <button class="btn ghost sm" id="btn-setup-scan">重新检测</button>
+        <button class="btn ghost sm" id="btn-setup-install-python">安装必需依赖</button>
+        <button class="btn ghost sm" id="btn-setup-install-asr">安装语音识别依赖</button>
+      </div>
+      <div id="setup-report" class="setup-report">
+        <div class="settings-note">打开设置时会自动检测；也可以点「重新检测」。</div>
+      </div>
+      <div class="settings-note">检测只读；安装节点/依赖会先弹窗确认。节点安装或部署后需要手动重启 ComfyUI。模型权重不自动下载，按清单引导放置。</div>
       <div class="section-label">LLM 默认</div>
       <div class="field-row">
         <div class="field"><label>Base URL</label><input id="set-llm-base" class="input mono"></div>

@@ -91,6 +91,7 @@ python skills/mv-pack-builder/scripts/validate_avatar_pack.py .\my-avatar --requ
 ### 0.7 继续读
 
 - 技能目录：[skills/mv-pack-builder/](skills/mv-pack-builder/)；
+- **首次安装 / 缺节点缺模型**：[docs/首次安装与环境体检.md](docs/首次安装与环境体检.md)；
 - 分享/部署：[docs/分享与部署.md](docs/分享与部署.md)；
 - 数据链路与限制：[docs/数据链路与已知限制.md](docs/数据链路与已知限制.md)；
 - 资源/显存管理：[docs/资源与显存管理.md](docs/资源与显存管理.md)。
@@ -108,6 +109,8 @@ python run.py          # Windows 可直接双击 start.bat
 ```
 
 打开 <http://127.0.0.1:8787/>。
+
+首次打开会自动做一次**环境体检**（设置 → 环境体检）：检查 Python 依赖、ffmpeg、ComfyUI 连接/目录、节点与模型。缺节点可点「git 安装」（需确认，安装后手动重启 ComfyUI）；缺模型只给目录与清单，不自动下载。完整说明见 [docs/首次安装与环境体检.md](docs/首次安装与环境体检.md)。
 
 首次进入在右栏「模型」区域选择 UNET / CLIP / 视频 VAE / 音频 VAE / 加速 LoRA / 潜空间放大器；留空时后端会按关键词自动匹配（`minimax_h3`、`fl2va`、`qwen3vl`、`latent_upscaler_3d` 等）。
 
@@ -129,10 +132,10 @@ python run.py          # Windows 可直接双击 start.bat
 | 项目 | 要求 |
 | --- | --- |
 | Python | 3.10+（已在 3.13 验证） |
-| ComfyUI | 0.43.0 验证通过；需要新版 `object_info` 的 `COMBO` schema |
+| ComfyUI | 0.43+（0.44.0 环境体检实测）；需要新版 `object_info` 的 `COMBO` schema |
 | 显卡 | 已在 RTX 5090 24G+ 验证；1MP 单段 11 秒约 2–3 分钟（竖屏 768×1376 / 横屏 1376×768 同档耗时相近；画幅以参考图比例为准） |
 | ffmpeg / ffprobe | 必须在 PATH，或设置绝对路径（设置面板 / 环境变量） |
-| 自定义节点 | `selflift-Avatar`、`ComfyUI-YCNodes-MiniMax-H3`、`ComfyUI-VideoHelperSuite`；seam 模式另需 `minimaxh3-long-video-seam`；可选 `ComfyUI-H3-LongVideo`（仅参考，不运行）、`KJNodes`（仅预览） |
+| 自定义节点 | `selflift-Avatar`（必装，MV/数字人都依赖 `SelfLiftAvatarH3Sampler`）、`ComfyUI-VideoHelperSuite`（必装）、项目内置 `minimaxh3-long-video-seam`（seam/mixed 用，启动时自动部署）；可选 `KJNodes` / `ComfyUI-Easy-Use`。MiniMax H3 核心节点已并入新版 ComfyUI，旧版请先升级 |
 | 语音识别（可选） | `faster-whisper`（已在 1.2.1 验证）；模型默认下载到项目内 `<项目>/data/hf-cache`，整个文件夹拷走后仍可用 |
 
 必需节点类：
@@ -146,9 +149,21 @@ KSamplerSelect / BasicScheduler / ConditioningZeroOut
 SelfLiftAvatarH3Sampler / VAEDecode / VHS_VideoCombine
 ```
 
-可选节点（缺失时自动跳过）：`LoraLoaderModelOnly`、`ModelAttentionBackend`、`MiniMaxH3SigmaShift`、`H3SigmaRefiner`。
+seam / mixed 额外节点（项目内置 `minimaxh3-long-video-seam`）：
 
-模型（放在 ComfyUI 对应目录）：
+```
+MiniMaxH3TimelinePlanner / MiniMaxH3TimelineEncoder
+MiniMaxH3FiniteLatentContinuation / MiniMaxH3FiniteSegmentFinalize
+MiniMaxH3AVLatentSave / MiniMaxH3AVLatentLoad
+MiniMaxH3LockedAudioSlice / MiniMaxH3LockAudioLatent
+MiniMaxH3TimelineSelfLiftSampler / MiniMaxH3FiniteSegmentVideoSampler（旧一次提交回退）
+```
+
+可选节点（缺失时自动跳过）：`LoraLoaderModelOnly`、`ModelAttentionBackend`、`MiniMaxH3SigmaShift`、`H3SigmaRefiner`、`SelfLiftAvatarH3SamplerFix`。
+
+> 完整节点/模型清单与仓库地址见 [docs/首次安装与环境体检.md](docs/首次安装与环境体检.md)；代码侧唯一数据源是 `backend/setup_manifest.json`。
+
+模型（放在 ComfyUI 对应目录；文件名关键词见环境体检清单）：
 
 ```
 models/diffusion_models/minimax_h3/minimax_h3_fl2va_int8_convrot.safetensors
@@ -158,6 +173,8 @@ models/vae/minimax_h3_audio_vae_fp32.safetensors
 models/loras/minimax_h3/加速/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors
 models/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors
 ```
+
+模型不做自动下载：环境体检只列出缺失项、目标目录和文件名关键词，放好后在「设置 → 模型」选择，或留空让后端自动匹配。
 
 ## 3. 配置
 
@@ -189,6 +206,9 @@ h3-workbench/
 ├─ backend/
 │  ├─ app.py              FastAPI 路由（项目 / 分段 / 提示词 / 生成 / 媒体）
 │  ├─ settings.py         配置持久化 + 环境变量覆盖
+│  ├─ setup_check.py      首次使用 / 环境体检（依赖、ComfyUI、节点、模型、安装动作）
+│  ├─ setup_manifest.json 节点 / 模型 / 功能清单（唯一数据源）
+│  ├─ seam_nodes.py       内置 seam 节点部署到 ComfyUI custom_nodes
 │  ├─ store.py            项目目录与 project.json 原子读写
 │  ├─ audio.py            解码、包络、过零率、节拍、段落、精确切片
 │  ├─ asr.py              可选 faster-whisper 转录（缺失时降级为纯声学）
@@ -212,6 +232,7 @@ h3-workbench/
 ├─ skills/
 │  └─ mv-pack-builder/     配套 MV / 数字人包创作技能（含环境自检 / 包校验 / 导入脚本）
 └─ docs/
+   ├─ 首次安装与环境体检.md 依赖 / 节点 / 模型清单与安装引导
    ├─ 工作流拆解.md        原工作流逐节点拆解与移植对照
    ├─ 移植说明.md          移植到其他项目的完整步骤
    ├─ MV包格式.md          .h3pack.zip 格式说明
@@ -254,21 +275,22 @@ data/projects/<id>/
 | 方式 | 做法 | 适用 |
 | --- | --- | --- |
 | **硬切**（默认） | 每段独立生成，按 `edit_frames` 严格拼接 | 任意素材；跨镜头、换机位都稳 |
-| **接缝优化 seam** | 整条片一次提交给 `MiniMaxH3TimelinePlanner` + `MiniMaxH3FiniteSegmentVideoSampler`，相邻窗口重叠 22 帧，用上一窗采样后的 AV latent 作为下一窗续接 | **只适合同镜头/连续运镜**；跨镜头请用硬切 |
+| **接缝优化 seam** | 逐窗提交 `MiniMaxH3TimelinePlanner` + 单窗图，相邻窗口重叠 22（可选 39）帧，用上一窗采样后的 AV latent 续接；每窗产物与 latent 落盘，支持断点续跑 | **只适合同镜头/连续运镜**；跨镜头请用硬切 |
 
 seam 的窗口规则：
 
 ```
-每窗长度 = 5 + 17k（向上取整，>=22）
-第 1 窗从 0 开始，其后每窗起点 = 上一窗 end - 22
-成片总帧数 = 最后一窗 end，最后按「Σ 段秒数 × 输出帧率」裁尾
+每窗长度 = 5 + 17k（向上取整，>=22，且 <=362）
+第 1 窗从 0 开始，其后每窗起点 = 上一窗 end - overlap（22 或 39）
+每窗由 Finalize 裁掉段首 overlap；成片按 Σ edit_frames 裁齐后混源音轨
 ```
 
-- 每段仍用**本段选定的参考图**和**本段提示词**；音频用整条 `source.wav` 作为 locked audio，由节点按窗口自动切段（含重叠区），成片音轨仍是原始完整音频。
-- seam 走 `secondPass=true`（`secondPassModel` 用「潜空间放大器」），即与现有 SelfLift 双采同源的二阶段采样。
-- seam 模式**一次生成整条**，不支持单段重生成/断点续跑；段卡「重生成」按钮会禁用。
-- 重叠帧固定 22；每段窗口会向上吸附到合法帧数，段边界最多偏移 16 帧（24fps 约 0.67 秒），不影响原音轨对齐。
+- 每段仍用**本段选定的参考图**和**本段提示词**；音频用整条 `source.wav` 作为 locked audio，按窗口绝对区间切片，成片音轨仍是原始完整音频。
+- 二采按需开启（`seam_second_pass`）：单窗图走 `MiniMaxH3TimelineSelfLiftSampler`，参数显式推导；ComfyUI 缺该节点时自动降级单采。
+- 逐窗提交，工作台持有每窗 `wNNN.mp4` 与 `seg_NNNN.pt`；第 2 窗失败只重跑缺口，计划不变时整条 0 次提交。
+- 改切点/提示词/模型/源音频会改变计划指纹，旧 manifest 归档并全量重来；只改输出帧率不会重跑生成。
 - 换镜/换机位段强行 seam 会让 latent 续接把两个机位缝在一起，产生畸变；这类素材请用硬切。
+- ComfyUI 缺少逐窗节点时，自动回退旧的一次提交（`_generate_seam_legacy`，内部回退，不暴露开关）。
 
 帧数约束（`frames_for`，**按输出帧率换算**）：
 
@@ -342,6 +364,10 @@ detailed_description: → overall_soundscape: → non_diegetic_music:
 | GET | `/api/brief-presets` | 8 个导演简报模板（按类别） |
 | GET | `/api/options` | 从 `/object_info` 读取模型与节点可用性 |
 | GET/POST | `/api/settings` | 读写全局配置（密钥掩码） |
+| GET | `/api/setup/status` | 环境体检：依赖 / ComfyUI / 节点 / 模型 / 功能可用性（只读，15 秒缓存） |
+| POST | `/api/setup/comfy-dir` | 保存并校验 ComfyUI 根目录（`path`） |
+| POST | `/api/setup/install/python` | 安装白名单 Python 依赖（需 `confirm:true`，可选 `optional:true` 装 ASR） |
+| POST | `/api/setup/install/nodes` | 安装/部署节点包（需 `confirm:true`；`id`、`root?`、`force?`） |
 | POST | `/api/llm/test` | 测试 LLM 连通性 |
 | GET/POST | `/api/projects` | 项目列表 / 创建（multipart：`name` + `audio`） |
 | POST | `/api/projects/import` | 导入 MV 包（multipart：`package` = `.h3pack.zip`，可选 `name`） |
@@ -368,6 +394,7 @@ detailed_description: → overall_soundscape: → non_diegetic_music:
 
 ## 8. 常见问题
 
+- **第一次用，不知道缺什么**：打开「设置 → 环境体检」点「重新检测」；缺节点按提示 `git 安装`，缺模型按清单目录放置。完整说明见 [docs/首次安装与环境体检.md](docs/首次安装与环境体检.md)。
 - **ComfyUI 显示 node_errors**：多为模型名不在下拉列表。到右栏重新选择；或把 `data/settings.json` 里的 `generation` 清空后重启。
 - **段落太碎**：把「目标段长」调大（如 13–14），或换用有明确气口/分句的音频；也可以直接在波形上拖动切点、双击切分，或用段卡「合并下段」。
 - **想手动切分**：先把播放头点到目标位置，再按时间线右侧「在播放头切分」；或直接双击波形。切点两侧各需 ≥ 3 秒。
@@ -406,9 +433,11 @@ detailed_description: → overall_soundscape: → non_diegetic_music:
 
 ```bash
 python smoke_test.py
+python setup_check_test.py   # 环境体检 / 安装动作边界
+python mv_seam_test.py       # MV 逐窗 seam / 断点续跑
 ```
 
-它会自动：创建临时数据目录（不碰 `data/` 真实项目）、用合成音频建项目并分析、检查提示词保存顺序、全局风格/滤镜/运镜前缀、切点 no-op、AI 重写、任务线程写盘不覆盖用户编辑、结构变化后旧任务结果不回写，结束后清理临时数据。全部通过退出码为 0。
+`smoke_test.py` 会自动：创建临时数据目录（不碰 `data/` 真实项目）、用合成音频建项目并分析、检查提示词保存顺序、全局风格/滤镜/运镜前缀、切点 no-op、AI 重写、任务线程写盘不覆盖用户编辑、结构变化后旧任务结果不回写，结束后清理临时数据。全部通过退出码为 0。
 
 版本管理使用 git（`data/`、`.venv/`、`__pycache__/` 已忽略）：
 

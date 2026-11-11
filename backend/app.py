@@ -18,7 +18,7 @@ from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
 from . import (asr, audio, comfy, director, frames, jobs, llm, maintenance, media, pack,
-               presets, prompts, seam_nodes, settings, store)
+               presets, prompts, seam_nodes, settings, setup_check, store)
 from .errors import ParamError
 from .avatar import app as avatar_app
 
@@ -172,6 +172,61 @@ def seam_nodes_deploy(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     if not result.get("ok"):
         raise HTTPException(400, str(result.get("error") or "部署失败"))
     return result
+
+
+# ------------------------------- 首次使用 / 环境体检 -------------------------------
+def _require_local(request: Request) -> None:
+    """安装/部署会执行本机命令，只允许循环地址发起（工作台默认也只绑 127.0.0.1）。"""
+    host = (request.client.host if request.client else "") or ""
+    if host.startswith("127.") or host in {"::1", "localhost"}:
+        return
+    raise HTTPException(403, "安装/部署操作只允许在本机执行。")
+
+
+@app.get("/api/setup/status")
+def setup_status(scan: bool = True) -> dict[str, Any]:
+    """依赖 / ComfyUI / 节点 / 模型 / 功能可用性；只读，不安装任何东西。"""
+    return {"ok": True, **setup_check.status(scan=scan)}
+
+
+@app.post("/api/setup/comfy-dir")
+def setup_comfy_dir(request: Request, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    _require_local(request)
+    data = payload or {}
+    try:
+        return {"ok": True, **setup_check.set_comfy_dir(str(data.get("path") or ""))}
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/api/setup/install/python")
+def setup_install_python(request: Request,
+                         payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    _require_local(request)
+    data = payload or {}
+    try:
+        return setup_check.install_python(
+            confirm=bool(data.get("confirm")),
+            include_optional=bool(data.get("optional")))
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/api/setup/install/nodes")
+def setup_install_nodes(request: Request,
+                        payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    _require_local(request)
+    data = payload or {}
+    try:
+        return setup_check.install_node(
+            str(data.get("id") or ""),
+            confirm=bool(data.get("confirm")),
+            root=data.get("root"),
+            force=bool(data.get("force")))
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    except OSError as error:
+        raise HTTPException(400, f"安装节点失败（文件被占用或权限不足）：{error}") from error
 
 
 # ------------------------------- 系统 -------------------------------
