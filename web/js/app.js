@@ -1554,7 +1554,9 @@ function bindEvents() {
   $("#btn-split").addEventListener("click", splitAtPlayhead);
   $("#btn-undo").addEventListener("click", undoCut);
   $("#stitch-select").addEventListener("change", () => {
-    $("#seam-secondpass-row").hidden = $("#stitch-select").value === "hard";
+    const stitch = $("#stitch-select").value;
+    $("#seam-secondpass-row").hidden = stitch === "hard";
+    $("#seam-overlap-row").hidden = stitch !== "mixed";
   });
 
   $("#segment-list").addEventListener("click", (event) => {
@@ -1652,6 +1654,7 @@ function bindEvents() {
     "#outfps-select",
     "#stitch-select",
     "#seam-secondpass-toggle",
+    "#seam-overlap-select",
     "#unet-select", "#clip-select", "#vae-video-select", "#vae-audio-select",
     "#lora-select", "#upscaler-select"].forEach((selector) => {
     const element = $(selector);

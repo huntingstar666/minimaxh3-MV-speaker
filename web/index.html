@@ -263,6 +263,13 @@
           <option value="mixed">混合（逐段选择硬切 / 续接）</option>
         </select>
       </div>
+      <div class="field" id="seam-overlap-row" hidden>
+        <label>接缝重叠</label>
+        <select id="seam-overlap-select" class="input">
+          <option value="22">22 帧（0.92s，默认）</option>
+          <option value="39">39 帧（1.63s，更稳但更慢）</option>
+        </select>
+      </div>
       <div class="switch-row" id="seam-secondpass-row">
         <div><strong>seam 双采</strong><span>关闭后显存峰值更低，质量略降</span></div>
         <label class="switch"><input type="checkbox" id="seam-secondpass-toggle" checked><i></i></label>
