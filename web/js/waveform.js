@@ -65,6 +65,7 @@ export class Waveform {
     this.layerCtx = this.layer.getContext("2d");
     this.peaks = [];
     this.segments = [];
+    this.stitch = "hard";
     this.duration = 0;
     this.playhead = 0;
     this.width = 0;
@@ -121,10 +122,11 @@ export class Waveform {
   }
 
   // ------------------------------- 公开 API -------------------------------
-  setData({ peaks, segments, duration }) {
+  setData({ peaks, segments, duration, stitch }) {
     this.peaks = Array.isArray(peaks) ? peaks : [];
     this.segments = Array.isArray(segments) ? segments : [];
     this.duration = Number(duration) || 0;
+    this.stitch = String(stitch || "hard");
     this.wrap.classList.toggle("loaded", this.peaks.length > 0);
     if (!this.duration) {
       this.hoverX = null;
@@ -206,6 +208,7 @@ export class Waveform {
 
     if (this.peaks.length && duration) this.drawBars(ctx, width, mid, bodyTop, bodyBottom);
     if (duration) this.drawBoundaries(ctx, width, timeToX, bodyTop, bodyBottom);
+    if (duration) this.drawSeamCapsules(ctx, width, timeToX, bodyTop, bodyBottom);
     if (this.peaks.length && duration) this.drawIndexLabels(ctx, width, timeToX);
     if (duration) this.drawRuler(ctx, width);
 
@@ -518,6 +521,63 @@ export class Waveform {
       ctx.fill();
     });
     ctx.restore();
+  }
+
+  // mixed 模式里显式选了「续接」的段：用薄荷色胶囊圈住，连续的续接段合并成一个胶囊。
+  // 只在 mixed 下画：全局 seam 时整条时间轴都是续接，画出来反而没有信息量。
+  drawSeamCapsules(ctx, width, timeToX, bodyTop, bodyBottom) {
+    if (this.stitch !== "mixed" || this.segments.length < 2) return;
+    const mint = (this.colors || FALLBACK_COLORS).mint;
+    const runs = [];
+    let run = null;
+    this.segments.forEach((segment) => {
+      if (String(segment.stitch || "hard") !== "seam") {
+        run = null;
+        return;
+      }
+      const start = Number(segment.start) || 0;
+      const end = Number(segment.end) || start;
+      if (!run) {
+        run = { start, end, count: 1 };
+        runs.push(run);
+      } else {
+        run.end = end;
+        run.count += 1;
+      }
+    });
+    for (const item of runs) {
+      const x1 = clamp(timeToX(item.start), 0, width);
+      const x2 = clamp(timeToX(item.end), 0, width);
+      if (x2 - x1 < 3) continue;
+      const top = bodyTop + 3.5;
+      const bottom = bodyBottom - 3.5;
+      const radius = Math.min(8, (x2 - x1) / 2, Math.max(0, (bottom - top) / 2));
+      ctx.save();
+      ctx.beginPath();
+      this.roundRect(ctx, x1 + 1, top, Math.max(1, x2 - x1 - 2), bottom - top, radius);
+      ctx.fillStyle = toRgba(mint, .055);
+      ctx.fill();
+      ctx.strokeStyle = toRgba(mint, .55);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // 右上角挂一个小标签；段太窄时只留胶囊轮廓
+      const label = item.count > 1 ? `续接 ×${item.count}` : "续接";
+      ctx.font = `600 9px ${MONO}`;
+      const tagWidth = ctx.measureText(label).width + 10;
+      if (x2 - x1 > tagWidth + 18) {
+        const tx = x2 - tagWidth - 5;
+        const ty = top + 2;
+        ctx.beginPath();
+        this.roundRect(ctx, tx, ty, tagWidth, 13, 6.5);
+        ctx.fillStyle = toRgba(mint, .92);
+        ctx.fill();
+        ctx.fillStyle = "rgba(5,14,10,.9)";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, tx + tagWidth / 2, ty + 6.8);
+      }
+      ctx.restore();
+    }
   }
 
   drawIndexLabels(ctx, width, timeToX) {

@@ -164,6 +164,8 @@ detailed_description → overall_soundscape → non_diegetic_music`），并按�
 - `stitch` 是行级接续方式：`seam` 表示本段与**上一段**之间 latent 续接，连续 `seam` 的段会被
   归为同一条链；`hard` 或省略表示硬切。第 1 段（`index=0`）没有上一段，`seam` 会被归一成 `hard`。
   导出时始终写出 `stitch`，保证包能原样导回。
+- 工作台在 `generation.stitch=mixed` 时会在每段卡片上提供「接续 / 硬切 / 续接 22 / 续接 39」分段按钮；
+  波形上会把连续选「续接」的段用薄荷色圆角胶囊圈起并标注「续接 / 续接 ×N」，改选后立即重绘。
 
 > 提示词建议使用 H3 六段结构（`subject_definitions` → `summary` →
 > `retention_analysis` → `detailed_description` → `overall_soundscape` →

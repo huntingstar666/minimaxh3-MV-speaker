@@ -3325,7 +3325,7 @@ function drawWave() {
   const duration = audioDuration();
   const segments = (project?.segments || []).map((seg, index) => {
     const start = segmentStart(project, index);
-    return { start, end: start + segSeconds(seg) };
+    return { start, end: start + segSeconds(seg), stitch: seg.stitch || "hard" };
   });
   const active = !!(state.run && RUN_ACTIVE.has(state.run.status));
   wf.editable = Number(project?.mode) === 1 && !active;
@@ -3333,6 +3333,7 @@ function drawWave() {
     peaks: Array.isArray(peaks) ? peaks : [],
     segments: Number(project?.mode) === 1 ? segments : [],
     duration: Array.isArray(peaks) && peaks.length ? duration : 0,
+    stitch: String((project?.generation || {}).stitch || "hard"),
   });
   wf.setPlayhead(state.playhead);
 }
@@ -5696,6 +5697,7 @@ async function setSegmentStitch(index, value) {
     renderProjectContext();
     updateSummary(data.project);
     syncButtons();
+    drawWave();  // 波形上的「续接」胶囊要立即跟着更新
   } catch (err) {
     toast(`接续方式保存失败：${err.message}`, "err", 6000);
     renderSegments();

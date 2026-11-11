@@ -603,6 +603,7 @@ export function setAudioWaveform(waveform) {
     peaks: project.analysis?.waveform?.original || [],
     segments: project.segments || [],
     duration: project.source?.duration || 0,
+    stitch: project.generation?.stitch || project.stitch || "hard",
   });
 }
 

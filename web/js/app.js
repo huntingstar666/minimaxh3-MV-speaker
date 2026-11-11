@@ -659,6 +659,8 @@ const persistProjectField = debounce(async (patchValue) => {
   try {
     const data = await api.patchProject(state.project.id, patchValue);
     setProject(data.project);
+    // 切到混合 / 续接后，波形上的「续接」胶囊要立即跟着更新
+    if (waveform) setAudioWaveform(waveform);
   } catch (error) {
     toast(error.message, "err");
   }
@@ -772,6 +774,7 @@ async function setSegmentStitch(index, value, overlap = null) {
     const data = await api.patchSegment(state.project.id, index, patch);
     setProject(data.project);
     renderProject();
+    if (waveform) setAudioWaveform(waveform);
     toast(value === "seam"
       ? `${label}将续接上一段（重叠 ${overlap || 22} 帧）`
       : `${label}改回硬切`, "ok");
