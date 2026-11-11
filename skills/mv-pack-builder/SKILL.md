@@ -227,7 +227,7 @@ python scripts/env_check.py --project <h3-workbench 目录>
    修改后再次确认。通过后才能继续。
 5. **补图决策落地**：如果用户采纳新参考图：
    - 在线用 `add_refs.py` 加入项目（role 必须确认）：
-     `python scripts/add_refs.py --project-id <id> --ref "D:\\img\\rooftop.png|environment|雨夜天台"`
+     `python scripts/add_refs.py --project-id <id> --ref "./img/rooftop.png|environment|雨夜天台"`
    - 更新 `design.json` 里的 `ref_ids` 和提示词 `<Picture N>` 编号，写进 design.md；
    - 重新走 Checkpoint B（画面）/ C（提示词）。
    如果用户不采纳：按用户意见改设计（换构图/光线/动作/道具替代），记录“原创意 →

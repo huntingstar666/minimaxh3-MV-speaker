@@ -1,10 +1,10 @@
 """方案1（首尾帧锚定）独立冒烟：不接入 job/app，只跑一段 ComfyUI。
 
 用法（在 h3-workbench 目录下）：
-  .venv\\Scripts\\python.exe tools\\anchor_smoke.py --dry-run
-  .venv\\Scripts\\python.exe tools\\anchor_smoke.py --frames 124 --timeout 3600
+  .venv\\Scripts\\python.exe tools\\anchor_smoke.py --project <项目ID> --dry-run
+  .venv\\Scripts\\python.exe tools\\anchor_smoke.py --project <项目ID> --frames 124 --timeout 3600
 
-默认取数字人项目 <project-id> 的第 0 段：
+取指定数字人项目的第 0 段：
 - 参考图：该项目 refs/ 第一张
 - 音频：source.wav 前 frames/24 秒（临时文件，不改项目数据）
 - 提示词：plan.compose_prompt() 的确定性 A 腔模板
@@ -117,7 +117,7 @@ def _select_inputs(project: dict, row: dict) -> tuple[Path, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--project", default="<project-id>")
+    parser.add_argument("--project", required=True, help="数字人项目 ID")
     parser.add_argument("--segment", type=int, default=0)
     parser.add_argument("--frames", type=int, default=124)
     parser.add_argument("--seed", type=int, default=12345)

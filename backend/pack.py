@@ -1,6 +1,6 @@
 """MV 包（*.h3pack.zip）导入 / 导出。
 
-包结构见 `docs/MV包格式.md`；核心是根目录的 `manifest.json` + `audio/` + `refs/`
+包结构见 `skills/mv-pack-builder/references/package-format.md`；核心是根目录的 `manifest.json` + `audio/` + `refs/`
 （可选 `timeline.cuts_seconds` 与 `segments[]` 覆盖简报/提示词/运镜）。
 """
 from __future__ import annotations
@@ -550,7 +550,7 @@ def _manifest_from_project(project: dict[str, Any]) -> dict[str, Any]:
             "prompt_overlays": row.get("prompt_overlays"),
             "ref_ids": row.get("ref_ids"),
         } for index, row in enumerate(segments)],
-        "notes": "由 H3 数字人 · MV 工作台导出；导入方式见 docs/MV包格式.md。",
+        "notes": "由 H3 数字人 · MV 工作台导出；导入方式见 skills/mv-pack-builder/references/package-format.md。",
     }
 
 
@@ -601,7 +601,7 @@ def _readme_text(project: dict[str, Any]) -> str:
 - `refs/`：参考图（角色、场景、服装、道具）。
 
 ## 字段说明
-完整格式见项目 `docs/MV包格式.md`。提示词为 H3 六段式
+完整格式见项目 `skills/mv-pack-builder/references/package-format.md`。提示词为 H3 六段式
 （subject_definitions / summary / retention_analysis / detailed_description /
 overall_soundscape / non_diegetic_music）。
 

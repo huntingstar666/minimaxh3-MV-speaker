@@ -2,7 +2,7 @@
 """把设计过程中用户采纳的新参考图加入工作台项目。
 
 用法：
-  python add_refs.py --project-id <id> --ref "D:\\img\\rooftop.png|environment|雨夜天台"
+  python add_refs.py --project-id <id> --ref "./img/rooftop.png|environment|雨夜天台"
   python add_refs.py --project-id <id> --ref "a.png|performer|角色" --ref "b.jpg|appearance|黑裙"
   python add_refs.py --project-id <id> --ref "...|subject|道具|补充说明"
 

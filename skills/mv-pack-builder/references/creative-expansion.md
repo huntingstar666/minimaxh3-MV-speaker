@@ -77,7 +77,7 @@ Agent 在画面设计阶段要先把创意放开，再盘点“实现这个创�
 
    ```bash
    python scripts/add_refs.py --project-id <id> \
-       --ref "D:\\img\\rooftop.png|environment|雨夜天台"
+       --ref "./img/rooftop.png|environment|雨夜天台"
    ```
 
 3. **更新设计**：在分镜表/design.json 记下用了哪张图、哪段引用；

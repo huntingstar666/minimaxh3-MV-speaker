@@ -1,6 +1,6 @@
 """数字人 · 确定性文字/logo 叠加兜底（P3：ffmpeg drawtext + overlay）。
 
-契约见 `docs/数字人工作台-实现契约.md` §7：
+契约见 `docs/数字人工作台.md` 与 README §7：
 
 - 不依赖 Pillow，只用 ffmpeg（drawtext + overlay）；
 - `design.graphics_mode == "overlay"` 时由 job 在本段视频落盘前调用，

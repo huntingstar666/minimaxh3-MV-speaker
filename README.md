@@ -92,14 +92,9 @@ python skills/mv-pack-builder/scripts/validate_avatar_pack.py .\my-avatar --requ
 
 - 技能目录：[skills/mv-pack-builder/](skills/mv-pack-builder/)；
 - **数字人工作台**：[docs/数字人工作台.md](docs/数字人工作台.md)（三种模式 / 段间模式 / 设计层 / 包格式）；
-- **接口与数据契约**：[docs/数字人工作台-实现契约.md](docs/数字人工作台-实现契约.md)；
+- **数据链路与限制**：[docs/数据链路与已知限制.md](docs/数据链路与已知限制.md)（数据真源 / 写盘 / 维护约定）；
 - **首次安装 / 缺节点缺模型**：[docs/首次安装与环境体检.md](docs/首次安装与环境体检.md)；
-- 分享/部署：[docs/分享与部署.md](docs/分享与部署.md)；
-- 移植到其它项目：[docs/移植说明.md](docs/移植说明.md)；
-- 数据链路与限制：[docs/数据链路与已知限制.md](docs/数据链路与已知限制.md)；
-- 界面设计：[docs/UI设计说明.md](docs/UI设计说明.md)；
-- 审查与维护记录：[docs/BUG审查-20261111.md](docs/BUG审查-20261111.md)；
-- 资源/显存管理：[docs/资源与显存管理.md](docs/资源与显存管理.md)。
+- API 一览见本 README §7；包格式见 [skills/mv-pack-builder/references/package-format.md](skills/mv-pack-builder/references/package-format.md) 与 [avatar-package-format.md](skills/mv-pack-builder/references/avatar-package-format.md)。
 
 ## 1. 快速开始
 
@@ -130,7 +125,7 @@ python run.py          # Windows 可直接双击 start.bat
 7. **导演简报与提示词**：段卡「提示词」弹窗里，简报可直接编辑，也能从 8 个类别模板（舞台 / 叙事 MV / 特写 / 空镜 / 讲解 / 带货 / 独白 / 风光）导入再改；保存后点「AI 重写」即可按新简报扩写。改简报 / 参考图 / 全局风格 / 本段运镜后，已经写好的提示词**不会被删除**，只会在段卡上提示「可能已过期」；手写提示词永不自动覆盖，自动扩写的提示词在下次生成或点「AI 重写」时按新输入重建。
 8. **开始生成**：逐段提交 ComfyUI（seam / mixed 为逐窗提交，支持断点续跑），实时进度与日志；可随时停止、单段重生成（仅硬切）。画幅在右栏「画幅」卡片里选（8 种比例），输出帧率选 24 / 25 / 30（默认 24），段间方式选硬切 / 接缝接续 / 混合（混合可在每段卡片上选「硬切 / 续接上段」）。每段的结果会存成独立片段（take），不会覆盖旧版本：段卡右侧「选片台」可预览历史片段并选用；换选后点成片区「重新合成成片」即可用新选片段重新拼接（只跑 ffmpeg，不重新生成）。
 9. **成片**：自动按输出帧率封装每段、拼接、混入**原始完整音轨**、生成封面；可在线预览与下载。段卡「试听」按一次播放本段、再按一次停止，播到段尾会自动停。如果换选过片段，成片区会出现「选材已变更」提示，点「重新合成成片」刷新。选片弹窗预览默认播放**原曲对应片段**（与成片一致），取消勾选「预览音轨：原曲」才播放片段自带的模型生成音频。
-10. **导入 / 导出 MV 包**：顶部「导入 MV 包」可拖入 `.h3pack.zip`，自动创建项目并导入音频、参考图、分段、提示词/参数；「导出 MV 包」把当前项目导出成同格式，便于分享或交给别人继续做。同一套包格式同时支持 **MV（mode=singing）** 和 **数字人口播（mode=speaking）**。格式见 [docs/MV包格式.md](docs/MV包格式.md)。配套技能 [mv-pack-builder](skills/mv-pack-builder/SKILL.md) 不是机械打包：它会拆歌/拆稿、自由发散创意、检查素材缺口并主动提出补图建议（用户采纳就补图，不采纳就按用户想法改）、设计分镜与逐段提示词、与用户三次确认后，产出每段都设计好的包（在线时还能直接导入、应用设计、出片）。
+10. **导入 / 导出 MV 包**：顶部「导入 MV 包」可拖入 `.h3pack.zip`，自动创建项目并导入音频、参考图、分段、提示词/参数；「导出 MV 包」把当前项目导出成同格式，便于分享或交给别人继续做。同一套包格式同时支持 **MV（mode=singing）** 和 **数字人口播（mode=speaking）**。格式见 [package-format.md](skills/mv-pack-builder/references/package-format.md)。配套技能 [mv-pack-builder](skills/mv-pack-builder/SKILL.md) 不是机械打包：它会拆歌/拆稿、自由发散创意、检查素材缺口并主动提出补图建议（用户采纳就补图，不采纳就按用户想法改）、设计分镜与逐段提示词、与用户三次确认后，产出每段都设计好的包（在线时还能直接导入、应用设计、出片）。
 
 ### 主题切换
 
@@ -154,12 +149,12 @@ python run.py          # Windows 可直接双击 start.bat
 
 | 项目 | 要求 |
 | --- | --- |
-| Python | 3.10+（已在 3.13 验证） |
-| ComfyUI | 0.43+（0.44.0 环境体检实测）；需要新版 `object_info` 的 `COMBO` schema |
-| 显卡 | 已在 RTX 5090 24G+ 验证；1MP 单段 11 秒约 2–3 分钟（竖屏 768×1376 / 横屏 1376×768 同档耗时相近；画幅以参考图比例为准） |
+| Python | 3.10+ |
+| ComfyUI | 0.43+；需要新版 `object_info` 的 `COMBO` schema（具体版本以本机体检为准） |
+| 显卡 | 已在 24G+ 显存级别 NVIDIA 显卡验证；1MP 单段 11 秒约 2–3 分钟（竖屏 768×1376 / 横屏 1376×768 同档耗时相近；画幅以参考图比例为准） |
 | ffmpeg / ffprobe | 必须在 PATH，或设置绝对路径（设置面板 / 环境变量） |
 | 自定义节点 | `selflift-Avatar`（必装，MV/数字人都依赖 `SelfLiftAvatarH3Sampler`）、`ComfyUI-VideoHelperSuite`（必装）、项目内置 `minimaxh3-long-video-seam`（seam/mixed 用，启动时自动部署）；可选 `KJNodes` / `ComfyUI-Easy-Use`。MiniMax H3 核心节点已并入新版 ComfyUI，旧版请先升级 |
-| 语音识别（可选） | `faster-whisper`（已在 1.2.1 验证）；模型默认下载到项目内 `<项目>/data/hf-cache`，整个文件夹拷走后仍可用 |
+| 语音识别（可选） | `faster-whisper`；模型默认下载到项目内 `<项目>/data/hf-cache`，整个文件夹拷走后仍可用 |
 
 必需节点类：
 
@@ -255,19 +250,10 @@ h3-workbench/
 ├─ skills/
 │  └─ mv-pack-builder/     配套 MV / 数字人包创作技能（含环境自检 / 包校验 / 导入脚本）
 ├─ tests/                  全部冒烟/回归脚本（MV + 数字人，命令见 §10）
-└─ docs/
+└─ docs/                  仅保留 3 份现行文档
    ├─ 数字人工作台.md               三模式 / 段间模式 / 设计层 / 包格式
-   ├─ 数字人工作台-实现契约.md       数据模型 / API / 写作用域
-   ├─ H3-Ref2VA-三腔提示词规范.md    三腔提示词与 lint 规则
-   ├─ MV包格式.md                   .h3pack.zip / .h3avatar.zip 格式
-   ├─ 首次安装与环境体检.md          依赖 / 节点 / 模型清单与安装引导
-   ├─ 工作流拆解.md                 原工作流逐节点拆解与移植对照
-   ├─ 移植说明.md                   移植到其他项目的完整步骤
-   ├─ 分享与部署.md                 分享内容 / 部署 / 验收清单
-   ├─ UI设计说明.md                 视觉 token / 布局 / 交互
    ├─ 数据链路与已知限制.md          数据流、并发写入规则与维护约定
-   ├─ 资源与显存管理.md              磁盘清理 / 显存释放 / 上传上限
-   └─ BUG审查-20261111.md           增量审查、修复记录与真机验证
+   └─ 首次安装与环境体检.md          依赖 / 节点 / 模型清单与安装引导
 ```
 
 单个项目的数据布局：
@@ -443,7 +429,7 @@ detailed_description: → overall_soundscape: → non_diegetic_music:
 
 ## 9. 端到端验证记录
 
-环境：Windows 11 / Python 3.13 / ComfyUI 0.43.0 / RTX 5090 / ffmpeg 8.1.1。
+环境：Windows / Python 3.11+ / ComfyUI / ffmpeg（具体版本以本机体检为准）。
 
 | 用例 | 输入 | 结果 |
 | --- | --- | --- |
@@ -497,7 +483,7 @@ python tests/avatar_seam_assemble_test.py
 
 `tests/smoke_test.py` 会自动：创建临时数据目录（不碰 `data/` 真实项目）、用合成音频建项目并分析、检查提示词保存顺序、全局风格/滤镜/运镜前缀、切点 no-op、AI 重写、任务线程写盘不覆盖用户编辑、结构变化后旧任务结果不回写，结束后清理临时数据。全部通过退出码为 0。
 
-最近一轮逐项修复与复核记录见 [docs/BUG审查-20261111.md](docs/BUG审查-20261111.md)；维护约定（输出帧率必须传给 concat、数字人三种生成入口、锚定模板生命周期、放大器依赖、成片过期口径）见 [docs/数据链路与已知限制.md](docs/数据链路与已知限制.md) §7。
+维护约定（输出帧率必须传给 concat、数字人三种生成入口、锚定模板生命周期、放大器依赖、成片过期口径）见 [docs/数据链路与已知限制.md](docs/数据链路与已知限制.md) §7；历史修复细节见提交记录。
 
 版本管理使用 git（`data/`、`.venv/`、`__pycache__/` 已忽略）：
 

@@ -25,14 +25,14 @@ cp -r ./mv-pack-builder ~/.agents/skills/
 
 对 Agent 说：
 
-> 用 mv-pack-builder 帮我做一个 MV：参考图在 `./assets\refs`，音频是
-> `./assets\song.mp3`，歌词是 `./assets\lyrics.txt`，风格用暖阳赛璐璐，
+> 用 mv-pack-builder 帮我做一个 MV：参考图在 `./assets/refs`，音频是
+> `./assets/song.mp3`，歌词是 `./assets/lyrics.txt`，风格用暖阳赛璐璐，
 > 9:16，硬切。做好包之后直接导入工作台并出片。
 
 或：
 
-> 用 mv-pack-builder 做一个数字人口播：人物参考图 `./assets\host.png`，
-> 口播稿 `./assets\script.txt`，音频腔用 A 音频驱动（成品音频 `voice.mp3`），
+> 用 mv-pack-builder 做一个数字人口播：人物参考图 `./assets/host.png`，
+> 口播稿 `./assets/script.txt`，音频腔用 A 音频驱动（成品音频 `./assets/voice.mp3`），
 > 竖屏 9:16，固定机位，信息卡节奏慢一点，先出 1 段给我确认，再批量。
 
 数字人口播会先确认 **A/B/C 音频腔**，再按对应三腔系统提示词写 Ref2VA 六段式、
@@ -109,6 +109,6 @@ mv-pack-builder/
 ## 快速自检
 
 ```powershell
-python scripts/env_check.py --project "."
+python scripts/env_check.py --project "../.."
 python scripts/validate_pack.py .\my-mv --zip .\my-mv.h3pack.zip
 ```
