@@ -193,6 +193,22 @@ def test_tail_frame_uses_latest_store() -> None:
             f"应从磁盘读到上一段 output 并抽帧，实际：{uploaded}")
 
 
+def test_pending_targets_force() -> None:
+    segments = [
+        {"status": "completed", "selected_take": "t1"},
+        {"status": "completed", "selected_take": "t2"},
+        {"status": "idle", "selected_take": ""},
+    ]
+    require(avatar_job.pending_targets(segments, {}) == [2],
+            "默认只应生成未完成/未选片的段")
+    require(avatar_job.pending_targets(segments, {"force": True}) == [0, 1, 2],
+            "force=true 应重跑全部段")
+    require(avatar_job.pending_targets(segments, {"force": [1]}) == [1, 2],
+            "force 索引只追加指定段，未完成的段仍应生成")
+    require(avatar_job.pending_targets(segments, {"only": [0], "force": [0]}) == [0],
+            "单段重跑应只处理 only + force 指定的段")
+
+
 def main() -> int:
     run("relay 开关识别", test_relay_flag)
     run("默认图不含 guide", test_graph_without_tail)
@@ -201,6 +217,7 @@ def main() -> int:
     run("缺上一段报错", test_tail_frame_requires_previous)
     run("快照过期仍能抽末帧", test_tail_frame_uses_latest_store)
     run("重跑上游作废下游", test_relay_invalidates_downstream)
+    run("全部重新生成 force 语义", test_pending_targets_force)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))

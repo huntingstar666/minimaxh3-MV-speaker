@@ -211,6 +211,7 @@
         <button class="btn ghost sm" id="btn-plan2" title="按标点与语速自动分段"><svg><use href="#i-spark"/></svg>按台词分段</button>
         <button class="btn ghost sm" id="btn-prompts-all" title="可选：为每一段润色提示词（运行会为空白提示词调用本地 LLM）"><svg><use href="#i-layers"/></svg><span id="btn-prompts-all-label">一键润色（可选）</span></button>
         <button class="btn primary" id="btn-generate" title="按分段逐段生成视频（空白提示词会先调用本地 LLM）"><svg><use href="#i-play"/></svg>开始生成</button>
+        <button class="btn ghost sm hidden" id="btn-regenerate-all" title="忽略已完成状态，按当前参数重跑全部分段（旧片段保留为历史 take）"><svg><use href="#i-refresh"/></svg>全部重新生成</button>
         <button class="btn danger hidden" id="btn-cancel"><svg><use href="#i-stop"/></svg>停止</button>
       </div>
     </div>

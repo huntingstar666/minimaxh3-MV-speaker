@@ -5756,6 +5756,28 @@ async function generateRun() {
   }).catch((err) => toast(`启动生成失败：${err.message}`, "err", 7000));
 }
 
+async function regenerateAll() {
+  const p = state.project;
+  if (!p) return toast("请先新建作品", "err");
+  const total = (p.segments || []).length;
+  if (!total) return toast("请先按台词分段", "err");
+  const ok = await confirmDialog(
+    "全部重新生成",
+    `会按当前参数重跑全部 ${total} 段；旧片段保留为历史 take，可在选片台换回。继续？`,
+    "全部重新生成"
+  );
+  if (!ok) return;
+  await withBusy($("#btn-regenerate-all"), async () => {
+    const data = await api.generate(p.id, { force: true, generation: readGeneration() });
+    state.run = data.run || state.run;
+    if (state.project) state.project.run = state.run;
+    renderRun(state.run);
+    state.pollCount = 0;
+    startPolling();
+    toast("已开始按当前参数重跑全部分段", "info", 6000);
+  }).catch((err) => toast(`启动失败：${err.message}`, "err", 7000));
+}
+
 async function regenerateSegment(index) {
   const p = state.project;
   if (!p) return;
@@ -5999,6 +6021,8 @@ function syncButtons() {
   $("#btn-plan2").classList.toggle("hidden", isMode1);
   setDisabled("#btn-prompts-all", !hasSegments);
   setDisabled("#btn-generate", !hasSegments || active);
+  setDisabled("#btn-regenerate-all", !hasSegments || active);
+  $("#btn-regenerate-all")?.classList.toggle("hidden", !hasSegments);
   setDisabled("#btn-assemble", !hasSegments);
   setDisabled("#btn-assemble2", !hasSegments);
   setDisabled("#btn-cancel", !active);
@@ -6322,6 +6346,7 @@ function bindEvents() {
   $("#btn-plan2").addEventListener("click", () => planSegments());
   $("#btn-prompts-all").addEventListener("click", generateAllPrompts);
   $("#btn-generate").addEventListener("click", generateRun);
+  $("#btn-regenerate-all")?.addEventListener("click", regenerateAll);
   $("#btn-cancel").addEventListener("click", cancelRun);
   $("#btn-assemble").addEventListener("click", assembleFilm);
   $("#btn-assemble2").addEventListener("click", assembleFilm);

@@ -90,6 +90,23 @@ def take_signature(project: dict[str, Any]) -> str:
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+def pending_targets(segments: list[dict[str, Any]],
+                    options: dict[str, Any] | None) -> list[int]:
+    """本次需要生成的分段：未完成 / 未选片，或显式 force。
+
+    ``force`` 兼容 ``true``（全部）与索引数组；与 MV 的 force 语义一致。
+    """
+    options = options or {}
+    only = {int(value) for value in (options.get("only") or [])}
+    force_raw = options.get("force")
+    force = ({int(value) for value in force_raw} if isinstance(force_raw, list)
+             else (set(range(len(segments))) if force_raw else set()))
+    return [index for index, row in enumerate(segments)
+            if (not only or index in only)
+            and (index in force or row.get("status") != "completed"
+                 or not row.get("selected_take"))]
+
+
 def _safe_id(project_id: str) -> str:
     return "".join(ch for ch in str(project_id) if ch.isalnum()) or "project"
 
@@ -518,16 +535,9 @@ class AvatarRunner:
                 self._finish_run(project_id)
                 return
             segments = project.get("segments") or []
-            only = {int(value) for value in (options or {}).get("only") or []}
-            force_raw = (options or {}).get("force")
-            force = ({int(value) for value in force_raw} if isinstance(force_raw, list)
-                     else (set(range(len(segments))) if force_raw else set()))
-            targets = [index for index, row in enumerate(segments)
-                       if (not only or index in only)
-                       and (index in force or row.get("status") != "completed"
-                            or not row.get("selected_take"))]
+            targets = pending_targets(segments, options)
             if not targets:
-                self._log(project_id, "没有需要生成的分段（可勾选“全部重新生成”）")
+                self._log(project_id, "没有需要生成的分段（可点「全部重新生成」按当前参数重跑）")
             total = max(1, len(targets))
             llm_config = dict(settings.load().get("llm") or {})
             for position, index in enumerate(targets):
@@ -654,16 +664,9 @@ class AvatarRunner:
         ref_names = self._upload_refs(project_id, project)
         project = store.get(project_id)
         segments = project.get("segments") or []
-        only = {int(value) for value in (options or {}).get("only") or []}
-        force_raw = (options or {}).get("force")
-        force = ({int(value) for value in force_raw} if isinstance(force_raw, list)
-                 else (set(range(len(segments))) if force_raw else set()))
-        targets = [index for index, row in enumerate(segments)
-                   if (not only or index in only)
-                   and (index in force or row.get("status") != "completed"
-                        or not row.get("selected_take"))]
+        targets = pending_targets(segments, options)
         if not targets:
-            self._log(project_id, "没有需要生成的分段（可勾选“全部重新生成”）")
+            self._log(project_id, "没有需要生成的分段（可点「全部重新生成」按当前参数重跑）")
         total = max(1, len(targets))
         llm_config = dict(settings.load().get("llm") or {})
         for position, index in enumerate(targets):
