@@ -54,6 +54,26 @@ def cuts_signature(project: dict[str, Any]) -> str:
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+def final_stale_reason(project: dict[str, Any]) -> str:
+    """成片是否过期；返回空字符串表示仍然有效。
+
+    - `seam` / `mixed` 成片没有单段 take，只能看切点 + 行级接续指纹；
+    - 其余（hard）看各段选中的 take；
+    - 旧 seam 成片没有 `segment_signature` 时退回 take 判断。
+    """
+    final = project.get("final")
+    if not isinstance(final, dict):
+        return ""
+    stitch = str(final.get("stitch") or "")
+    if stitch in {"seam", "mixed"} and final.get("segment_signature"):
+        if final["segment_signature"] != cuts_signature(project):
+            return f"切点或接续方式已变更，请用「重新生成全部」重出 {stitch} 成片"
+        return ""
+    if final.get("take_signature") and final["take_signature"] != take_signature(project):
+        return "分段选材已变更，请重新合成成片"
+    return ""
+
+
 def drop_short_tail_cuts(cuts: list[int], total_frames: int,
                          max_frames: int) -> tuple[list[int], list[int]]:
     """导入旧包时容忍「末段 <3 秒」：去掉末尾切点把它并入上一段。

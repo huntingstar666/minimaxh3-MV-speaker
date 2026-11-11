@@ -407,6 +407,49 @@ def test_cancel_aborts_between_chains() -> None:
     require(not observed["graphs"], "取消后不应有任何提交")
 
 
+def test_final_stale_reason() -> None:
+    """成片过期判断：hard 看 take，seam/mixed 看切点 + 接续方式。"""
+    require(jobs.final_stale_reason({}) == "", "没有 final 时不应判过期")
+
+    segments = [{"start_frame": 0, "end_frame": 120, "selected_take": "t1"},
+                {"start_frame": 120, "end_frame": 240, "selected_take": "t2"}]
+    hard = {"segments": [dict(row) for row in segments],
+            "final": {"stitch": "hard"}}
+    hard["final"]["take_signature"] = jobs.take_signature(hard)
+    require(jobs.final_stale_reason(hard) == "", "take 未变不应判过期")
+    hard["segments"][0]["selected_take"] = "t9"
+    reason = jobs.final_stale_reason(hard)
+    require("重新合成" in reason, f"换选片段应提示重合成：{reason}")
+
+    seam_project = {
+        "segments": [{"start_frame": 0, "end_frame": 120, "stitch": "hard"},
+                     {"start_frame": 120, "end_frame": 240, "stitch": "seam"}],
+        "final": {"stitch": "seam"},
+    }
+    seam_project["final"]["segment_signature"] = jobs.cuts_signature(seam_project)
+    require(jobs.final_stale_reason(seam_project) == "", "切点未变不应判过期")
+    seam_project["segments"][1]["stitch"] = "hard"
+    reason = jobs.final_stale_reason(seam_project)
+    require("seam" in reason, f"改接续方式后应提示重出 seam：{reason}")
+
+    mixed_project = {
+        "segments": [{"start_frame": 0, "end_frame": 120, "stitch": "hard"},
+                     {"start_frame": 120, "end_frame": 240, "stitch": "seam"}],
+        "final": {"stitch": "mixed"},
+    }
+    mixed_project["final"]["segment_signature"] = jobs.cuts_signature(mixed_project)
+    require(jobs.final_stale_reason(mixed_project) == "", "mixed 未变不应判过期")
+    mixed_project["segments"][1]["end_frame"] = 228
+    reason = jobs.final_stale_reason(mixed_project)
+    require("mixed" in reason, f"改切点后应提示重出 mixed：{reason}")
+
+    legacy = {"segments": [{"selected_take": "t1"}],
+              "final": {"stitch": "seam"}}
+    legacy["final"]["take_signature"] = jobs.take_signature(legacy)
+    require(jobs.final_stale_reason(legacy) == "",
+            "旧 seam 成片没有 segment_signature 时退回 take 判断")
+
+
 def main() -> int:
     run("逐链提交次数", test_submission_count)
     run("链内时间线 0 基", test_timeline_is_chain_local)
@@ -423,6 +466,7 @@ def main() -> int:
     run("overlap 只收 22/39", test_overlap_validation)
     run("cuts_signature 兼容旧项目", test_cuts_signature_backward_compatible)
     run("取消后不再提交", test_cancel_aborts_between_chains)
+    run("成片过期判断", test_final_stale_reason)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))

@@ -395,15 +395,10 @@ def get_project(project_id: str) -> dict[str, Any]:
         jobs.schedule_take_thumbs(project_id)
     final = project.get("final")
     if isinstance(final, dict):
-        if final.get("stitch") == "seam" and final.get("segment_signature"):
-            # seam 成片没有单段 take，过期只能看切点有没有变
-            if final["segment_signature"] != jobs.cuts_signature(project):
-                final["stale"] = True
-                final["stale_reason"] = "切点已变更，请用「重新生成全部」重出 seam 成片"
-        elif final.get("take_signature"):
-            if final["take_signature"] != jobs.take_signature(project):
-                final["stale"] = True
-                final["stale_reason"] = "分段选材已变更，请重新合成成片"
+        reason = jobs.final_stale_reason(project)
+        if reason:
+            final["stale"] = True
+            final["stale_reason"] = reason
     project["run"] = jobs.runner.snapshot(project_id)
     return {"ok": True, "project": project}
 
