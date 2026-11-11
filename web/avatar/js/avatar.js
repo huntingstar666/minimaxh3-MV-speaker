@@ -214,6 +214,8 @@ const state = {
   promptTicker: null,
   auditionIndex: null,
   auditionEnd: 0,
+  assetAudioPlaying: false,
+  assetAudioObjectUrl: "",
 };
 
 /* ---------------- 基础工具 ---------------- */
@@ -759,6 +761,8 @@ function fillGeneration(gen) {
   const g = gen || {};
   setSelectValue($("#f-aspect"), g.aspect_ratio || "9:16");
   setSelectValue($("#f-mp"), g.megapixels !== undefined && g.megapixels !== null ? String(Number(g.megapixels)) : "1");
+  renderAspectCards();
+  setSegmented("f-mp-seg", $("#f-mp").value || "1");
   $("#f-seed").value = (g.stitch === "anchor" ? (g.anchor_seed ?? g.seed) : g.seed) ?? 0;
   setSelectValue($("#a-unet"), g.unet);
   setSelectValue($("#a-clip"), g.clip);
@@ -774,6 +778,7 @@ function fillGeneration(gen) {
   if ($("#f-stitch")) $("#f-stitch").value = stitch;
   if ($("#f-seam-overlap")) $("#f-seam-overlap").value = String(g.seam_overlap || 5);
   setSegmented("f-stitch-seg", stitch);
+  setSegmented("seam-overlap-seg", $("#f-seam-overlap")?.value || "5");
   const mid = g.anchor_mid || "center";
   if ($("#f-anchor-mid")) $("#f-anchor-mid").value = mid;
   setSegmented("f-anchor-mid-seg", mid);
@@ -1536,6 +1541,7 @@ function bindSegmented(id, hiddenId) {
     if (!hidden) return;
     hidden.value = btn.dataset.value;
     setSegmented(id, btn.dataset.value);
+    hidden.dispatchEvent(new Event("change", { bubbles: true }));
     syncAnchorUI();
   });
 }
@@ -1544,10 +1550,46 @@ function initAnchorControls() {
   bindSegmented("f-stitch-seg", "f-stitch");
   bindSegmented("f-anchor-mid-seg", "f-anchor-mid");
   bindSegmented("f-anchor-pin-seg", "f-anchor-pin");
+  bindSegmented("f-mp-seg", "f-mp");
+  bindSegmented("seam-overlap-seg", "f-seam-overlap");
+  bindSegmented("design-platform-seg", "design-platform");
+  bindSegmented("design-audio-mode-seg", "design-audio-mode");
+  bindSegmented("asset-role-seg", "asset-role");
   $("#f-anchor-sampler")?.addEventListener("change", syncAnchorUI);
   $("#a-steps")?.addEventListener("input", updateAnchorStepSplit);
   $("#f-anchor-transition")?.addEventListener("input", updateAnchorStepSplit);
+  $("#f-aspect-cards")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-aspect]");
+    if (!btn) return;
+    const select = $("#f-aspect");
+    if (!select) return;
+    select.value = btn.dataset.aspect;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    renderAspectCards();
+  });
   syncAnchorUI();
+}
+
+// 画幅：用卡片选择替代原生下拉；底层仍是 #f-aspect，读写逻辑不变
+function renderAspectCards() {
+  const box = $("#f-aspect-cards");
+  const select = $("#f-aspect");
+  if (!box || !select) return;
+  const values = [...select.options].map((option) => option.value).filter(Boolean);
+  box.innerHTML = values.map((value) => {
+    const match = value.match(/^(\d+)\s*:\s*(\d+)/);
+    const w = match ? Number(match[1]) : 1;
+    const h = match ? Number(match[2]) : 1;
+    const ratio = w / h;
+    const label = Math.abs(ratio - 1) < 0.02 ? "方形" : ratio < 1 ? "竖屏" : "横屏";
+    const size = 32;
+    const width = ratio >= 1 ? size : Math.max(8, Math.round(size * ratio));
+    const height = ratio >= 1 ? Math.max(8, Math.round(size / ratio)) : size;
+    return `<button type="button" class="av-aspect-card ${value === select.value ? "active" : ""}" data-aspect="${esc(value)}">
+      <span class="av-aspect-shape" style="width:${width}px;height:${height}px"></span>
+      <span class="av-aspect-text"><b>${esc(match ? `${w}:${h}` : value)}</b><em>${label}</em></span>
+    </button>`;
+  }).join("");
 }
 
 /* 右栏：参数 / 运行结果 分页 */
@@ -1592,13 +1634,8 @@ const SETTINGS_TABS = ["content", "audio", "refs", "design"];
 function openSettingsTab(name, { open = false } = {}) {
   const tab = SETTINGS_TABS.includes(name) ? name : "content";
   if (open) {
-    const dock = $("#panel-settings-dock");
-    if (dock) {
-      dock.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      dock.classList.remove("is-focus");
-      void dock.offsetWidth;
-      dock.classList.add("is-focus");
-    }
+    const modal = $("#modal-settings");
+    if (modal) modal.hidden = false;
   }
   $$("#settings-tabs [data-settings-tab]").forEach((btn) => {
     const active = btn.dataset.settingsTab === tab;
@@ -2124,6 +2161,8 @@ function fillDesign(design) {
   setSelectValue($("#design-audio-mode"), d.audio_mode || "");
   fillVoiceCard(d.voice_card);
   state.designDirty = false;
+  setSegmented("design-platform-seg", $("#design-platform").value);
+  setSegmented("design-audio-mode-seg", $("#design-audio-mode").value);
   updateDesignChrome();
 }
 
@@ -2621,6 +2660,7 @@ function renderVoice() {
     }
   }
   renderVoiceList();
+  renderAssets();
 }
 
 async function saveVoiceSample() {
@@ -2681,6 +2721,7 @@ function renderAudio() {
   $("#audio-hint").textContent = analysisReady
     ? "分析完成：可拖动切点、按播放头切分或合并下段；改切点后请重新生成提示词。"
     : "上传并分析后，在中间时间轴拖动切点、按播放头切分或合并下段。";
+  renderAssets();
   syncButtons();
 }
 
@@ -3315,6 +3356,7 @@ function fillAspectOptions() {
   const fallback = ["9:16", "16:9", "1:1", "4:3", "3:4", "21:9"];
   const current = $("#f-aspect").value || state.generationDefaults?.aspect_ratio || "9:16";
   fillSelect($("#f-aspect"), aspects.length ? aspects : fallback, current);
+  renderAspectCards();
 }
 
 async function loadOptions() {
@@ -4856,6 +4898,20 @@ function renderProjectContext() {
   $("#project-state").textContent = p
     ? (state.formDirty ? `未保存修改 · ${segments.length} 段` : `已保存 · ${segments.length} 段`)
     : "未创建";
+  if (p) {
+    const mode = clamp(Number(p.mode) || 1, 1, 3);
+    const design = p.design || {};
+    const density = DENSITY_LABEL[design.effect_density] || "中";
+    const gmode = GRAPHICS_MODE_LABEL[state.designGraphicsMode] || "生成式";
+    $("#project-card-name").textContent = p.name || "未命名作品";
+    $("#project-card-meta").textContent =
+      `模式 ${mode} · ${MODE_LABEL[mode]} · ${segments.length} 段 · 设计 密度${density}/${gmode}`;
+    $("#project-card-state").textContent = state.formDirty ? "未保存" : "已保存";
+  } else {
+    $("#project-card-name").textContent = "从一句台词开始";
+    $("#project-card-meta").textContent = "选模式 → 写台词 → 上传素材";
+    $("#project-card-state").textContent = "未创建";
+  }
   const isMode1 = (p?.mode ?? state.mode) === 1;
   if (p) {
     $("#form-hint").textContent = isMode1
@@ -5023,6 +5079,111 @@ function renderRefs() {
 }
 
 // 左下角「全局素材」：一眼看到当前项目用了哪些图 / 音色 / 段数
+function modeNow() {
+  return clamp(Number(state.project?.mode ?? state.mode) || 1, 1, 3);
+}
+
+function assetVoiceItems() {
+  const p = state.project;
+  if (p && Array.isArray(p.voices) && p.voices.length) return p.voices;
+  if (p && p.voice) return [p.voice];
+  if (state.pendingVoice) {
+    return [{
+      filename: state.pendingVoice.name,
+      name: state.pendingVoice.name,
+      duration: state.pendingVoice._probeDuration || 0,
+      pending: true,
+    }];
+  }
+  return [];
+}
+
+// 主素材显性化：驱动音频 / 参考音色 / 音色描述，不藏在设定分页里
+function renderAssetMaterials() {
+  const p = state.project;
+  const mode = modeNow();
+  if (mode !== 1) {
+    const player = $("#asset-audio-player");
+    if (player && !player.paused) player.pause();
+  }
+
+  const audioGroup = $("#asset-audio-group");
+  const audioBox = $("#asset-audio");
+  const audioState = $("#asset-audio-state");
+  if (audioGroup && audioBox) {
+    audioGroup.hidden = mode !== 1;
+    if (mode === 1) {
+      const audio = currentAudio();
+      if (!audio) {
+        if (audioState) audioState.textContent = "未上传";
+        audioBox.innerHTML = `<button class="av-asset-empty" type="button" data-asset-action="audio-upload">
+          <svg><use href="#i-upload"/></svg>
+          <span>上传驱动音频 / 视频<em>模式 1 以原声对口型</em></span>
+        </button>`;
+      } else {
+        const duration = num(audio.duration);
+        const status = audio.pending
+          ? (audio.replacing ? "待替换 · 分析时生效" : "待创建作品")
+          : "已就绪";
+        if (audioState) audioState.textContent = audio.pending ? "待处理" : "已就绪";
+        const meta = [
+          duration > 0 ? `${duration.toFixed(1)} 秒` : "",
+          audio.sample_rate ? `${num(audio.sample_rate)} Hz` : "",
+          status,
+        ].filter(Boolean).join(" · ");
+        audioBox.innerHTML = `<div class="av-audio-card">
+          <span class="av-audio-icon"><svg><use href="#i-wave"/></svg></span>
+          <span class="av-audio-meta">
+            <b title="${esc(audio.filename || "驱动音频")}">${esc(audio.filename || "驱动音频")}</b>
+            <em>${esc(meta)}</em>
+          </span>
+          <span class="av-audio-actions">
+            <button class="av-mini-btn" type="button" data-asset-action="audio-play">${state.assetAudioPlaying ? "停止" : "试听"}</button>
+            <button class="av-mini-btn" type="button" data-asset-action="audio-replace">替换</button>
+            ${p ? '<button class="av-mini-btn" type="button" data-asset-action="audio-analyze">分析</button>' : ""}
+          </span>
+        </div>`;
+      }
+    }
+  }
+
+  const voiceGroup = $("#asset-voice-group");
+  const voiceBox = $("#asset-voices");
+  const voiceState = $("#asset-voice-state");
+  if (voiceGroup && voiceBox) {
+    voiceGroup.hidden = mode !== 2;
+    if (mode === 2) {
+      const items = assetVoiceItems();
+      if (voiceState) voiceState.textContent = `${items.length} 个`;
+      voiceBox.innerHTML = items.length
+        ? items.map((voice, index) => {
+          const duration = num(voice.sample_length) || num(voice.duration);
+          const name = voice.name || voice.filename || `音色 ${index + 1}`;
+          return `<div class="av-voice-card">
+            <span class="av-voice-dot"><svg><use href="#i-mic"/></svg></span>
+            <span class="av-voice-meta"><b title="${esc(name)}">${esc(name)}</b><em>音色 ${index + 1}${duration > 0 ? ` · ${duration.toFixed(1)}s` : ""}</em></span>
+            <button class="av-mini-btn" type="button" data-asset-action="voice-play" data-voice-index="${index}">试听</button>
+          </div>`;
+        }).join("") + `<button class="av-asset-empty compact" type="button" data-asset-action="voice-add">
+          <svg><use href="#i-plus"/></svg><span>添加参考音色<em>最多 3 个</em></span>
+        </button>`
+        : `<button class="av-asset-empty" type="button" data-asset-action="voice-add">
+          <svg><use href="#i-mic"/></svg><span>上传参考音色<em>2–15 秒，生成该音色台词</em></span>
+        </button>`;
+    }
+  }
+
+  const descGroup = $("#asset-described-group");
+  if (descGroup) {
+    descGroup.hidden = mode !== 3;
+    if (mode === 3) {
+      const desc = String(p?.voice_description || $("#f-voice-desc")?.value || "").trim();
+      $("#asset-described-state").textContent = desc ? `${desc.length} 字` : "未填写";
+      $("#asset-described").textContent = desc || "还没写音色描述，点「作品设定 → 音频」填写。";
+    }
+  }
+}
+
 function renderAssets() {
   const p = state.project;
   const grid = $("#asset-grid");
@@ -5033,6 +5194,7 @@ function renderAssets() {
   $("#asset-summary").textContent = p
     ? `${refs.length} 图 · ${voices} 音色 · ${segments.length} 段`
     : "未创建作品";
+  renderAssetMaterials();
   const note = $("#asset-note");
   if (!p) {
     grid.innerHTML = "";
@@ -5674,6 +5836,7 @@ function syncButtons() {
   setDisabled("#btn-ref-upload", !hasProject);
   setDisabled("#ref-role", !hasProject);
   setDisabled("#asset-role", !hasProject);
+  $$("#asset-role-seg button").forEach((btn) => { btn.disabled = !hasProject; });
   setDisabled("#btn-backup", !hasProject);
 
   setDisabled("#btn-analyze", !audioReady);
@@ -5832,10 +5995,10 @@ function bindDesignEvents() {
 }
 
 function bindEvents() {
-  $("#btn-settings")?.addEventListener("click", () => {
+  $$("#btn-settings, #btn-open-settings").forEach((btn) => btn.addEventListener("click", () => {
     const active = $("#settings-tabs .is-active")?.dataset.settingsTab || "content";
     openSettingsTab(active, { open: true });
-  });
+  }));
   $("#btn-new-work")?.addEventListener("click", startNewProject);
   $("#btn-save-sys-settings")?.addEventListener("click", saveSysSettings);
   $("#btn-history")?.addEventListener("click", async () => {
@@ -6222,7 +6385,7 @@ function mountHistoryPanel() {
   body.append(panel);
 }
 
-function mountSettingsDock() {
+function mountSettingsModal() {
   const slot = $("#settings-slot");
   const source = $("#settings-source");
   if (!slot || !source) return;
@@ -6231,6 +6394,30 @@ function mountSettingsDock() {
   if (tabs) slot.appendChild(tabs);
   if (body) slot.appendChild(body);
   source.remove();
+}
+
+async function toggleAssetAudio() {
+  const player = $("#asset-audio-player");
+  const audio = currentAudio();
+  if (!player || !audio) return;
+  if (!player.paused) {
+    player.pause();
+    return;
+  }
+  let src = "";
+  if (audio.pending && state.pendingAudio) {
+    if (!state.assetAudioObjectUrl) state.assetAudioObjectUrl = URL.createObjectURL(state.pendingAudio);
+    src = state.assetAudioObjectUrl;
+  } else if (state.project) {
+    src = mediaUrl(state.project.id, audio.filename || "source.wav", audio.uploaded || audio.duration || 0);
+  }
+  if (!src) return;
+  player.src = src;
+  try {
+    await player.play();
+  } catch {
+    toast("无法播放驱动音频，请检查文件", "err");
+  }
 }
 
 // 左下角全局素材：拖拽 / 点击上传，缩略图预览与删除
@@ -6270,11 +6457,50 @@ function bindAssetDock() {
     const thumb = event.target.closest("[data-asset-preview]");
     if (thumb) openImagePreview(thumb.dataset.src, thumb.dataset.title);
   });
+  $("#panel-assets")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-asset-action]");
+    if (!btn) return;
+    const action = btn.dataset.assetAction;
+    if (action === "audio-upload" || action === "audio-replace") {
+      $("#asset-audio-input").click();
+    } else if (action === "audio-play") {
+      toggleAssetAudio();
+    } else if (action === "audio-analyze") {
+      analyzeAudioFlow();
+    } else if (action === "voice-add") {
+      $("#asset-voice-input").click();
+    } else if (action === "voice-play") {
+      const voice = assetVoiceItems()[Number(btn.dataset.voiceIndex)];
+      if (!voice) return;
+      if (!state.project && state.pendingVoice) toggleVoiceAudition();
+      else auditionVoice(voice);
+    }
+  });
+  $("#asset-audio-input")?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) await handleAudioFile(file);
+    renderAssets();
+  });
+  $("#asset-voice-input")?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) await handleVoiceFile(file);
+    renderAssets();
+  });
+  const player = $("#asset-audio-player");
+  if (player) {
+    const sync = () => {
+      state.assetAudioPlaying = !player.paused;
+      renderAssetMaterials();
+    };
+    ["play", "pause", "ended"].forEach((type) => player.addEventListener(type, sync));
+  }
   $("#btn-asset-apply")?.addEventListener("click", applyGlobalRefsToAll);
 }
 
 async function boot() {
-  mountSettingsDock();
+  mountSettingsModal();
   mountHistoryPanel();
   buildVoiceCardFields();
   bindEvents();

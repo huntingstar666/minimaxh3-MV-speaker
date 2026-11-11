@@ -194,12 +194,22 @@ function initWorkCardFold() {
 function bindDialog(modal, openSelector) {
   if (!modal) return;
   const openers = Array.from(document.querySelectorAll(openSelector));
+  let lastFocus = null;
+  const focusFirst = () => {
+    const target = modal.querySelector(
+      '[data-autofocus], button:not([disabled]):not([hidden]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [href]'
+    );
+    if (target) target.focus({ preventScroll: true });
+  };
   const close = () => {
     modal.hidden = true;
+    if (lastFocus && lastFocus.isConnected) lastFocus.focus({ preventScroll: true });
   };
   openers.forEach((btn) =>
     btn.addEventListener("click", () => {
+      lastFocus = document.activeElement;
       modal.hidden = false;
+      window.setTimeout(focusFirst, 30);
     })
   );
   modal.querySelectorAll("[data-close]").forEach((btn) => btn.addEventListener("click", close));
@@ -209,9 +219,27 @@ function bindDialog(modal, openSelector) {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !modal.hidden) close();
   });
+  // 弹窗内 Tab 循环，避免焦点跑到遮罩后的页面
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab" || modal.hidden) return;
+    const items = Array.from(modal.querySelectorAll(
+      'button:not([disabled]):not([hidden]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [href]'
+    )).filter((el) => el.offsetParent !== null);
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
 }
 
 function initDialogs() {
+  bindDialog(document.getElementById("modal-settings"), "#btn-settings, #btn-open-settings");
   bindDialog(document.getElementById("modal-sys-settings"), "#btn-settings-top");
   bindDialog(document.getElementById("modal-history"), "#btn-history");
   bindDialog(document.getElementById("modal-params"), '[data-sheet="params"]');

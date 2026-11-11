@@ -114,34 +114,61 @@
       </div>
       <p class="panel-note tiny" id="mode-hint">模式 2 / 3 的成片视频自带生成音频；模式 1 保留上传音频原声。</p>
     </section>
-    <section class="av-dock" id="panel-settings-dock">
-      <div class="av-dock-head">
-        <h2>作品设定</h2>
-        <button class="btn primary sm" type="button" id="btn-new-work"><svg><use href="#i-plus"/></svg>新建作品</button>
+    <section class="panel av-project-card" id="panel-project-card">
+      <div class="panel-head"><h2>当前作品</h2><span class="hint" id="project-card-state">未创建</span></div>
+      <div class="av-project-name" id="project-card-name">从一句台词开始</div>
+      <p class="av-project-meta" id="project-card-meta">选模式 → 写台词 → 上传素材</p>
+      <div class="av-project-actions">
+        <button class="btn primary sm" type="button" id="btn-open-settings"><svg><use href="#i-layers"/></svg>作品设定</button>
+        <button class="btn ghost sm" type="button" id="btn-new-work"><svg><use href="#i-plus"/></svg>新建</button>
       </div>
-      <div class="av-dock-slot" id="settings-slot"></div>
     </section>
     <section class="panel av-assets" id="panel-assets">
-      <div class="panel-head"><h2>全局素材</h2><span class="hint" id="asset-summary">未创建作品</span></div>
-      <div class="av-asset-bar">
-        <label class="av-asset-drop" id="asset-drop" title="拖入或点击上传参考图">
-          <input type="file" id="asset-input" accept="image/*" multiple hidden>
-          <svg><use href="#i-upload"/></svg>
-          <span>拖图 / 点击上传</span>
-        </label>
-        <select id="asset-role" class="input" title="新上传图片的用途">
-          <option value="performer">人物</option>
-          <option value="environment">场景</option>
-          <option value="appearance">服装 / 造型</option>
-          <option value="subject">道具 / 主体</option>
-          <option value="other">其他</option>
-        </select>
+      <div class="panel-head"><h2>素材</h2><span class="hint" id="asset-summary">未创建作品</span></div>
+      <div class="av-asset-group" id="asset-audio-group">
+        <div class="av-asset-group-head"><b>驱动音频</b><span id="asset-audio-state">未上传</span></div>
+        <div class="av-asset-body" id="asset-audio"></div>
+        <input type="file" id="asset-audio-input" accept="audio/*,video/*" hidden>
       </div>
-      <div class="av-asset-grid" id="asset-grid"></div>
+      <div class="av-asset-group" id="asset-voice-group" hidden>
+        <div class="av-asset-group-head"><b>参考音色</b><span id="asset-voice-state">0 个</span></div>
+        <div class="av-asset-body" id="asset-voices"></div>
+        <input type="file" id="asset-voice-input" accept="audio/*,video/*" hidden>
+      </div>
+      <div class="av-asset-group" id="asset-described-group" hidden>
+        <div class="av-asset-group-head"><b>音色描述</b><span id="asset-described-state">未填写</span></div>
+        <p class="av-asset-desc" id="asset-described"></p>
+      </div>
+      <div class="av-asset-group">
+        <div class="av-asset-group-head"><b>参考图</b><span id="asset-ref-state">0 张</span></div>
+        <div class="av-asset-bar">
+          <label class="av-asset-drop" id="asset-drop" title="拖入或点击上传参考图">
+            <input type="file" id="asset-input" accept="image/*" multiple hidden>
+            <svg><use href="#i-upload"/></svg>
+            <span>拖图 / 点击上传</span>
+          </label>
+          <select id="asset-role" hidden>
+            <option value="performer">人物</option>
+            <option value="environment">场景</option>
+            <option value="appearance">服装 / 造型</option>
+            <option value="subject">道具 / 主体</option>
+            <option value="other">其他</option>
+          </select>
+        </div>
+        <div class="av-role-chips" id="asset-role-seg" role="tablist" aria-label="新上传图片用途">
+          <button type="button" class="active" data-value="performer">人物</button>
+          <button type="button" data-value="environment">场景</button>
+          <button type="button" data-value="appearance">造型</button>
+          <button type="button" data-value="subject">道具</button>
+          <button type="button" data-value="other">其他</button>
+        </div>
+        <div class="av-asset-grid" id="asset-grid"></div>
+        <p class="hint av-asset-note" id="asset-note">上传后，全局图默认应用到每一段。</p>
+      </div>
       <div class="av-asset-foot">
-        <span class="hint" id="asset-note">上传后，全局图默认应用到每一段。</span>
         <button class="btn ghost sm" type="button" id="btn-asset-apply" title="清除每段的单独勾选，让所有段落重新使用全部全局参考图">全部段使用</button>
       </div>
+      <audio id="asset-audio-player" preload="metadata"></audio>
     </section>
     <section class="panel" id="panel-projects" hidden>
 
@@ -251,11 +278,16 @@
         </p>
         <div class="av-seam-overlap" id="seam-overlap-row" hidden>
           <span>接缝重叠</span>
-          <select id="f-seam-overlap" class="input">
+          <select id="f-seam-overlap" hidden>
             <option value="5">5 帧 · 推荐</option>
             <option value="22">22 帧</option>
             <option value="39">39 帧</option>
           </select>
+          <div class="av-seg-control sm" id="seam-overlap-seg" role="tablist" aria-label="接缝重叠帧数">
+            <button type="button" class="av-seg-control-item active" data-value="5">5 帧</button>
+            <button type="button" class="av-seg-control-item" data-value="22">22 帧</button>
+            <button type="button" class="av-seg-control-item" data-value="39">39 帧</button>
+          </div>
         </div>
         <button class="av-setting-row av-anchor-entry" id="anchor-entry" type="button" data-sheet="anchor" hidden>
           <span class="av-setting-icon"><svg><use href="#i-layers"/></svg></span>
@@ -269,6 +301,7 @@
 
       </div>
 
+      <div class="av-section-label">生成设置 <em id="rail-settings-hint">输出 · 模型 · 提示词</em></div>
       <div class="av-setting-list">
         <button class="av-setting-row" type="button" data-sheet="params">
           <span class="av-setting-icon"><svg><use href="#i-list"/></svg></span>
@@ -645,12 +678,18 @@
             <summary><svg><use href="#i-chevron"/></svg>高级设计</summary>
             <div class="adv-body">
               <div class="field"><label>平台</label>
-                <select id="design-platform" class="input">
+                <select id="design-platform" hidden>
                   <option value="generic">通用</option>
                   <option value="douyin">抖音</option>
                   <option value="bilibili">B 站</option>
                   <option value="xiaohongshu">小红书</option>
                 </select>
+                <div class="av-seg-control sm" id="design-platform-seg" role="tablist" aria-label="平台">
+                  <button type="button" class="av-seg-control-item active" data-value="generic">通用</button>
+                  <button type="button" class="av-seg-control-item" data-value="douyin">抖音</button>
+                  <button type="button" class="av-seg-control-item" data-value="bilibili">B 站</button>
+                  <button type="button" class="av-seg-control-item" data-value="xiaohongshu">小红书</button>
+                </div>
               </div>
               <div class="field">
                 <label>安全区 <span class="hint">0–0.3</span></label>
@@ -684,12 +723,18 @@
               <div class="field-row">
                 <div class="field"><label>生成路由</label><input id="design-route" class="input mono" placeholder="Ref2VA"></div>
                 <div class="field"><label>音频模式</label>
-                  <select id="design-audio-mode" class="input">
+                  <select id="design-audio-mode" hidden>
                     <option value="">按模式推导</option>
                     <option value="runtime">runtime</option>
                     <option value="reference">reference</option>
                     <option value="generated">generated</option>
                   </select>
+                  <div class="av-seg-control sm" id="design-audio-mode-seg" role="tablist" aria-label="音频模式">
+                    <button type="button" class="av-seg-control-item active" data-value="">按模式</button>
+                    <button type="button" class="av-seg-control-item" data-value="runtime">runtime</button>
+                    <button type="button" class="av-seg-control-item" data-value="reference">reference</button>
+                    <button type="button" class="av-seg-control-item" data-value="generated">generated</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -708,24 +753,38 @@
     </div>
 </div>
 
+<div class="modal av-settings-modal" id="modal-settings" hidden>
+  <div class="modal-card av-settings-card">
+    <div class="modal-head">
+      <h2 data-autofocus tabindex="-1">作品设定</h2>
+      <button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="av-settings-slot" id="settings-slot"></div>
+  </div>
+</div>
+
 <div class="modal av-settings-modal" id="modal-params" hidden>
   <div class="modal-card av-settings-card av-sheet-card">
     <div class="modal-head"><h2>生成参数</h2><button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
     <div class="modal-body av-settings-body">
       <section class="panel" id="panel-project">
         <div class="panel-head"><h2>生成参数</h2><span class="hint">画幅 / 清晰度 / 种子</span></div>
-        <div class="field-row">
-          <div class="field">
-            <label>画幅</label>
-            <select id="f-aspect" class="input"></select>
-          </div>
-          <div class="field">
-            <label>清晰度</label>
-            <select id="f-mp" class="input">
-              <option value="0.75">0.75 MP · 草稿</option>
-              <option value="1" selected>1.0 MP · 标准</option>
-              <option value="1.5">1.5 MP · 高清</option>
-            </select>
+        <div class="field">
+          <label>画幅</label>
+          <select id="f-aspect" class="input" hidden></select>
+          <div class="av-choice-grid" id="f-aspect-cards"></div>
+        </div>
+        <div class="field">
+          <label>清晰度</label>
+          <select id="f-mp" hidden>
+            <option value="0.75">0.75 MP · 草稿</option>
+            <option value="1" selected>1.0 MP · 标准</option>
+            <option value="1.5">1.5 MP · 高清</option>
+          </select>
+          <div class="av-seg-control" id="f-mp-seg" role="tablist" aria-label="清晰度">
+            <button type="button" class="av-seg-control-item" data-value="0.75">0.75 MP<span>草稿</span></button>
+            <button type="button" class="av-seg-control-item active" data-value="1">1.0 MP<span>标准</span></button>
+            <button type="button" class="av-seg-control-item" data-value="1.5">1.5 MP<span>高清</span></button>
           </div>
         </div>
         <div class="field">
