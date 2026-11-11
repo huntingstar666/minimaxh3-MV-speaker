@@ -506,6 +506,11 @@ class JobRunner:
             nodes_info = (comfy.options() or {}).get("nodes") or {}
             self._available = {key: bool(nodes_info.get(key))
                                for key in ("sigma_shift", "sigma_refiner")}
+            # 逐窗 seam 的节点探测：只有明确报 False 才回退旧一次提交；
+            # 旧快照没有这些键时按“可用”处理，避免误降级。
+            for key in ("seam_window", "seam_selflift"):
+                if key in nodes_info:
+                    self._available[key] = bool(nodes_info[key])
             refs = self._prepare_refs(project_id, project)
             if not refs:
                 raise ValueError("至少需要一张人物参考图。")
@@ -523,7 +528,8 @@ class JobRunner:
                     self._generate_mixed(project_id, project, generation, refs,
                                          force=force)
                 else:
-                    self._generate_seam(project_id, project, generation, refs)
+                    self._generate_seam(project_id, project, generation, refs,
+                                        force=force)
                 return
             total = len(segments)
             results: dict[int, Path] = {}
@@ -927,11 +933,332 @@ class JobRunner:
         raw.parent.mkdir(parents=True, exist_ok=True)
         raw.write_bytes(comfy.view(video["filename"], video["subfolder"], video["kind"]))
 
-    def _generate_seam(self, project_id: str, project: dict, generation: dict,
-                       ref_names: dict[int, str]) -> None:
-        """seam 模式：整条片一次提交，节点内部按窗口 latent 续接。
+    @staticmethod
+    def _history_text(entry: dict[str, Any], node_id: str) -> str:
+        item = ((entry or {}).get("outputs") or {}).get(node_id) or {}
+        values = item.get("text") or []
+        return str(values[0]).strip() if values else ""
 
-        成片仍按「段秒数 × 输出帧率」裁到目标帧数，并混入原始完整音轨。
+    @staticmethod
+    def _sha1_file(path: Path) -> str:
+        digest = hashlib.sha1()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _submit_seam_window(self, project_id: str, graph: dict[str, Any], label: str,
+                            low: float, high: float) -> tuple[dict[str, Any], bytes]:
+        """提交单窗图并下载本窗视频，返回 (history entry, mp4 字节)。"""
+        prompt_id = comfy.queue(graph)
+        self._active_prompts[project_id] = prompt_id
+        self._update(project_id, stage="sampling",
+                     message=f"{label}：生成中（逐窗 latent 续接）",
+                     progress=round(low, 4))
+
+        def on_progress(message: dict[str, Any]) -> None:
+            if message.get("type") != "progress":
+                return
+            data = message.get("data") or {}
+            value, maximum = data.get("value") or 0, data.get("max") or 1
+            self._update(project_id, stage="sampling",
+                         progress=round(low + (high - low) * value / max(maximum, 1), 4),
+                         message=f"{label}：采样 {value}/{maximum}")
+
+        entry = comfy.wait(prompt_id, on_progress, self.cancel_events[project_id])
+        files = (comfy.extract_outputs(entry, workflow.OUTPUT_NODE)
+                 or comfy.extract_outputs(entry))
+        video = next((item for item in files
+                      if item["filename"].lower().endswith((".mp4", ".webm", ".mov", ".mkv"))),
+                     None)
+        if not video:
+            raise comfy.ComfyError(f"{label} 没有返回视频。")
+        return entry, comfy.view(video["filename"], video["subfolder"], video["kind"])
+
+    def _generate_seam(self, project_id: str, project: dict, generation: dict,
+                       ref_names: dict[int, str],
+                       force: set[int] | None = None) -> None:
+        """seam 模式：逐窗提交 + AV latent 落盘 + manifest 断点续跑。
+
+        生成口径固定 24fps（``plan_seam``），每窗由 Finalize 裁掉段首 overlap；
+        装配时顺序 concat，最后按输出帧率换算交付帧数并混入整条源音频。
+        ComfyUI 缺少逐窗节点时回退旧的一次提交（``_generate_seam_legacy``）。
+        """
+        directory = store.project_dir(project_id)
+        segments = project.get("segments") or []
+        if not segments:
+            raise ValueError("没有可生成的分段。")
+        nodes = (comfy.options() or {}).get("nodes") or {}
+        if nodes.get("seam_window") is False:
+            self._log(project_id, "ComfyUI 缺少逐窗接缝节点，回退整条一次提交", "warning")
+            self._generate_seam_legacy(project_id, project, generation, ref_names)
+            return
+        force = set(force or ())
+        output_fps = int(generation.get("output_fps") or frames.FPS)
+        if output_fps not in (24, 25, 30):
+            output_fps = frames.FPS
+        overlap = int(generation.get("seam_overlap") or seam.DEFAULT_OVERLAP)
+        if overlap not in (22, 39):
+            raise ValueError("seam 的 seam_overlap 只支持 22 或 39（5 仅供数字人模式 2）。")
+        self._update(project_id, stage="prepare", message="seam：规划逐窗计划",
+                     progress=0.03)
+        plan = seam.plan_seam(segments, overlap)
+        windows = plan["windows"]
+        total_edit = sum(int(row.get("edit_frames") or 0) for row in segments)
+        if int(plan["target"]) != total_edit:
+            raise ValueError(
+                f"窗口计划目标 {plan['target']} 帧与分段总帧 {total_edit} 不一致。")
+
+        pictures, _segment_images = self._seam_materials(project, ref_names)
+        prompts_text: list[str] = []
+        prompt_baselines: dict[int, str] = {}
+        row_meta: list[dict[str, Any]] = []
+        for index, row in enumerate(segments):
+            window = windows[index]
+            prompt_baselines[int(index)] = str(row.get("final_prompt") or "")
+            row.update(generation_frames=int(window["length"]),
+                       generation_seconds=round(int(window["length"]) / frames.FPS, 3),
+                       fps=frames.FPS)
+            body = self._ensure_prompt(project, row)
+            text = prompts.effective_prompt(project, row, body)
+            prompts_text.append(text)
+            row_meta.append({
+                "edit_frames": int(row.get("edit_frames") or 0),
+                "prompt": text,
+                "refs": [ref_names[position]
+                         for position in prompts.effective_indices(project, row)
+                         if position in ref_names],
+            })
+        self._commit(project_id, project, prompt_baselines)
+
+        self._update(project_id, stage="upload", message="seam：上传原始音频",
+                     progress=0.05)
+        source_path = directory / "source.wav"
+        audio_name = comfy.upload(f"h3wb_{project_id}_seam_source.wav",
+                                  source_path.read_bytes())
+        source_info = {
+            "name": source_path.name,
+            "size": source_path.stat().st_size,
+            "sha1": self._sha1_file(source_path),
+        }
+        fingerprint = seam.plan_fingerprint(
+            row_meta, windows, generation, overlap, source_info)
+
+        work = directory / "takes" / "_seam"
+        artifacts_root = work / "artifacts"
+        artifacts = artifacts_root / fingerprint
+        artifacts.mkdir(parents=True, exist_ok=True)
+        manifest = seam.manifest_load(work)
+        if manifest.get("fingerprint") != fingerprint:
+            if manifest:
+                seam.archive_manifest(work)
+                self._log(project_id, "逐窗计划已变化：旧 manifest 已归档，本次全量重来")
+            for stale in artifacts_root.glob("*"):
+                if stale.name != fingerprint:
+                    shutil.rmtree(stale, ignore_errors=True)
+            manifest = {}
+        seed = int(generation.get("seed") or 0)
+        if seed <= 0:
+            seed = int(manifest.get("seed") or 0) or int(
+                hashlib.sha1(f"seam:{project_id}:{fingerprint}".encode("utf-8"))
+                .hexdigest()[:8], 16)
+        manifest.update({
+            "version": 1,
+            "projectId": project_id,
+            "fingerprint": fingerprint,
+            "fps": frames.FPS,
+            "outputFps": output_fps,
+            "targetGenerationFrames": int(total_edit),
+            "targetOutputFrames": media.output_frame_count(total_edit, output_fps),
+            "overlap": int(overlap),
+            "seed": int(seed),
+            "updatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        records: dict[int, dict[str, Any]] = {}
+        for item in manifest.get("windows") or []:
+            if isinstance(item, dict):
+                records[int(item.get("index", -1))] = item
+
+        def window_file(index: int) -> Path:
+            return artifacts / f"w{index + 1:03d}.mp4"
+
+        # 逐窗有效性：遇到第一个缺口后全部作废，避免把不同种子的窗口拼在一起。
+        reusable: list[bool] = []
+        valid_until = True
+        for position, window in enumerate(windows):
+            index = int(window["index"])
+            record = records.get(index) or {}
+            expected = seam.window_frames(window)
+            file = window_file(index)
+            latent = str(record.get("latent") or "")
+            ok = (valid_until
+                  and index not in force
+                  and str(record.get("fingerprint") or "") == fingerprint
+                  and record.get("state") == "done"
+                  and bool(latent)
+                  and Path(latent).is_file()
+                  and file.is_file()
+                  and int(record.get("expectedFrames") or -1) == expected
+                  and abs(int(record.get("frames") or -1) - expected) <= 1)
+            if not ok:
+                valid_until = False
+                records.pop(index, None)
+                file.unlink(missing_ok=True)
+            reusable.append(ok)
+        reused = sum(1 for value in reusable if value)
+        start = next((position for position, ok in enumerate(reusable) if not ok),
+                     len(windows))
+        manifest["windows"] = [records[key] for key in sorted(records)]
+        seam.manifest_save(work, manifest)
+        if start == 0:
+            for stale in work.glob("raw_w*.mp4"):
+                stale.unlink(missing_ok=True)
+        self._log(project_id,
+                  f"逐窗接缝：{len(windows)} 窗 · 重叠 {overlap} 帧 · "
+                  f"复用 {reused} 窗 · 本次生成 {len(windows) - reused} 窗")
+        if reused and start < len(windows):
+            self._log(project_id, f"从第 {start + 1} 窗继续生成（前 {start} 窗已复用）")
+
+        second_pass = bool(generation.get("seam_second_pass", True))
+        if second_pass and self._available.get("seam_selflift") is False:
+            second_pass = False
+            self._log(project_id,
+                      "ComfyUI 缺少 MiniMaxH3TimelineSelfLiftSampler，seam 改为单采",
+                      "warning")
+        cache_dir = f"h3wb/mvseam/{project_id}/{fingerprint}"
+        source_seconds = float((project.get("source") or {}).get("duration") or 0)
+        previous_latent = (str(records[int(windows[start - 1]["index"])].get("latent") or "")
+                           if start > 0 else "")
+        pending = len(windows) - start
+        for offset, position in enumerate(range(start, len(windows))):
+            if self.cancel_events[project_id].is_set():
+                raise comfy.ComfyError("任务已取消。")
+            window = windows[position]
+            index = int(window["index"])
+            row = segments[index]
+            label = f"第 {index + 1}/{len(windows)} 窗"
+            low = 0.06 + 0.8 * offset / max(pending, 1)
+            high = 0.06 + 0.8 * (offset + 1) / max(pending, 1)
+            row["status"] = "running"
+            self._commit(project_id, project)
+            ids = [f"ref{value}" for value in prompts.effective_indices(project, row)]
+            by_id = {picture["id"]: picture for picture in pictures}
+            pool = [by_id[ident] for ident in ids if ident in by_id]
+            timeline = seam.build_window_timeline(
+                window, pool, ids, audio_name, source_seconds,
+                prompts_text[index], fps=frames.FPS)
+            graph = workflow.build_seam_window(
+                generation, timeline, window, prompts_text[index],
+                f"h3seam/{project_id}/w{index + 1:03d}", previous_latent,
+                cache_dir, seed, fps=frames.FPS, available=self._available,
+                second_pass=second_pass)
+            entry, data = self._submit_seam_window(project_id, graph, label, low, high)
+            latent = self._history_text(entry, "latent_path")
+            if not latent:
+                raise comfy.ComfyError(
+                    f"{label}：没有拿到本窗 AV latent，无法续接下一窗。")
+            self._update(project_id, stage="assemble",
+                         message=f"{label}：裁齐 {seam.window_frames(window)} 帧",
+                         progress=round(high, 4))
+            raw = work / f"raw_w{index + 1:03d}.mp4"
+            raw.write_bytes(data)
+            expected = seam.window_frames(window)
+            file = window_file(index)
+            media.normalize(raw, file, expected, fps=frames.FPS)
+            raw.unlink(missing_ok=True)
+            frames_now = media.video_frame_count(file) or expected
+            if abs(int(frames_now) - expected) > 1:
+                raise ValueError(
+                    f"{label}：裁齐后为 {frames_now} 帧，期望 {expected} 帧。")
+            records[index] = {
+                "index": index,
+                "fingerprint": fingerprint,
+                "start": int(window["start"]),
+                "end": int(window["end"]),
+                "length": int(window["length"]),
+                "overlap": int(window["overlap"]),
+                "expectedFrames": int(expected),
+                "frames": int(frames_now),
+                "file": str(file.relative_to(directory)),
+                "latent": latent,
+                "state": "done",
+                "updated": time.time(),
+            }
+            manifest["windows"] = [records[key] for key in sorted(records)]
+            manifest["updatedAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            seam.manifest_save(work, manifest)
+            previous_latent = latent
+            row.update(status="completed", error=None, output=None, stitch="seam")
+            self._commit(project_id, project)
+
+        self._update(project_id, stage="assemble",
+                     message=f"seam：拼接 {len(windows)} 窗并混入原始音轨", progress=0.9)
+        clips: list[Path] = []
+        if output_fps == frames.FPS:
+            clips = [window_file(int(window["index"])) for window in windows]
+        else:
+            deliver = work / "deliver"
+            shutil.rmtree(deliver, ignore_errors=True)
+            deliver.mkdir(parents=True, exist_ok=True)
+            cumulative = 0
+            previous_out = 0
+            for window in windows:
+                index = int(window["index"])
+                cumulative += seam.window_frames(window)
+                out_end = int(round(cumulative * output_fps / frames.FPS))
+                count = max(out_end - previous_out, 1)
+                previous_out = out_end
+                target = deliver / f"w{index + 1:03d}.mp4"
+                media.normalize(window_file(index), target, count, fps=output_fps)
+                clips.append(target)
+        final_path = directory / "final" / "final.mp4"
+        media.concat(clips, source_path, final_path, total_edit, work, fps=output_fps)
+        thumb = directory / "final" / "cover.jpg"
+        media.thumbnail(final_path, thumb,
+                        min(0.8, max(frames.to_seconds(total_edit) / 3, 0.2)))
+        for row in segments:
+            row.update(status="completed", error=None, output=None, stitch="seam")
+        project["final"] = {
+            "path": "final/final.mp4",
+            "thumb": "final/cover.jpg",
+            "duration": round(media.duration(final_path) or frames.to_seconds(total_edit), 3),
+            "duration_frames": total_edit,
+            "fps": output_fps,
+            "output_frames": media.output_frame_count(total_edit, output_fps),
+            "bytes": final_path.stat().st_size,
+            "created": time.time(),
+            "segments": len(segments),
+            "stitch": "seam",
+            "seam_windows": len(windows),
+            "seam_reused": reused,
+            "seam_overlap": int(overlap),
+            "seam_fingerprint": fingerprint,
+            "segment_signature": cuts_signature({"segments": segments}),
+        }
+        manifest["final"] = {
+            "file": "final/final.mp4",
+            "generationFrames": int(total_edit),
+            "outputFrames": media.output_frame_count(total_edit, output_fps),
+            "outputFps": output_fps,
+            "state": "done",
+        }
+        manifest["updatedAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        seam.manifest_save(work, manifest)
+        self._commit(project_id, project)
+        if output_fps != frames.FPS:
+            shutil.rmtree(work / "deliver", ignore_errors=True)
+        for stale in work.glob("raw_w*.mp4"):
+            stale.unlink(missing_ok=True)
+        self._log(project_id, f"seam 成片完成（{len(windows)} 窗、{len(segments)} 段、"
+                              f"重叠 {overlap} 帧，复用 {reused} 窗）")
+        self._update(project_id, status="completed", stage="done", progress=1.0,
+                     message="成片已完成（seam 逐窗）", finished=time.time())
+
+    def _generate_seam_legacy(self, project_id: str, project: dict, generation: dict,
+                              ref_names: dict[int, str]) -> None:
+        """旧的一次提交 seam（内部回退）：节点内部逐窗续接，工作台只拿一个成片。
+
+        只有在 ComfyUI 缺少逐窗节点时才走这里；UI 不暴露这个开关。
         """
         directory = store.project_dir(project_id)
         segments = project.get("segments") or []
@@ -1255,8 +1582,8 @@ class JobRunner:
                 self._mixed_chain_files(project_id, final)
             elif final.get("stitch") == "seam" and not any(
                     row.get("output") for row in segments):
-                raise ValueError("seam 模式是整条生成的，没有可单独重拼的分段片段；"
-                                 "请用「重新生成全部」出片。")
+                raise ValueError("seam 模式没有可单独重拼的分段片段；"
+                                 "请用「重新生成全部」出片（已完成窗口会自动复用）。")
             job = {
                 "job_id": hashlib.sha1(f"{project_id}assemble{time.time()}".encode()).hexdigest()[:12],
                 "project_id": project_id, "status": "running", "stage": "assemble",

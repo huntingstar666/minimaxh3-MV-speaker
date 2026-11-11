@@ -10,6 +10,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
+import time
+from pathlib import Path
 from typing import Any
 
 from .frames import FPS
@@ -17,12 +20,15 @@ from .frames import FPS
 DEFAULT_OVERLAP = 22
 # TimelinePlanner 的 generation_seconds 上限是 150（节点输入约束），单链不能超过。
 MAX_PLAN_SECONDS = 150.0
+# H3 单个窗口的长度上限（5+17k 且不超过 362 帧）。
+SEAM_MAX_WINDOW = 362
 # 影响画面的生成参数白名单：只要这些值不变，同一条链的输出就可以复用。
 # 后处理开关（修复/编码/crf）不在此列，它们只影响重新拼装。
 FINGERPRINT_KEYS = (
-    "unet", "clip", "vae_video", "vae_audio", "lora", "lora_strength",
+    "unet", "clip", "vae_video", "vae_audio", "lora", "lora_strength", "attention",
     "aspect_ratio", "megapixels", "multiple", "steps", "cfg", "sampler", "scheduler",
     "upscaler_model", "ref_image_size", "seed", "seam_second_pass",
+    "seam_second_pass_high_steps",
     "transition_step", "lowres_scale", "rho", "w_min", "w_max", "highres_tiling",
     "sigma_shift", "shift_video", "shift_audio",
     "sigma_refiner", "refiner_extra_steps", "refiner_start_sigma",
@@ -273,5 +279,166 @@ def build_timeline(windows: list[dict[str, Any]], pictures: list[dict[str, Any]]
             "activeIndex": 0,
             "mode": "timeline",
             "segments": segments,
+        },
+    }
+
+
+def plan_seam(rows: list[dict[str, Any]], overlap: int = DEFAULT_OVERLAP) -> dict[str, Any]:
+    """MV 逐窗 seam 的计划：生成固定 24fps，交付帧率只在拼装时换算。
+
+    返回 ``windows`` / ``target``（= Σ edit_frames，24fps 口径）/
+    ``visible_end``（窗口可见帧之和）/ ``overshoot``（0 ≤ 差值 < 17）。
+    单窗超过 362 帧时必须在生成前拦住：H3 一个窗口放不下。
+    """
+    windows = plan_windows(rows, FPS, 0, int(overlap))
+    too_long = [window for window in windows
+                if int(window["length"]) > SEAM_MAX_WINDOW]
+    if too_long:
+        window = too_long[0]
+        raise ValueError(
+            f"第 {int(window['index']) + 1} 段的窗口 {int(window['length'])} 帧超过 "
+            f"H3 单窗上限 {SEAM_MAX_WINDOW} 帧；请先把这个段切短再生成。")
+    target = sum(int(window["target_visible"]) for window in windows)
+    visible_end = int(windows[-1]["end"]) if windows else 0
+    return {
+        "windows": windows,
+        "target": int(target),
+        "visible_end": int(visible_end),
+        "overshoot": int(visible_end - target),
+        "fps": FPS,
+    }
+
+
+def window_frames(window: dict[str, Any]) -> int:
+    """Finalize 裁头后交付的帧数：首窗不裁，其后裁掉 overlap。"""
+    return int(window["length"]) - int(window["overlap"])
+
+
+def plan_fingerprint(row_meta: list[dict[str, Any]], windows: list[dict[str, Any]],
+                     generation: dict[str, Any], overlap: int,
+                     source: dict[str, Any] | None = None) -> str:
+    """逐窗 seam 的计划指纹：命中即可整条复用，不再提交 ComfyUI。
+
+    只包含影响生成的项（源音频、分段提示词/参考图、窗口、生成参数、overlap）；
+    ``output_fps`` 与后处理开关不参与，改交付帧率不会重跑生成。
+    """
+    payload = {
+        "version": 1,
+        "fps": FPS,
+        "overlap": int(overlap),
+        "global": {key: generation.get(key) for key in FINGERPRINT_KEYS},
+        "source": source or {},
+        "rows": [{
+            "edit_frames": int(item.get("edit_frames") or 0),
+            "prompt": str(item.get("prompt") or ""),
+            "refs": list(item.get("refs") or []),
+        } for item in row_meta],
+        "windows": [{
+            "start": int(window["start"]),
+            "end": int(window["end"]),
+            "length": int(window["length"]),
+            "overlap": int(window["overlap"]),
+            "visible": int(window["visible"]),
+        } for window in windows],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def manifest_path(work: Path) -> Path:
+    return Path(work) / "manifest.json"
+
+
+def manifest_load(work: Path) -> dict[str, Any]:
+    """读 manifest；缺失/损坏时返回空字典（按无断点处理）。"""
+    try:
+        data = json.loads(manifest_path(work).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def manifest_save(work: Path, data: dict[str, Any]) -> None:
+    """原子写 manifest：Windows 下文件被杀软/索引瞬时占用时重试 4 次。"""
+    work = Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    target = manifest_path(work)
+    temp = target.with_suffix(".tmp")
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    for attempt in range(4):
+        try:
+            temp.write_text(text, encoding="utf-8")
+            os.replace(temp, target)
+            return
+        except PermissionError:
+            if attempt == 3:
+                raise
+            time.sleep(0.15 * (attempt + 1))
+
+
+def archive_manifest(work: Path, keep: int = 2) -> None:
+    """归档旧 manifest，只保留最近 ``keep`` 份（目录里是断点资产，不能删）。"""
+    work = Path(work)
+    path = manifest_path(work)
+    if path.is_file():
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        target = work / f"manifest.{stamp}-{int(time.time() * 1000) % 1000:03d}.json"
+        try:
+            os.replace(path, target)
+        except OSError:
+            pass
+    archives = sorted(work.glob("manifest.*.json"), key=lambda item: item.stat().st_mtime)
+    for stale in archives[:-max(int(keep), 1)]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+
+def build_window_timeline(window: dict[str, Any], pictures: list[dict[str, Any]],
+                          segment_images: list[str], audio_name: str,
+                          source_seconds: float, prompt: str,
+                          fps: int = FPS) -> dict[str, Any]:
+    """单窗 TimelinePlanner 数据（MV / 模式 1 的锁原声口径）。
+
+    ``selection.start`` 是该窗在整条源音频上的绝对起点，
+    ``MiniMaxH3LockedAudioSlice`` 会按它切出 ``length`` 帧的原声；
+    段内 ``startFrame=0``，因为 Planner 只需要本窗自己的长度。
+    """
+    length = int(window["length"])
+    start = int(window["start"])
+    seconds = length / int(fps)
+    return {
+        "version": 9,
+        "fps": int(fps),
+        "globalPrompt": "",
+        "secondPass": False,
+        "secondPassModel": "",
+        "secondPassHighSteps": 2,
+        "selection": {"start": round(start / int(fps), 6),
+                      "duration": round(seconds, 6)},
+        "videoAudioEnabled": False,
+        "videoClips": [],
+        "images": [{"id": picture["id"], "file": picture["file"]} for picture in pictures],
+        "audios": [{
+            "id": "source-audio",
+            "file": audio_name,
+            "name": "source.wav",
+            "audioMode": "locked",
+            "start": 0.0,
+            "duration": round(float(max(source_seconds, seconds)), 6),
+            "trimStart": 0.0,
+        }],
+        "segmentConfig": {
+            "count": 1,
+            "activeIndex": 0,
+            "mode": "timeline",
+            "segments": [{
+                "images": list(segment_images),
+                "audios": ["source-audio"],
+                "prompt": str(prompt),
+                "startFrame": 0,
+                "endFrame": length,
+            }],
         },
     }

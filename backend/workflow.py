@@ -343,6 +343,243 @@ def build_seam(generation: dict[str, Any], timeline: dict[str, Any], total_secon
     return nodes
 
 
+def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
+                      window: dict[str, Any], prompt: str, filename_prefix: str,
+                      previous_latent: str, cache_dir: str, seed: int,
+                      fps: int = FPS, available: dict[str, bool] | None = None,
+                      second_pass: bool | None = None) -> dict[str, Any]:
+    """MV seam 的单窗图：锁原声 + 续接上一窗 AV latent + 可选 SelfLift 二采。
+
+    与 ``build_seam``（整条一次提交）不同，这张图只生成 ``window["length"]`` 帧，
+    ``MiniMaxH3FiniteSegmentFinalize`` 负责裁掉段首 overlap，``AVLatentSave``
+    把本窗 latent 落盘给下一窗，``PreviewAny`` 回传路径防止保存分支被剪枝。
+    """
+    available = available if available is not None else {"sigma_shift": True}
+    fps = int(fps)
+    length = int(window["length"])
+    overlap = int(window.get("overlap") or 0)
+    index = int(window["index"])
+    use_second_pass = (bool(generation.get("seam_second_pass", True))
+                       if second_pass is None else bool(second_pass))
+    if use_second_pass and not str(generation.get("upscaler_model") or "").strip():
+        raise ValueError("seam 二采需要 upscaler_model；请选择潜空间放大器或关闭二采。")
+
+    nodes: dict[str, Any] = {
+        "unet": {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": generation["unet"], "weight_dtype": "default"},
+            "_meta": {"title": "UNET 加载器"},
+        },
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": generation["clip"], "type": "minimax", "device": "default"},
+            "_meta": {"title": "CLIP 加载器"},
+        },
+        "vae_video": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": generation["vae_video"]},
+            "_meta": {"title": "视频 VAE"},
+        },
+        "vae_audio": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": generation["vae_audio"]},
+            "_meta": {"title": "音频 VAE"},
+        },
+        "res": {
+            "class_type": "ResolutionSelector",
+            "inputs": {
+                "aspect_ratio": generation.get("aspect_ratio", "9:16 (Portrait Widescreen)"),
+                "megapixels": float(generation.get("megapixels", 1.0)),
+                "multiple": int(generation.get("multiple", 32)),
+            },
+            "_meta": {"title": "分辨率"},
+        },
+        "sampler": {
+            "class_type": "KSamplerSelect",
+            "inputs": {"sampler_name": generation.get("sampler", "euler")},
+            "_meta": {"title": "采样器"},
+        },
+    }
+    model_ref = _model_chain(nodes, generation, available)
+    nodes["scheduler"] = {
+        "class_type": "BasicScheduler",
+        "inputs": {
+            "scheduler": generation.get("scheduler", "simple"),
+            "steps": int(generation.get("steps", 6)),
+            "denoise": 1,
+            "model": [model_ref, 0],
+        },
+        "_meta": {"title": "调度器"},
+    }
+    nodes["planner"] = {
+        "class_type": "MiniMaxH3TimelinePlanner",
+        "inputs": {
+            "width": ["res", 0],
+            "height": ["res", 1],
+            "generation_seconds": round(length / fps, 6),
+            "timeline_data": json.dumps(timeline, ensure_ascii=False),
+        },
+        "_meta": {"title": "素材规划台（单窗）"},
+    }
+    nodes["encode"] = {
+        "class_type": "MiniMaxH3TimelineEncoder",
+        "inputs": {
+            "clip": ["clip", 0],
+            "vae": ["vae_video", 0],
+            "audio_vae": ["vae_audio", 0],
+            "plan": ["planner", 0],
+            "prompt": str(prompt),
+            "ref_image_size": generation.get("ref_image_size", "match"),
+        },
+        "_meta": {"title": "H3 编码（参考图 + 锁定音轨）"},
+    }
+    nodes["audio_slice"] = {
+        "class_type": "MiniMaxH3LockedAudioSlice",
+        "inputs": {"plan": ["planner", 0]},
+        "_meta": {"title": "源音频窗口切片"},
+    }
+    nodes["audio_enc"] = {
+        "class_type": "VAEEncodeAudio",
+        "inputs": {"audio": ["audio_slice", 0], "vae": ["vae_audio", 0]},
+        "_meta": {"title": "锁定音轨编码"},
+    }
+    continuation: dict[str, Any] = {
+        "positive": ["encode", 0],
+        "target_latent": ["encode", 1],
+        "iteration": 0 if index == 0 else 1,
+        "overlap_frames": overlap,
+        # 音频锁源声，不续接上一窗音频 latent
+        "continue_audio_latent": False,
+        "model": [model_ref, 0],
+        "sigmas": ["scheduler", 0],
+    }
+    if previous_latent and index > 0:
+        nodes["prev_latent"] = {
+            "class_type": "MiniMaxH3AVLatentLoad",
+            "inputs": {"latent_path": str(previous_latent)},
+            "_meta": {"title": "上一窗 AV latent"},
+        }
+        continuation["previous_latent"] = ["prev_latent", 0]
+    nodes["continue"] = {
+        "class_type": "MiniMaxH3FiniteLatentContinuation",
+        "inputs": continuation,
+        "_meta": {"title": "latent 续接"},
+    }
+    if int(seed) <= 0:
+        seed = random.randint(1, 2 ** 31 - 1)
+    nodes["lock_audio"] = {
+        "class_type": "MiniMaxH3LockAudioLatent",
+        "inputs": {"target_latent": ["continue", 1], "audio_latent": ["audio_enc", 0]},
+        "_meta": {"title": "锁定源音轨"},
+    }
+    if use_second_pass:
+        steps = int(generation.get("steps", 6))
+        high_steps = int(generation.get("seam_second_pass_high_steps") or 0)
+        if high_steps <= 0:
+            high_steps = min(4, steps - 1)
+        if steps < 2 or not 1 <= high_steps < steps:
+            raise ValueError(
+                f"seam 二采的高清步数 {high_steps} 必须 ≥1 且小于总步数 {steps}。")
+        lowres_scale = float(generation.get("lowres_scale") or 0.0)
+        if lowres_scale <= 0:
+            lowres_scale = 0.5
+        nodes["sample"] = {
+            "class_type": "MiniMaxH3TimelineSelfLiftSampler",
+            "inputs": {
+                "model": ["continue", 3],
+                "positive": ["continue", 0],
+                "negative": ["continue", 0],
+                "vae": ["vae_video", 0],
+                "latent_image": ["lock_audio", 0],
+                "sampler": ["sampler", 0],
+                "sigmas": ["scheduler", 0],
+                "seed": int(seed),
+                "cfg": 1.0,
+                "transition_step": steps - high_steps,
+                "lowres_scale": lowres_scale,
+                "rho": 0.0,
+                "w_min": 0.5,
+                "w_max": 1.0,
+                "upscaler_model": str(generation.get("upscaler_model") or ""),
+                # 续接 latent 带 noise_mask，与高清分块不兼容
+                "highres_tiling": False,
+            },
+            "_meta": {"title": "SelfLift 双采（单窗）"},
+        }
+    else:
+        nodes["noise"] = {
+            "class_type": "RandomNoise",
+            "inputs": {"noise_seed": int(seed)},
+            "_meta": {"title": "噪声"},
+        }
+        nodes["guider"] = {
+            "class_type": "BasicGuider",
+            "inputs": {"model": ["continue", 3], "conditioning": ["continue", 0]},
+            "_meta": {"title": "引导"},
+        }
+        nodes["sample"] = {
+            "class_type": "SamplerCustomAdvanced",
+            "inputs": {
+                "noise": ["noise", 0],
+                "guider": ["guider", 0],
+                "sampler": ["sampler", 0],
+                "sigmas": ["scheduler", 0],
+                "latent_image": ["lock_audio", 0],
+            },
+            "_meta": {"title": "采样"},
+        }
+    nodes["decode_video"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["sample", 0], "vae": ["vae_video", 0]},
+        "_meta": {"title": "视频解码"},
+    }
+    nodes["finalize"] = {
+        "class_type": "MiniMaxH3FiniteSegmentFinalize",
+        "inputs": {
+            "sampled_latent": ["sample", 0],
+            "images": ["decode_video", 0],
+            "audio": ["audio_slice", 0],
+            "iteration": 0 if index == 0 else 1,
+            "overlap_frames": ["continue", 2],
+            "trim_audio_head": True,
+        },
+        "_meta": {"title": "裁掉上一窗拥有的段首"},
+    }
+    nodes["save_latent"] = {
+        "class_type": "MiniMaxH3AVLatentSave",
+        "inputs": {
+            "latent": ["sample", 0],
+            "cache_dir": str(cache_dir),
+            "segment_index": index + 1,
+        },
+        "_meta": {"title": "保存 AV latent"},
+    }
+    nodes["latent_path"] = {
+        "class_type": "PreviewAny",
+        "inputs": {"source": ["save_latent", 0]},
+        "_meta": {"title": "latent 路径（回传给下一窗）"},
+    }
+    nodes[OUTPUT_NODE] = {
+        "class_type": "VHS_VideoCombine",
+        "inputs": {
+            "images": ["finalize", 1],
+            "audio": ["finalize", 2],
+            "frame_rate": fps,
+            "loop_count": 0,
+            "filename_prefix": str(filename_prefix),
+            "format": "video/h264-mp4",
+            "pix_fmt": "yuv420p",
+            "crf": int(generation.get("crf", 12)),
+            "save_metadata": False,
+            "trim_to_audio": False,
+            "pingpong": False,
+            "save_output": True,
+        },
+        "_meta": {"title": "保存本窗视频"},
+    }
+    return nodes
+
+
 def missing_fields(generation: dict[str, Any]) -> list[str]:
     required = {
         "unet": "UNET 模型", "clip": "CLIP 模型", "vae_video": "视频 VAE",

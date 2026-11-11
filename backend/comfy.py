@@ -179,10 +179,20 @@ def options(force: bool = False) -> dict[str, Any]:
             "UpscaleModelLoader", "MiniMaxH3SigmaShift", "H3SigmaRefiner",
             "MiniMaxH3ReferenceToVideo", "LTXVConcatAVLatent", "VHS_VideoCombine",
             "ModelPreviewOverrideKJ", "MiniMaxH3ImageToVideo", "MiniMaxH3AddGuide", "ImageScale",
+            "MiniMaxH3TimelineEncoder", "MiniMaxH3FiniteLatentContinuation",
+            "MiniMaxH3FiniteSegmentFinalize", "MiniMaxH3AVLatentSave",
+            "MiniMaxH3AVLatentLoad", "MiniMaxH3LockedAudioSlice",
+            "MiniMaxH3LockAudioLatent", "MiniMaxH3TimelineSelfLiftSampler",
         ]
         infos = object_info_many(node_names)
         seam_info = infos.get("MiniMaxH3FiniteSegmentVideoSampler") or {}
         seam_optional = (seam_info.get("input") or {}).get("optional") or {}
+        window_nodes = (
+            "MiniMaxH3TimelineEncoder", "MiniMaxH3FiniteLatentContinuation",
+            "MiniMaxH3FiniteSegmentFinalize", "MiniMaxH3AVLatentSave",
+            "MiniMaxH3AVLatentLoad", "MiniMaxH3LockedAudioSlice",
+            "MiniMaxH3LockAudioLatent",
+        )
 
         def combo(node: str, field: str) -> list[str]:
             return combo_values_from(infos.get(node), field)
@@ -210,6 +220,9 @@ def options(force: bool = False) -> dict[str, Any]:
                 "vhs": bool(infos.get("VHS_VideoCombine")),
                 "seam": bool(seam_info),
                 "seam_params": "transition_step" in seam_optional,
+                # 逐窗 seam：缺任一节点就用旧的一次提交回退（不暴露给用户）
+                "seam_window": all(bool(infos.get(name)) for name in window_nodes),
+                "seam_selflift": bool(infos.get("MiniMaxH3TimelineSelfLiftSampler")),
                 "preview": bool(infos.get("ModelPreviewOverrideKJ")),
                 "lora": bool(infos.get("LoraLoaderModelOnly")),
                 "image_to_video": bool(infos.get("MiniMaxH3ImageToVideo")),
