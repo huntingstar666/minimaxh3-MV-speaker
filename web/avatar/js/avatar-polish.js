@@ -243,12 +243,12 @@ function initSettingSummary() {
     if (mpText) parts.push(mpText.split("·")[0].trim());
     const seedValue = seed ? seed.value.trim() : "";
     // 首尾帧锚定：0 = 项目固定种子（后端按项目 ID 派生，永远同一条）；硬切：0 = 每段随机
-    const anchorMode = (stitch?.value || "") === "anchor";
+    const fixedSeed = ["anchor", "seam"].includes(stitch?.value || "");
     if (seedValue && Number(seedValue) !== 0) parts.push(`种子 ${seedValue}`);
-    else parts.push(anchorMode ? "种子固定" : "种子随机");
+    else parts.push(fixedSeed ? "种子固定" : "种子随机");
     paramsOut.textContent = parts.join(" · ");
-    paramsOut.title = anchorMode
-      ? "首尾帧模式用锚定种子：0 = 项目固定种子（同项目每次生成都一样）"
+    paramsOut.title = fixedSeed
+      ? "锚定/接缝模式用固定种子：0 = 项目固定种子（同项目每次生成都一样）"
       : "硬切模式用随机种子：0 = 每段随机";
   };
 

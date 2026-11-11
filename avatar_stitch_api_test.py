@@ -2,7 +2,7 @@
 """数字人段间模式接口校验：模式 1 / 2 / 3 各自允许的 stitch 与 seam_overlap。
 
 不跑 GPU，只验证 PATCH /avatar/api/projects/{id} 的 400/200 行为：
-- 模式 1：hard / anchor；选择 relay / seam 必须 400；
+- 模式 1：hard / anchor / seam；选择 relay 必须 400；
 - 模式 2/3：hard / relay / seam；seam_overlap 必须是 5+17k（5/22/39）。
 
 运行：在 h3-workbench 项目根目录执行
@@ -89,9 +89,9 @@ def test_mode1_rejects_other_modes() -> None:
     pid = create(1)
     require(patch(pid, {"stitch": "hard"}) == 200, "模式 1 hard 应允许")
     require(patch(pid, {"stitch": "anchor"}) == 200, "模式 1 anchor 应允许")
+    require(patch(pid, {"stitch": "seam", "seam_overlap": 22}) == 200,
+            "模式 1 seam 应允许（锁原声 + 逐窗续接）")
     require(patch(pid, {"stitch": "relay"}) == 400, "模式 1 relay 应拒绝")
-    require(patch(pid, {"stitch": "seam", "seam_overlap": 5}) == 400,
-            "模式 1 seam 应拒绝")
 
 
 def test_default_overlap_recorded() -> None:

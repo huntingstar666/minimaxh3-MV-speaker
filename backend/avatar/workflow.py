@@ -53,6 +53,9 @@ def available_nodes(force: bool = False) -> dict[str, bool]:
             "seam_encoder": "MiniMaxH3TimelineEncoder",
             "seam_finalize": "MiniMaxH3FiniteSegmentFinalize",
             "seam_latent": "MiniMaxH3AVLatentSave",
+            "seam_audio_slice": "MiniMaxH3LockedAudioSlice",
+            "seam_audio_lock": "MiniMaxH3LockAudioLatent",
+            "audio_encode": "VAEEncodeAudio",
             "preview_any": "PreviewAny",
             "save_audio": "SaveAudio",
         }
@@ -414,12 +417,17 @@ def build(generation: dict[str, Any], prompt: str, refs: list[str],
 def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
                       prompt: str, window: dict[str, Any], previous_latent: str,
                       cache_dir: str, seed: int,
-                      available: dict[str, bool] | None = None) -> dict[str, Any]:
-    """模式 2/3 seam 的单窗图（逐窗提交 + latent 续接 + prev-owned 裁头）。
+                      available: dict[str, bool] | None = None,
+                      locked_audio: bool = False) -> dict[str, Any]:
+    """seam 的单窗图（逐窗提交 + latent 续接 + prev-owned 裁头）。
 
     `timeline` 只含当前窗一个 segment（startFrame=0，endFrame=length）；
     `previous_latent` 是上一窗 AV latent 的绝对路径，首窗传空；
     `window["overlap"]` 同时控制续接 mask 与 Finalize 的裁头帧数。
+
+    `locked_audio=True` 时走模式 1：音频不进 H3 生成，而是按时间线绝对区间
+    切出源音频、编码成音频 latent 后替换目标音轨（LockAudioLatent，mask=0），
+    所以段首不会吞字，成片音轨也用 source.wav。
     """
     available = available if available is not None else available_nodes()
     fps = int(generation.get("fps") or config.FPS)
@@ -513,8 +521,21 @@ def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
             "prompt": prompt,
             "ref_image_size": generation.get("ref_image_size", "match"),
         },
-        "_meta": {"title": "H3 编码（参考图 + 音色）"},
+        "_meta": {"title": "H3 编码（参考图 + 锁定音轨）" if locked_audio else "H3 编码（参考图 + 音色）"},
     }
+    if locked_audio:
+        # 模式 1：planner 按时间线 selection 的绝对起点切出源音频区间，
+        # 编码后替换目标音轨并锁定（mask=0），不参与去噪。
+        nodes["audio_slice"] = {
+            "class_type": "MiniMaxH3LockedAudioSlice",
+            "inputs": {"plan": ["planner", 0]},
+            "_meta": {"title": "源音频窗口切片"},
+        }
+        nodes["audio_enc"] = {
+            "class_type": "VAEEncodeAudio",
+            "inputs": {"audio": ["audio_slice", 0], "vae": ["vae_audio", 0]},
+            "_meta": {"title": "锁定音轨编码"},
+        }
     continuation: dict[str, Any] = {
         "positive": ["encode", 0],
         "target_latent": ["encode", 1],
@@ -549,6 +570,14 @@ def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
         "inputs": {"model": ["continue", 3], "conditioning": ["continue", 0]},
         "_meta": {"title": "引导"},
     }
+    sampling_latent: list[Any] = ["continue", 1]
+    if locked_audio:
+        nodes["lock_audio"] = {
+            "class_type": "MiniMaxH3LockAudioLatent",
+            "inputs": {"target_latent": ["continue", 1], "audio_latent": ["audio_enc", 0]},
+            "_meta": {"title": "锁定源音轨"},
+        }
+        sampling_latent = ["lock_audio", 0]
     nodes["sample"] = {
         "class_type": "SamplerCustomAdvanced",
         "inputs": {
@@ -556,7 +585,7 @@ def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
             "guider": ["guider", 0],
             "sampler": ["sampler_select", 0],
             "sigmas": ["scheduler", 0],
-            "latent_image": ["continue", 1],
+            "latent_image": sampling_latent,
         },
         "_meta": {"title": "采样"},
     }
@@ -651,6 +680,54 @@ def seam_window_timeline(window: dict[str, Any], images: list[dict[str, Any]],
             "segments": [{
                 "images": list(segment_images),
                 "audios": list(segment_audios),
+                "prompt": str(prompt),
+                "startFrame": 0,
+                "endFrame": int(window["length"]),
+            }],
+        },
+    }
+
+
+def seam_locked_timeline(window: dict[str, Any], images: list[dict[str, Any]],
+                         segment_images: list[str], audio_name: str,
+                         source_seconds: float, prompt: str,
+                         fps: int = config.FPS) -> dict[str, Any]:
+    """模式 1 seam 的单窗时间线：整条源音频 + 窗口绝对起点。
+
+    与模式 2 的 `seam_window_timeline` 不同，这里 `selection.start` 是该窗在
+    整条源音频上的绝对时间；`MiniMaxH3LockedAudioSlice` 会按这个起点切出
+    `length` 帧的源音频，因此窗口之间是连续原声，不是每段独立补静音。
+    """
+    seconds = int(window["length"]) / int(fps)
+    start_seconds = int(window["start"]) / int(fps)
+    return {
+        "version": 9,
+        "fps": int(fps),
+        "globalPrompt": "",
+        "secondPass": False,
+        "secondPassModel": "",
+        "secondPassHighSteps": 2,
+        "selection": {"start": round(start_seconds, 6),
+                      "duration": round(seconds, 6)},
+        "videoAudioEnabled": False,
+        "videoClips": [],
+        "images": images,
+        "audios": [{
+            "id": "source-audio",
+            "file": audio_name,
+            "name": "source.wav",
+            "audioMode": "locked",
+            "start": 0.0,
+            "duration": round(float(source_seconds), 6),
+            "trimStart": 0.0,
+        }],
+        "segmentConfig": {
+            "count": 1,
+            "activeIndex": 0,
+            "mode": "timeline",
+            "segments": [{
+                "images": list(segment_images),
+                "audios": ["source-audio"],
                 "prompt": str(prompt),
                 "startFrame": 0,
                 "endFrame": int(window["length"]),

@@ -888,9 +888,6 @@ function syncAnchorUI() {
   if (stitchInput.value === "relay" && anchorAvailable) {
     stitchInput.value = "hard";
   }
-  if (stitchInput.value === "seam" && anchorAvailable) {
-    stitchInput.value = "hard";
-  }
   const on = stitchInput.value === "anchor" && anchorAvailable;
   const fields = $("#anchor-fields");
   if (fields) fields.hidden = !on;
@@ -899,11 +896,11 @@ function syncAnchorUI() {
   if (entry) entry.hidden = !on;
   const hint = $("#anchor-hint");
   if (hint) hint.hidden = !on;
-  // 段间模式按模式换选项：模式 1 = 硬切/首尾帧锚定；模式 2/3 = 硬切/尾帧接力
+  // 段间模式按模式换选项：模式 1 = 硬切/首尾帧锚定/接缝接续；模式 2/3 = 硬切/尾帧接力/接缝接续
   const stitchSeg = $("#f-stitch-seg");
   if (stitchSeg) {
     const options = anchorAvailable
-      ? [["hard", "硬切"], ["anchor", "首尾帧锚定"]]
+      ? [["hard", "硬切"], ["anchor", "首尾帧锚定"], ["seam", "接缝接续"]]
       : [["hard", "硬切"], ["relay", "尾帧接力"], ["seam", "接缝接续"]];
     const signature = options.map((item) => item[0]).join("|");
     if (stitchSeg.dataset.options !== signature) {
@@ -917,17 +914,28 @@ function syncAnchorUI() {
   }
   const stitchStatic = $("#stitch-static-hint");
   if (stitchStatic) {
-    stitchStatic.hidden = anchorAvailable;
-    stitchStatic.textContent = "尾帧接力：把上一段末帧作为本段第 0 帧的软引导，姿态/背景更连续；"
-      + "接缝接续：相邻段多生成 5 帧重叠，上一段拥有重叠区，合成时裁头拼接，画面与声音都不留缝；"
-      + "两者每段仍用自己的音色生成台词，音轨按段拼接。";
+    stitchStatic.hidden = !(stitchInput.value === "seam");
+    stitchStatic.textContent = anchorAvailable
+      ? "音频接续：整条驱动音频按窗口绝对区间切片并锁定，逐窗续接 AV latent；"
+        + "上一窗保留重叠区，合成时裁头拼接，口型不吞字、画面不留缝。"
+      : "尾帧接力：把上一段末帧作为本段第 0 帧的软引导，姿态/背景更连续；"
+        + "接缝接续：相邻段多生成 5 帧重叠，上一段拥有重叠区，合成时裁头拼接，画面与声音都不留缝；"
+        + "两者每段仍用自己的音色生成台词，音轨按段拼接。";
   }
   const seamRow = $("#seam-overlap-row");
-  if (seamRow) seamRow.hidden = !(stitchInput.value === "seam" && !anchorAvailable);
+  if (seamRow) seamRow.hidden = stitchInput.value !== "seam";
+  if (stitchInput.value === "seam") {
+    const overlap = $("#f-seam-overlap");
+    if (overlap) {
+      if (anchorAvailable && overlap.value === "5") overlap.value = "22";
+      const first = overlap.querySelector('option[value="5"]');
+      if (first) first.hidden = anchorAvailable;
+    }
+  }
   const note = $("#anchor-mode-note");
   if (note) {
     note.textContent = anchorAvailable
-      ? (on ? "仅模式 1 · 固定种子" : "模式 1 · 可锚定")
+      ? (on ? "仅模式 1 · 固定种子" : "模式 1 · 锚定 / 接缝接续")
       : "模式 2/3 · 尾帧接力 / 接缝接续";
   }
   const seedField = $("#f-seed")?.closest(".field");
@@ -949,7 +957,8 @@ function syncAnchorUI() {
     wfTitle.textContent = on ? "首尾帧 · FL2VA 首尾同图"
       : mode === 2 ? "参考音色 · 逐段生成"
         : mode === 3 ? "无音频参考 · 逐段生成"
-          : "Ref 模式 · 锁定音轨";
+          : stitchInput.value === "seam" ? "Ref 模式 · 锁定音轨 · 逐窗接续"
+            : "Ref 模式 · 锁定音轨";
   }
   if (wfTemplate) wfTemplate.textContent = on ? "提示词：FL2VA 固定模板" : "提示词：Ref2VA 六段";
   if (wfDesc) {
@@ -959,7 +968,9 @@ function syncAnchorUI() {
         ? "参数：参考音频（音色）+ 参考图 + 每段随机种子 → H3 参考生成（视频自带生成音轨）"
         : mode === 3
           ? "参数：台词 + 音色描述 + 参考图 + 每段随机种子 → H3 参考生成（台词驱动，自带音轨）"
-          : "参数：驱动音频 + 参考图 + 每段随机种子 → 锁定音轨工作流（SelfLift 双采）";
+          : stitchInput.value === "seam"
+            ? "参数：整条驱动音频（窗口绝对区间切片锁定）+ 参考图 → H3 逐窗 AV latent 续接（成片音轨仍用原声）"
+            : "参数：驱动音频 + 参考图 + 每段随机种子 → 锁定音轨工作流（SelfLift 双采）";
     wfDesc.title = wfDesc.textContent;
   }
   const allLabel = $("#btn-prompts-all-label");
