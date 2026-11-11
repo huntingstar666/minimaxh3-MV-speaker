@@ -24,6 +24,19 @@
 
 数字人页（`web/avatar/css/avatar.css`）已全部改用变量 + `color-mix()`，硬编码 hex / rgba / url() 为 0。
 
+## 2.1 主题切换（2026-11）
+
+| 页面 | 主题 | 入口 | 持久化 |
+| --- | --- | --- | --- |
+| MV 工作台 | 夜班（默认）/ 粉色渐变 | 顶栏「夜班 / 粉色」 | `localStorage: h3wb.mvTheme` |
+| 数字人工作台 | 黑金（默认）/ 8-bit 复古 | 顶栏「黑金 / 8-bit」 | `localStorage: h3wb.avatarTheme` |
+
+- 主题只改视觉，不写入项目 `generation`，不影响生成参数。
+- 切换通过 `html[data-theme]` / `body` 类完成；样式分别落在
+  `web/css/theme-pink.css`、`web/avatar/css/avatar-themes.css`，主样式保持默认值即可回滚。
+- 切换时会播放一次全屏转场（粉色渐变扫过 / 8-bit 棋盘格 + steps 动画）；`prefers-reduced-motion` 下自动降级。
+- 粉色主题使用紫粉渐变 + 粉色主按钮；8-bit 使用米黄纸底、墨黑 2px 描边、橙红强调、等宽字体与扫描线叠加，颜色取自参考图的纸色/橙红而非纯白。
+
 ## 3. 版式与比例
 
 | 项 | 旧 | 新 |
@@ -84,6 +97,8 @@
 ## 9. 想继续调时看哪里
 
 - 配色/圆角/间距/动效曲线：`web/css/style.css` 顶部 `:root`。
+- 主题：`web/css/theme-pink.css`（MV 粉色）、`web/avatar/css/avatar-themes.css`（黑金 / 8-bit）、
+  `web/js/theme.js` 与 `web/avatar/js/theme.js`（切换与持久化）。
 - 三栏宽度与断点：同文件「2. 工作区三栏」与「24. 响应式」。
 - 数字人页专属：`web/avatar/css/avatar.css`（末尾有「Lead 集成补丁」块，含折叠收起规则）与 `web/avatar/js/avatar-polish.js`（折叠 / 滚动阴影）。
 - 波形比例/刻度密度：`web/js/waveform.js` 顶部 `RULER_H`、`TICK_STEPS`、`MIN_TICK_PX`、`this.height`。

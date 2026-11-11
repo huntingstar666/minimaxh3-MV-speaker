@@ -9,8 +9,18 @@
 <link rel="stylesheet" href="/static/css/style.css">
 <link rel="stylesheet" href="/avatar/static/css/avatar.css">
 <link rel="stylesheet" href="/avatar/static/css/avatar-light.css">
+<link rel="stylesheet" href="/avatar/static/css/avatar-themes.css">
 </head>
-<body class="av-body av-light">
+<body class="av-body av-gold">
+<script>
+  // 首屏前应用主题，避免黑金/8-bit 闪一下
+  try {
+    if (localStorage.getItem("h3wb.avatarTheme") === "8bit") {
+      document.body.classList.remove("av-gold");
+      document.body.classList.add("av-light", "av-8bit");
+    }
+  } catch (e) { /* 隐私模式忽略 */ }
+</script>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
     <linearGradient id="avBrandGrad" x1="0" y1="0" x2="1" y2="1">
@@ -58,6 +68,7 @@
     <span class="status-chip" id="chip-llm"><i class="dot"></i><span>LLM</span><b>检测中</b></span>
   </div>
   <div class="top-actions">
+    <button class="btn ghost sm av-theme-btn" id="btn-theme" type="button" title="切换 8-bit 复古风格" aria-pressed="false"><span class="av-theme-dot"></span><span id="theme-label">黑金</span></button>
     <button class="btn ghost sm" id="btn-refresh" title="重新检测系统状态与可选参数"><svg><use href="#i-refresh"/></svg>刷新状态</button>
     <a class="btn ghost sm" href="/" title="回到音频驱动的 MV 工作台"><svg><use href="#i-film"/></svg>MV 工作台</a>
   </div>
@@ -317,6 +328,7 @@
 
 <div class="busy-overlay" id="busy-overlay" hidden><div class="spinner"></div><span id="busy-text">处理中…</span></div>
 
+<script type="module" src="/avatar/static/js/theme.js"></script>
 <script type="module" src="/avatar/static/js/avatar.js"></script>
 <script type="module" src="/avatar/static/js/avatar-polish.js"></script>
 

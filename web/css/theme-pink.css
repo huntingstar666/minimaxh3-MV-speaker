@@ -1,0 +1,206 @@
+/* ============================================================
+   H3 Studio · 粉色渐变主题（MV 工作台）
+   ------------------------------------------------------------
+   加载顺序：style.css 之后；作用域 html[data-theme="pink"]。
+   默认（night）保持现有深墨蓝黑，不设置 data-theme 即回滚。
+   无外部字体 / 图片 / CDN。
+   ============================================================ */
+
+/* ---------- 主题切换转场 ---------- */
+.theme-wipe{
+  position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:0;
+}
+.theme-wipe[data-theme="pink"]{
+  background:linear-gradient(115deg,#ff8ecb 0%,#ff4fa3 38%,#b05cff 72%,#2a0b24 100%);
+}
+.theme-wipe[data-theme="night"]{
+  background:linear-gradient(115deg,#f7b955 0%,#24303f 34%,#0a0e13 72%,#05070a 100%);
+}
+.theme-wipe.is-running{animation:themeWipe .72s cubic-bezier(.76,0,.24,1) forwards}
+@keyframes themeWipe{
+  0%{opacity:1;clip-path:inset(0 0 0 100%)}
+  55%{opacity:1;clip-path:inset(0 0 0 0)}
+  100%{opacity:0;clip-path:inset(0 0 0 0)}
+}
+
+/* ---------- token ---------- */
+html[data-theme="pink"]{
+  color-scheme:dark;
+  --bg:#160a13;
+  --bg-soft:#1f0d1a;
+  --panel:#281126;
+  --panel-2:#33152f;
+  --panel-3:#3d1a38;
+  --line:rgba(255,255,255,.10);
+  --line-strong:rgba(255,255,255,.19);
+  --text:#fff0f8;
+  --dim:#d9a6c6;
+  --faint:#a27392;
+  --amber:#ff7ac6;
+  --amber-2:#ff4fa3;
+  --mint:#7ef0d4;
+  --violet:#c084fc;
+  --danger:#ff6b8b;
+  --ok:#7ef0a8;
+  --shadow:0 24px 64px rgba(48,0,32,.55);
+  --ease-out:cubic-bezier(.22,1,.36,1);
+  --ease-spring:cubic-bezier(.34,1.42,.64,1);
+}
+
+html[data-theme="pink"] body{
+  background:
+    radial-gradient(900px 620px at 8% -8%,rgba(255,122,198,.16),transparent 62%),
+    radial-gradient(760px 560px at 96% 4%,rgba(176,92,255,.14),transparent 60%),
+    linear-gradient(180deg,#1b0b17,#120812 64%,#0d060c);
+}
+
+html[data-theme="pink"] body::before{
+  background:
+    radial-gradient(680px 460px at 8% -6%,rgba(255,122,198,.20),transparent 62%),
+    radial-gradient(760px 520px at 98% 2%,rgba(176,92,255,.16),transparent 60%),
+    radial-gradient(1000px 680px at 50% 118%,rgba(255,79,163,.12),transparent 66%),
+    linear-gradient(180deg,#1c0b17,#0e070d);
+  animation:ambientDrift 42s var(--ease-out) infinite alternate,
+            pinkAurora 18s ease-in-out infinite alternate;
+}
+@keyframes pinkAurora{
+  from{filter:hue-rotate(-6deg) saturate(1)}
+  to{filter:hue-rotate(10deg) saturate(1.12)}
+}
+
+html[data-theme="pink"] ::selection{background:rgba(255,122,198,.32);color:#fff}
+html[data-theme="pink"] :focus-visible{outline-color:rgba(255,122,198,.72)}
+html[data-theme="pink"] *{scrollbar-color:rgba(255,122,198,.28) transparent}
+html[data-theme="pink"] ::-webkit-scrollbar-thumb{background:rgba(255,122,198,.26);background-clip:content-box}
+html[data-theme="pink"] ::-webkit-scrollbar-thumb:hover{background:rgba(255,122,198,.55);background-clip:content-box}
+
+html[data-theme="pink"] code{
+  color:#ffd6ec;background:rgba(255,122,198,.10);border-color:rgba(255,122,198,.22);
+}
+
+/* ---------- 顶栏 ---------- */
+html[data-theme="pink"] .topbar{
+  background:linear-gradient(180deg,rgba(46,16,38,.88),rgba(25,9,22,.78));
+  border-bottom-color:rgba(255,122,198,.18);
+  box-shadow:0 12px 40px rgba(30,0,20,.28);
+}
+html[data-theme="pink"] .topbar::after{
+  background:linear-gradient(90deg,transparent,rgba(255,122,198,.55),rgba(176,92,255,.45),transparent);
+}
+html[data-theme="pink"] .brand-mark{
+  background:linear-gradient(160deg,rgba(255,122,198,.22),rgba(176,92,255,.16));
+  border-color:rgba(255,122,198,.35);
+  box-shadow:0 0 22px rgba(255,122,198,.20);
+}
+html[data-theme="pink"] .brand-mark svg{color:#ffd0e8}
+html[data-theme="pink"] .brand-text h1{
+  background:linear-gradient(100deg,#fff0f8,#ff9ed2 48%,#c9a2ff);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+html[data-theme="pink"] .status-chip{
+  background:rgba(255,255,255,.05);border-color:rgba(255,122,198,.18);
+}
+html[data-theme="pink"] .status-chip:hover{background:rgba(255,122,198,.10);border-color:rgba(255,122,198,.34)}
+html[data-theme="pink"] .status-chip.ok .dot{background:var(--mint);box-shadow:0 0 10px rgba(126,240,212,.6)}
+
+/* ---------- 面板 / 轨道 ---------- */
+html[data-theme="pink"] .rail{
+  border-color:rgba(255,122,198,.16);
+  background:linear-gradient(180deg,rgba(43,18,38,.72),rgba(22,10,20,.86));
+  box-shadow:0 20px 56px rgba(28,0,20,.35),inset 0 1px 0 rgba(255,255,255,.05);
+}
+html[data-theme="pink"] .panel{
+  background:linear-gradient(180deg,rgba(52,22,45,.55),rgba(30,13,27,.62));
+  border-color:rgba(255,122,198,.12);
+}
+html[data-theme="pink"] .panel:hover{border-color:rgba(255,122,198,.22)}
+html[data-theme="pink"] .panel-head h2{color:#ffe6f4}
+html[data-theme="pink"] .panel-head .hint{color:var(--faint)}
+
+/* ---------- 按钮 ---------- */
+html[data-theme="pink"] .btn{
+  border-color:rgba(255,122,198,.22);
+}
+html[data-theme="pink"] .btn:hover{
+  border-color:rgba(255,122,198,.42);
+  background:rgba(255,122,198,.10);
+}
+html[data-theme="pink"] .btn.primary{
+  background:linear-gradient(135deg,#ff9ad2 0%,#ff5fae 46%,#b05cff 100%);
+  border-color:rgba(255,210,235,.35);
+  color:#2a0a20;
+  box-shadow:0 10px 30px rgba(255,79,163,.28),inset 0 1px 0 rgba(255,255,255,.45);
+}
+html[data-theme="pink"] .btn.primary:hover{
+  filter:brightness(1.06) saturate(1.05);
+  box-shadow:0 14px 38px rgba(255,79,163,.38),inset 0 1px 0 rgba(255,255,255,.5);
+}
+html[data-theme="pink"] .btn.primary::after{
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);
+}
+html[data-theme="pink"] .btn.danger{border-color:rgba(255,107,139,.4);color:#ffb3c6}
+
+/* ---------- 输入 / 卡片 ---------- */
+html[data-theme="pink"] .input,
+html[data-theme="pink"] textarea,
+html[data-theme="pink"] select.input{
+  background:rgba(255,255,255,.05);
+  border-color:rgba(255,122,198,.18);
+}
+html[data-theme="pink"] .input:focus,
+html[data-theme="pink"] textarea:focus{
+  border-color:rgba(255,122,198,.55);
+  box-shadow:0 0 0 3px rgba(255,122,198,.14);
+}
+html[data-theme="pink"] .seg-card{
+  background:linear-gradient(180deg,rgba(48,20,42,.72),rgba(27,11,24,.8));
+  border-color:rgba(255,122,198,.13);
+}
+html[data-theme="pink"] .seg-card:hover{
+  border-color:rgba(255,122,198,.32);
+  box-shadow:0 12px 34px rgba(30,0,20,.34);
+}
+html[data-theme="pink"] .seg-card.current{
+  border-color:rgba(255,122,198,.55);
+  box-shadow:0 0 0 1px rgba(255,122,198,.18),0 16px 42px rgba(255,79,163,.16);
+}
+html[data-theme="pink"] .seg-card.current::before{
+  background:linear-gradient(180deg,#ff9ad2,#b05cff);
+}
+html[data-theme="pink"] .pill,
+html[data-theme="pink"] .tag{
+  border-color:rgba(255,122,198,.24);
+  background:rgba(255,122,198,.08);
+}
+
+/* ---------- 弹窗 / 成片 ---------- */
+html[data-theme="pink"] .modal{background:rgba(18,4,15,.72)}
+html[data-theme="pink"] .modal-card{
+  background:linear-gradient(180deg,#2b1226,#180a16);
+  border-color:rgba(255,122,198,.22);
+  box-shadow:0 34px 90px rgba(20,0,14,.7),inset 0 1px 0 rgba(255,255,255,.06);
+}
+html[data-theme="pink"] .modal-head{border-bottom-color:rgba(255,122,198,.14)}
+html[data-theme="pink"] .modal-foot{border-top-color:rgba(255,122,198,.14)}
+html[data-theme="pink"] .final-frame{
+  border-color:rgba(255,122,198,.22);
+  background:radial-gradient(120% 120% at 50% 0%,#2c0f27,#120710 72%);
+}
+html[data-theme="pink"] .final-frame video,
+html[data-theme="pink"] .final-frame img{background:#0b0409}
+
+/* 主题按钮：当前主题的小圆点 */
+.theme-btn .theme-dot{
+  width:7px;height:7px;border-radius:50%;flex:none;
+  background:linear-gradient(135deg,#ff9ad2,#b05cff);
+  box-shadow:0 0 8px rgba(255,122,198,.6);
+}
+html:not([data-theme="pink"]) .theme-btn .theme-dot{
+  background:linear-gradient(135deg,#f7b955,#8b6a2b);
+  box-shadow:0 0 8px rgba(247,185,85,.45);
+}
+
+@media (prefers-reduced-motion:reduce){
+  .theme-wipe.is-running{animation-duration:.01s}
+  html[data-theme="pink"] body::before{animation:none}
+}

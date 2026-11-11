@@ -1,6 +1,7 @@
 // 主应用逻辑
 import { api } from "./api.js";
 import { state, setProject } from "./store.js";
+import { initTheme } from "./theme.js";
 import { Waveform } from "./waveform.js";
 import {
   $, $$, busy, clamp, confirmDialog, debounce, escapeHtml, formatDate, formatTime, formatDuration,
@@ -21,6 +22,7 @@ const cutHistory = [];
 
 // ------------------------------- 初始化 -------------------------------
 async function init() {
+  initTheme();
   waveform = new Waveform($("#wave-canvas"), $("#wave-wrap"));
   waveform.onSeek = (seconds) => {
     const audio = $("#audio-el");

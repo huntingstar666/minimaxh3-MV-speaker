@@ -8,8 +8,17 @@
 <title>H3 Studio · 无限时长数字人 / MV 工作台</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0f14'/%3E%3Cpath d='M6 16h2.5M11 11v10M15.5 7v18M20 10v12M24.5 13v6M28 16h-1' stroke='%23f7b955' stroke-width='2.2' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/theme-pink.css">
 </head>
 <body>
+<script>
+  // 首屏前应用主题，避免深色/粉色闪一下
+  try {
+    if (localStorage.getItem("h3wb.mvTheme") === "pink") {
+      document.documentElement.dataset.theme = "pink";
+    }
+  } catch (e) { /* 隐私模式忽略 */ }
+</script>
 <svg width="0" height="0" style="position:absolute">
   <defs>
     <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
@@ -53,6 +62,7 @@
   </div>
   <div class="top-actions">
     <a class="btn ghost sm" href="/avatar/" id="btn-avatar" title="数字人模式 1/2/3：模式 1 沿用本页的音频驱动，模式 2/3 走新工作流"><svg><use href="#i-wave"/></svg>数字人工作台</a>
+    <button class="btn ghost sm theme-btn" id="btn-theme" type="button" title="切换粉色渐变风格" aria-pressed="false"><span class="theme-dot"></span><span id="theme-label">夜班</span></button>
     <button class="btn ghost sm" id="btn-history"><svg><use href="#i-film"/></svg>历史作品</button>
     <button class="btn ghost sm" id="btn-settings"><svg><use href="#i-settings"/></svg>设置</button>
   </div>
