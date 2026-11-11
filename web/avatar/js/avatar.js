@@ -854,8 +854,9 @@ function resetAdvancedGeneration() {
   const mode = Number(state.mode) || 1;
   const stitch = $("#f-stitch")?.value || "hard";
   const anchor = stitch === "anchor" && mode === 1;
-  const anchorSampler = defaults.anchor_sampler || "plain";
-  // 锚定用该采样方式的推荐栈；其它模式用后端默认栈
+  // 保留用户当前的单/双采选择：这里只恢复参数，不切换二采开关
+  const anchorSampler = $("#f-anchor-sampler")?.value || "plain";
+  // 锚定用当前采样方式的推荐栈；其它模式用后端默认栈
   const stack = anchor
     ? (anchorSampler === "selflift" ? state.anchorSelflift : state.anchorPlain)
     : null;
@@ -866,12 +867,8 @@ function resetAdvancedGeneration() {
     return preset !== undefined ? preset : defaults[key];
   };
 
-  // 单 / 双采回到各链路默认：Ref 默认双采，seam/mixed 默认单采，锚定跟随采样器
-  state.refSecondPass = defaults.ref_second_pass !== false;
-  state.seamSecondPass = defaults.seam_second_pass === true;
   state.customModels = false;
-  setSelectValue($("#f-anchor-sampler"), anchorSampler);
-  // 与推荐栈一致时 syncAnchorUI 不会再用“项目里保存的模型”覆盖默认值
+  // 与当前采样栈一致时 syncAnchorUI 不会再用“项目里保存的模型”覆盖默认值
   state.anchorStack = anchor ? (anchorSampler === "selflift" ? "selflift" : "plain") : "hard";
 
   setSelectValue($("#a-sampler"), pick("sampler"));
