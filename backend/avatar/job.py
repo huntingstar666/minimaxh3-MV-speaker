@@ -1041,11 +1041,21 @@ class AvatarRunner:
         return record
 
     # ------------------------------ 拼接 ------------------------------
-    def _extract_audio(self, take: Path, target: Path) -> None:
-        audio_utils.command([
-            audio_utils.ffmpeg(), "-y", "-v", "error", "-i", str(take), "-vn",
-            "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le", str(target),
-        ], timeout=600)
+    @staticmethod
+    def _extract_audio(take: Path, target: Path, frames: int | None = None) -> None:
+        """从 take 抽音轨。
+
+        给定 ``frames`` 时用 ``apad,atrim=end_sample`` 精确裁/补到 ``frames/FPS`` 秒：
+        H3 每次 take 的音频长度不一定等于交付帧数，不裁会让成片音轨比视频长，
+        多段叠加后越拖越偏。``apad`` 保证短了补静音，样本数严格等于目标。
+        """
+        args = [audio_utils.ffmpeg(), "-y", "-v", "error", "-i", str(take), "-vn",
+                "-ac", "2", "-ar", "44100"]
+        if frames and int(frames) > 0:
+            samples = int(round(int(frames) * 44100 / config.FPS))
+            args += ["-af", f"apad,atrim=end_sample={samples}"]
+        args += ["-c:a", "pcm_s16le", str(target)]
+        audio_utils.command(args, timeout=600)
 
     def _concat_audio(self, wavs: list[Path], target: Path, work: Path) -> None:
         listing = work / "audio_concat.txt"
@@ -1082,7 +1092,7 @@ class AvatarRunner:
             norm = work / f"seg_{index:04d}.mp4"
             media.normalize(take_path, norm, frames, crf=18, fps=config.FPS)
             wav = work / f"seg_{index:04d}.wav"
-            self._extract_audio(take_path, wav)
+            self._extract_audio(take_path, wav, frames)
             norms.append(norm)
             wavs.append(wav)
             total_frames += frames
