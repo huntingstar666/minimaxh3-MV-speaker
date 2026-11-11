@@ -114,6 +114,29 @@
       </div>
       <p class="panel-note tiny" id="mode-hint">模式 2 / 3 的成片视频自带生成音频；模式 1 保留上传音频原声。</p>
     </section>
+    <section class="panel" id="panel-workbench">
+      <div class="panel-head"><h2>作品设定</h2><span class="hint">快速入口</span></div>
+      <div class="av-quick-grid">
+        <button class="av-quick-card" type="button" data-action="open-settings-tab" data-tab="content">
+          <svg><use href="#i-layers"/></svg>
+          <span><strong>基础 / 台词</strong><em>模式、口播稿、作品名</em></span>
+        </button>
+        <button class="av-quick-card" type="button" data-action="open-settings-tab" data-tab="audio">
+          <svg><use href="#i-wave"/></svg>
+          <span><strong>音频 / 音色</strong><em>驱动音频、参考音色</em></span>
+        </button>
+        <button class="av-quick-card" type="button" data-action="open-settings-tab" data-tab="refs">
+          <svg><use href="#i-human"/></svg>
+          <span><strong>参考图</strong><em>人物、场景、造型</em></span>
+        </button>
+        <button class="av-quick-card" type="button" data-action="open-settings-tab" data-tab="design">
+          <svg><use href="#i-spark"/></svg>
+          <span><strong>设计</strong><em>画面、字幕、品牌</em></span>
+        </button>
+      </div>
+      <button class="btn primary av-quick-new" type="button" id="btn-new-work"><svg><use href="#i-plus"/></svg>新建作品</button>
+      <p class="panel-note tiny" id="workbench-hint">先选创作模式，再新建作品；已有作品从「历史作品」打开。</p>
+    </section>
     <section class="panel" id="panel-projects" hidden>
 
       <div class="av-form-actions-row">
@@ -336,6 +359,38 @@
 <script type="module" src="/avatar/static/js/theme.js"></script>
 <script type="module" src="/avatar/static/js/avatar.js"></script>
 <script type="module" src="/avatar/static/js/avatar-polish.js"></script>
+
+<div class="modal av-settings-modal" id="modal-sys-settings" hidden>
+  <div class="modal-card av-settings-card av-sys-card">
+    <div class="modal-head"><h2>系统设置</h2><button class="icon-btn" data-close aria-label="关闭" data-tip="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body av-settings-body">
+      <section class="av-card">
+        <div class="section-label">连接</div>
+        <div class="field"><label>ComfyUI 地址</label><input id="sys-comfy" class="input mono" placeholder="http://127.0.0.1:8188"></div>
+        <div class="field-row">
+          <div class="field"><label>ffmpeg</label><input id="sys-ffmpeg" class="input mono"></div>
+          <div class="field"><label>ffprobe</label><input id="sys-ffprobe" class="input mono"></div>
+        </div>
+        <p class="panel-note tiny">与 MV 工作台共用 <code>data/settings.json</code>；环境体检在 MV 页「设置」里。</p>
+      </section>
+      <section class="av-card">
+        <div class="section-label">LLM（可选）</div>
+        <div class="field-row">
+          <div class="field"><label>Base URL</label><input id="sys-llm-base" class="input mono"></div>
+          <div class="field"><label>模型</label><input id="sys-llm-model" class="input mono"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>API Key</label><input id="sys-llm-key" class="input mono" type="password"></div>
+          <div class="field"><label>超时（秒）</label><input id="sys-llm-timeout" class="input mono" type="number" min="10"></div>
+        </div>
+      </section>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close>取消</button>
+      <button class="btn primary" id="btn-save-sys-settings">保存</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal" id="modal-history" hidden>
   <div class="modal-card wide">

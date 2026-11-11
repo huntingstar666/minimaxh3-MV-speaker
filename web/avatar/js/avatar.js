@@ -579,6 +579,8 @@ const projectPath = (id) => `${API}/projects/${encodeURIComponent(id)}`;
 
 const api = {
   health: () => request(`${API}/health`),
+  settings: () => request(`${API}/settings`),
+  saveSettings: (body) => request(`${API}/settings`, { method: "POST", body }),
   options: () => request(`${API}/options`),
   prompts: () => request(`${API}/prompts`),
   savePrompts: (body) => request(`${API}/prompts`, { method: "PATCH", body }),
@@ -3462,6 +3464,47 @@ async function loadProjects() {
   renderProjectList();
 }
 
+async function loadSysSettings() {
+  try {
+    const data = await api.settings();
+    const cfg = data.settings || {};
+    const llm = cfg.llm || {};
+    $("#sys-comfy").value = cfg.comfy_url || "";
+    $("#sys-ffmpeg").value = cfg.ffmpeg || "ffmpeg";
+    $("#sys-ffprobe").value = cfg.ffprobe || "ffprobe";
+    $("#sys-llm-base").value = llm.base_url || "";
+    $("#sys-llm-model").value = llm.model || "";
+    $("#sys-llm-key").value = "";
+    $("#sys-llm-timeout").value = llm.timeout ?? 180;
+  } catch {
+    /* 设置读取失败不阻塞页面 */
+  }
+}
+
+async function saveSysSettings() {
+  const payload = {
+    comfy_url: $("#sys-comfy").value.trim(),
+    ffmpeg: $("#sys-ffmpeg").value.trim() || "ffmpeg",
+    ffprobe: $("#sys-ffprobe").value.trim() || "ffprobe",
+    llm: {
+      base_url: $("#sys-llm-base").value.trim(),
+      model: $("#sys-llm-model").value.trim(),
+      timeout: Number($("#sys-llm-timeout").value) || 180,
+    },
+  };
+  const key = $("#sys-llm-key").value.trim();
+  if (key) payload.llm.api_key = key;
+  try {
+    await api.saveSettings(payload);
+    $("#modal-sys-settings").hidden = true;
+    toast("系统设置已保存", "ok");
+    loadHealth();
+    loadOptions();
+  } catch (error) {
+    toast(`保存失败：${error.message}`, "err");
+  }
+}
+
 async function openProject(id) {
   if (!id) return;
   if (state.project && state.project.id !== id
@@ -5714,6 +5757,13 @@ function bindDesignEvents() {
 }
 
 function bindEvents() {
+  $("#panel-workbench")?.addEventListener("click", (event) => {
+    const card = event.target.closest('[data-action="open-settings-tab"]');
+    if (!card) return;
+    openSettingsTab(card.dataset.tab || "content", { open: true });
+  });
+  $("#btn-new-work")?.addEventListener("click", startNewProject);
+  $("#btn-save-sys-settings")?.addEventListener("click", saveSysSettings);
   $("#btn-history")?.addEventListener("click", async () => {
     await loadProjects();
     $("#modal-history").hidden = false;
@@ -6124,6 +6174,7 @@ async function boot() {
     loadOptions(),
     loadPrompts(),
     loadProjects(),
+    loadSysSettings(),
     loadCatalogAtBoot(),
   ]);
 

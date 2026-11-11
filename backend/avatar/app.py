@@ -508,6 +508,18 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.get("/api/settings")
+def get_settings() -> dict[str, Any]:
+    """与 MV 工作台共用 data/settings.json；数字人页只暴露同一套系统设置。"""
+    return {"ok": True, "settings": settings.public()}
+
+
+@app.post("/api/settings")
+def post_settings(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    settings.save(payload or {})
+    return {"ok": True, "settings": settings.public()}
+
+
 @app.get("/api/options")
 def options_api(force: bool = False) -> dict[str, Any]:
     options = None

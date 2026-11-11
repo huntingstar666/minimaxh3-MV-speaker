@@ -43,3 +43,39 @@
 }
 .av-body.av-8bit .history-del:hover{background:#fbe3df;color:#b3261e;border-color:var(--text)}
 .av-body.av-8bit .history-panel .btn{border-radius:0}
+
+/* 轨道固定在页面顶部：滚动分段卡时波形不消失 */
+.av-stage-head{position:relative!important;top:auto!important;z-index:auto!important;
+  background:none!important;border-bottom:0!important;box-shadow:none!important;backdrop-filter:none!important}
+.av-stage.is-scrolled .av-stage-head{border-bottom-color:transparent!important;box-shadow:none!important}
+.av-timeline{position:sticky;top:0;z-index:14;
+  box-shadow:0 12px 28px -18px rgba(0,0,0,.55),inset 0 1px 0 color-mix(in srgb,var(--text) 4%,transparent)}
+.av-body.av-8bit .av-timeline{box-shadow:4px 4px 0 rgba(23,19,13,.18)}
+
+/* 左栏「作品设定」快速卡片 */
+.av-quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.av-quick-card{
+  display:flex;align-items:flex-start;gap:9px;text-align:left;
+  padding:10px 11px;border:1px solid var(--line);border-radius:12px;
+  background:var(--av-card);color:var(--text);cursor:pointer;
+  transition:transform .18s var(--av-ease),border-color .18s var(--av-ease),
+             background .18s var(--av-ease),box-shadow .18s var(--av-ease);
+}
+.av-quick-card svg{width:17px;height:17px;flex:none;color:var(--amber);margin-top:1px}
+.av-quick-card span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.av-quick-card strong{font-size:11.5px;font-weight:650;color:var(--text)}
+.av-quick-card em{font-style:normal;font-size:9.5px;line-height:1.45;color:var(--faint)}
+.av-quick-card:hover{
+  transform:translateY(-1px);border-color:var(--av-amber-line);
+  background:var(--av-card-hi);box-shadow:0 8px 22px rgba(0,0,0,.18);
+}
+.av-quick-card:active{transform:translateY(0) scale(.99)}
+.av-quick-new{width:100%;margin-top:10px;justify-content:center}
+.av-sys-card{width:min(640px,94vw)}
+.av-body.av-8bit .av-quick-card{
+  border:2px solid var(--text);border-radius:0;background:#fffaf0;
+  box-shadow:2px 2px 0 rgba(23,19,13,.16);
+}
+.av-body.av-8bit .av-quick-card:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 rgba(23,19,13,.22)}
+.av-body.av-8bit .av-quick-card em{color:var(--dim)}
+.av-body.av-8bit .av-quick-new{border-radius:0}
