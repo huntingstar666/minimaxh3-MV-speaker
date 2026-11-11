@@ -611,6 +611,38 @@ def test_final_stale_reason() -> None:
     require(jobs.final_stale_reason(legacy) == "",
             "旧 seam 成片没有 segment_signature 时退回 take 判断")
 
+    overlap_project = {
+        "segments": [{"start_frame": 0, "end_frame": 120, "stitch": "hard"},
+                     {"start_frame": 120, "end_frame": 240, "stitch": "seam",
+                      "overlap": 22}],
+        "generation": {"stitch": "mixed", "seam_overlap": 22, "output_fps": 24},
+        "final": {"stitch": "mixed", "seam_overlap": 22, "fps": 24},
+    }
+    overlap_project["final"]["segment_signature"] = jobs.cuts_signature(overlap_project)
+    require(jobs.final_stale_reason(overlap_project) == "", "参数未变不应判过期")
+    overlap_project["segments"][1]["overlap"] = 39
+    reason = jobs.final_stale_reason(overlap_project)
+    require("接缝重叠" in reason or "接续" in reason,
+            f"改行级重叠应提示重出：{reason}")
+
+    fps_project = {
+        "segments": [{"start_frame": 0, "end_frame": 120, "selected_take": "t1"}],
+        "generation": {"stitch": "hard", "output_fps": 30},
+        "final": {"stitch": "hard", "fps": 24},
+    }
+    fps_project["final"]["take_signature"] = jobs.take_signature(fps_project)
+    require("帧率" in jobs.final_stale_reason(fps_project),
+            "改输出帧率应提示重新合成")
+
+    stitch_project = {
+        "segments": [{"start_frame": 0, "end_frame": 120, "selected_take": "t1"}],
+        "generation": {"stitch": "seam"},
+        "final": {"stitch": "hard"},
+    }
+    stitch_project["final"]["take_signature"] = jobs.take_signature(stitch_project)
+    require("段间模式" in jobs.final_stale_reason(stitch_project),
+            "改段间模式应提示重出")
+
 
 def main() -> int:
     run("逐链提交次数", test_submission_count)

@@ -40,16 +40,19 @@ def take_signature(project: dict[str, Any]) -> str:
 
 
 def cuts_signature(project: dict[str, Any]) -> str:
-    """切点 + 行级接续指纹：seam/mixed 成片没有单段 take，只能靠它判断是否过期。
+    """切点 + 行级接续/重叠指纹：seam/mixed 成片没有单段 take，只能靠它判断是否过期。
 
     只有出现过显式 ``row.stitch`` 时才把接续方式算进指纹；否则沿用纯切点算法，
-    避免旧项目的成片在升级后突然被判过期。
+    避免旧项目的成片在升级后突然被判过期。行级 ``overlap`` 也参与，改 22→39
+    会让 mixed/seam 的窗口规划变化。
     """
     rows = project.get("segments") or []
     parts = [f"{int(row.get('start_frame') or 0)}-{int(row.get('end_frame') or 0)}"
              for row in rows]
     if any(str(row.get("stitch") or "").strip() for row in rows):
+        has_overlap = any("overlap" in row for row in rows)
         parts = [f"{part}:{str(row.get('stitch') or 'hard').strip().lower()}"
+                 + (f":{int(row.get('overlap') or 0)}" if has_overlap else "")
                  for part, row in zip(parts, rows)]
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
@@ -64,7 +67,25 @@ def final_stale_reason(project: dict[str, Any]) -> str:
     final = project.get("final")
     if not isinstance(final, dict):
         return ""
-    stitch = str(final.get("stitch") or "")
+    generation = project.get("generation") or {}
+    final_stitch = str(final.get("stitch") or "").strip().lower()
+    current_stitch = str(generation.get("stitch") or final_stitch or "hard").strip().lower()
+    if final_stitch and final_stitch != current_stitch:
+        return f"段间模式已从 {final_stitch} 改为 {current_stitch}，请重新生成或合成成片"
+    try:
+        final_fps = int(final.get("fps") or 0)
+        current_fps = int(generation.get("output_fps") or final_fps or 0)
+    except (TypeError, ValueError):
+        final_fps = current_fps = 0
+    if final_fps and current_fps and final_fps != current_fps:
+        return f"输出帧率已从 {final_fps} 改为 {current_fps}，请重新合成成片"
+    if final_stitch in {"seam", "mixed"} and generation.get("seam_overlap") is not None:
+        try:
+            if int(final.get("seam_overlap") or 0) != int(generation["seam_overlap"]):
+                return "接缝重叠已变更，请用「重新生成全部」重出成片"
+        except (TypeError, ValueError):
+            pass
+    stitch = final_stitch
     if stitch in {"seam", "mixed"} and final.get("segment_signature"):
         if final["segment_signature"] != cuts_signature(project):
             return f"切点或接续方式已变更，请用「重新生成全部」重出 {stitch} 成片"

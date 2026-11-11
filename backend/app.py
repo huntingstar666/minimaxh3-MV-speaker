@@ -471,7 +471,14 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     for key in allowed:
         if key in payload:
             if key == "generation":
-                project["generation"] = {**(project.get("generation") or {}), **(payload[key] or {})}
+                before = dict(project.get("generation") or {})
+                after = {**before, **(payload[key] or {})}
+                project["generation"] = after
+                # 只把会影响成片产物的字段标过期；单纯改种子/模型不影响已选片段
+                output_keys = ("stitch", "seam_overlap", "output_fps")
+                if any(before.get(name) != after.get(name) for name in output_keys):
+                    _mark_final_stale(
+                        project, "段间模式/接缝重叠/输出帧率已变更，请重新合成或生成成片")
             else:
                 value = payload[key]
                 if key == "name":
@@ -1009,11 +1016,11 @@ def regenerate(project_id: str, index: int, payload: dict[str, Any] | None = Non
     return {"ok": True, "run": state}
 
 
-def _mark_final_stale(project: dict[str, Any]) -> None:
+def _mark_final_stale(project: dict[str, Any], reason: str | None = None) -> None:
     final = project.get("final")
     if isinstance(final, dict):
         final["stale"] = True
-        final["stale_reason"] = "分段选材已变更，请重新合成成片"
+        final["stale_reason"] = reason or "分段选材已变更，请重新合成成片"
 
 
 @app.post("/api/projects/{project_id}/segments/{index}/takes/{take_id}/select")
