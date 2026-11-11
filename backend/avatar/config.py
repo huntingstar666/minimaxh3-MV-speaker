@@ -177,8 +177,12 @@ DEFAULT_GENERATION: dict = {
 }
 
 
-def generation_defaults() -> dict:
-    return dict(DEFAULT_GENERATION)
+def generation_defaults(mode: int | None = None) -> dict:
+    """默认生成参数；模式 2 的新项目默认走 seam（relay 逐跳掉画质，只作兜底）。"""
+    value = dict(DEFAULT_GENERATION)
+    if int(mode or 0) == MODE_VOICE_REF:
+        value["stitch"] = "seam"
+    return value
 
 
 # 首尾帧单采（plain）参考工作流模型栈，来自

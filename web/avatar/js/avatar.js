@@ -2338,6 +2338,13 @@ function switchMode(mode) {
 function setMode(mode) {
   const value = [1, 2, 3].includes(Number(mode)) ? Number(mode) : 1;
   state.mode = value;
+  // 新项目默认值：模式 2 用接缝接续（relay 逐跳掉画质，只作兜底）
+  if (!state.project) {
+    const stitch = $("#f-stitch");
+    const current = stitch?.value || "hard";
+    if (value === 2 && current === "hard") stitch.value = "seam";
+    if (value !== 2 && current === "seam") stitch.value = "hard";
+  }
   // 切模式时清掉不属于当前模式的待上传素材，避免“模式三高亮但表单还挂着参考音频”
   if (value !== 2 && state.pendingVoice) {
     state.pendingVoice = null;

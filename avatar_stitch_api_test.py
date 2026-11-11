@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from backend.avatar import store  # noqa: E402
 from backend.avatar.app import app  # noqa: E402
 
 failures: list[str] = []
@@ -103,12 +104,26 @@ def test_default_overlap_recorded() -> None:
             f"默认 overlap 应为 5：{generation.get('seam_overlap')}")
 
 
+def test_default_stitch_by_mode() -> None:
+    """模式 2 新项目默认 seam；模式 1/3 仍 hard；显式传值优先。"""
+    for mode, expected in ((1, "hard"), (2, "seam"), (3, "hard")):
+        pid = create(mode)
+        actual = store.get(pid)["generation"].get("stitch")
+        require(actual == expected, f"模式 {mode} 默认应为 {expected}，实际 {actual}")
+    response = client.post("/api/projects", data={
+        "name": "显式 hard", "mode": "2", "generation": '{"stitch": "hard"}'})
+    require(response.status_code == 200, f"显式 hard 创建失败：{response.status_code}")
+    actual = response.json()["project"]["generation"].get("stitch")
+    require(actual == "hard", f"显式值应保留，实际 {actual}")
+
+
 def main() -> int:
     run("seam_overlap 合法性", test_seam_overlap_values)
     run("模式 2 可选模式", test_mode2_modes)
     run("模式 3 可选模式", test_mode3_modes)
     run("模式 1 拒绝 relay/seam", test_mode1_rejects_other_modes)
     run("默认 overlap", test_default_overlap_recorded)
+    run("按模式默认 stitch", test_default_stitch_by_mode)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))
