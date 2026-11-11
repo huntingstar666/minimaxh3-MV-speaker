@@ -248,6 +248,17 @@ def test_avatar_missing_fields_seam() -> None:
         "数字人硬切单采不应要求潜空间放大器")
 
 
+def test_anchor_missing_fields_custom_models() -> None:
+    base = {"unet": "u", "clip": "c", "vae_video": "v", "vae_audio": "a",
+            "upscaler_model": ""}
+    require("潜空间放大器" in workflow.missing_fields_anchor(
+        dict(base, anchor_sampler="selflift")),
+        "锚定双采缺放大器应给出明确缺失项")
+    require(workflow.missing_fields_anchor(
+        dict(base, anchor_sampler="plain")) == [],
+        "锚定单采不应要求放大器")
+
+
 def main() -> int:
     run("relay 开关识别", test_relay_flag)
     run("默认图不含 guide", test_graph_without_tail)
@@ -259,6 +270,7 @@ def main() -> int:
     run("全部重新生成 force 语义", test_pending_targets_force)
     run("离开锚定清理自动模板", test_anchor_template_transition)
     run("seam/mixed 不要求放大器", test_avatar_missing_fields_seam)
+    run("锚定单/双采放大器依赖", test_anchor_missing_fields_custom_models)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))
