@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 import time
+import importlib
 from pathlib import Path
 from unittest import mock
 
@@ -209,6 +210,29 @@ def test_pending_targets_force() -> None:
             "单段重跑应只处理 only + force 指定的段")
 
 
+def test_anchor_template_transition() -> None:
+    app_mod = importlib.import_module("backend.avatar.app")
+    project = {"segments": [
+        {"prompt": "锚定模板", "prompt_source": "template"},
+        {"prompt": "用户手写", "prompt_source": "manual"},
+        {"prompt": "LLM 结果", "prompt_source": "llm"},
+    ]}
+    app_mod._apply_anchor_template_transition(
+        project, {"stitch": "anchor"}, {"stitch": "hard"})
+    rows = project["segments"]
+    require(rows[0]["prompt"] == "" and rows[0]["prompt_source"] == ""
+            and rows[0].get("prompt_stale") is True,
+            "离开锚定应清空自动模板并标记待重建")
+    require(rows[1]["prompt"] == "用户手写", "手写提示词不能被清理")
+    require(rows[2]["prompt"] == "LLM 结果", "LLM 提示词不能被清理")
+
+    kept = {"segments": [{"prompt": "模板", "prompt_source": "template"}]}
+    app_mod._apply_anchor_template_transition(
+        kept, {"stitch": "hard"}, {"stitch": "anchor"})
+    require(kept["segments"][0]["prompt"] == "模板",
+            "进入锚定由 _fill_anchor_templates 负责，这里不应清空")
+
+
 def main() -> int:
     run("relay 开关识别", test_relay_flag)
     run("默认图不含 guide", test_graph_without_tail)
@@ -218,6 +242,7 @@ def main() -> int:
     run("快照过期仍能抽末帧", test_tail_frame_uses_latest_store)
     run("重跑上游作废下游", test_relay_invalidates_downstream)
     run("全部重新生成 force 语义", test_pending_targets_force)
+    run("离开锚定清理自动模板", test_anchor_template_transition)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))

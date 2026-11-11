@@ -326,6 +326,32 @@ def _fill_anchor_templates(project: dict[str, Any]) -> None:
         row["prompt_meta"] = {"source": "template"}
 
 
+def _clear_anchor_templates(project: dict[str, Any]) -> None:
+    """离开首尾帧锚定时清掉自动模板，避免硬切继续用 FL2VA 模板当 Ref2VA 提示词。
+
+    只清 ``prompt_source=template`` 的自动内容；手写（manual）与 LLM 结果不动。
+    """
+    for row in project.get("segments") or []:
+        if str(row.get("prompt_source") or "") != "template":
+            continue
+        row["prompt"] = ""
+        row["prompt_source"] = ""
+        row["prompt_warnings"] = []
+        row["prompt_meta"] = {}
+        row["prompt_stale"] = True
+        row["prompt_stale_reason"] = "已切出首尾帧锚定，需重新生成 Ref2VA 提示词"
+
+
+def _apply_anchor_template_transition(project: dict[str, Any],
+                                      previous: dict[str, Any],
+                                      generation: dict[str, Any]) -> None:
+    """stitch 从 anchor 切到其它模式时清理模板；切回 anchor 由 _fill 负责。"""
+    was_anchor = str((previous or {}).get("stitch") or "hard") == "anchor"
+    now_anchor = str((generation or {}).get("stitch") or "hard") == "anchor"
+    if was_anchor and not now_anchor:
+        _clear_anchor_templates(project)
+
+
 _IMAGE_MAGIC = {
     ".png": (b"\x89PNG\r\n\x1a\n",),
     ".jpg": (b"\xff\xd8\xff",),
@@ -867,6 +893,7 @@ def patch_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         generation = _merged_generation(project, payload)
         _validate_anchor(project, generation)
         project["generation"] = generation
+        _apply_anchor_template_transition(project, previous, generation)
         # 只有参数真的变了才让成片过期：原样保存不应提示“需要重新合成”
         if generation != previous:
             _mark_final_stale(project)
@@ -1814,7 +1841,9 @@ def generate(project_id: str, payload: dict[str, Any] | None = None) -> dict[str
     generation = _merged_generation(project, payload)
     _validate_anchor(project, generation, check_nodes=True)
     if isinstance(payload.get("generation"), dict) or "stitch" in payload:
+        previous = dict(project.get("generation") or {})
         project["generation"] = generation
+        _apply_anchor_template_transition(project, previous, generation)
         store.save(project)
     try:
         state = job.runner.start(project_id, payload)
@@ -1834,7 +1863,9 @@ def regenerate(project_id: str, index: int, payload: dict[str, Any] | None = Non
     _validate_anchor(project, generation, check_nodes=True)
     if isinstance(payload.get("generation"), dict) or "stitch" in payload:
         # 与 /generate 一致：单段重跑携带的参数也落库，避免界面与项目值不一致
+        previous = dict(project.get("generation") or {})
         project["generation"] = generation
+        _apply_anchor_template_transition(project, previous, generation)
         store.save(project)
     try:
         state = job.runner.start(project_id, {**payload, "only": [index], "force": [index]})
