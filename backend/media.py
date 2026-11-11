@@ -127,8 +127,20 @@ def normalize(src: Path, dst: Path, output_frames: int, crf: int = 18,
     ], timeout=1800)
 
 
+def output_frame_count(total_frames: int, fps: int = frames.FPS) -> int:
+    """把生成口径帧数（24fps 时间基准）换算成成片帧率下的帧数。"""
+    out_fps = int(fps) if int(fps) > 0 else frames.FPS
+    return max(int(round(max(int(total_frames), 1) * out_fps / frames.FPS)), 1)
+
+
 def concat(clips: list[Path], audio_source: Path | None, out: Path, total_frames: int,
-           workdir: Path) -> None:
+           workdir: Path, fps: int = frames.FPS) -> None:
+    """拼接成片。
+
+    total_frames 是生成口径（24fps 基准）的帧数；fps 是成片封装帧率。
+    非 24fps 交付时片段已由 normalize 转成目标帧率，这里必须按输出帧率折算，
+    否则 -frames:v 会拿 24fps 的帧数把成片截短（30fps 少 1/5 时长）。
+    """
     if not clips:
         raise ValueError("没有可拼接的片段。")
     workdir.mkdir(parents=True, exist_ok=True)
@@ -150,10 +162,11 @@ def concat(clips: list[Path], audio_source: Path | None, out: Path, total_frames
                  "-c:a", "aac", "-b:a", "192k"]
     else:
         args += ["-map", "0:v:0", "-an"]
-    seconds = frames.to_seconds(max(int(total_frames), 1))
+    out_frames = output_frame_count(total_frames, fps)
+    seconds = out_frames / (int(fps) if int(fps) > 0 else frames.FPS)
     # -t 按时间戳截断时，copy 模式会把跨过边界的那个 packet 也带进来（长片实测多 2 帧）；
     # 再加 -frames:v 精确卡住帧数，保证成片帧数与账本一致。
-    args += ["-c:v", "copy", "-frames:v", str(max(int(total_frames), 1)),
+    args += ["-c:v", "copy", "-frames:v", str(out_frames),
              "-t", f"{seconds:.6f}", "-movflags", "+faststart", str(out)]
     audio.command(args, timeout=1800)
 

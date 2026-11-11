@@ -1372,7 +1372,8 @@ class JobRunner:
             normalized.append(target)
         total_seconds = frames.to_seconds(total_frames)
         final_path = directory / "final" / "final.mp4"
-        media.concat(normalized, directory / "source.wav", final_path, total_frames, work)
+        media.concat(normalized, directory / "source.wav", final_path, total_frames, work,
+                     fps=output_fps)
         thumb = directory / "final" / "cover.jpg"
         media.thumbnail(final_path, thumb, min(0.8, max(total_seconds / 3, 0.2)))
         project["final"] = {
