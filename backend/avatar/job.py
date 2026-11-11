@@ -1097,10 +1097,11 @@ class AvatarRunner:
             record = records.get(index) or {}
             output = str(row.get("output") or "").strip()
             file_ok = bool(output) and (base / output).is_file()
+            latent = str(record.get("latent") or "")
             ok = (chain_ok.get(chain_id, True)
                   and index not in force and index not in only
                   and seam.reusable(record, fingerprint, row, file_ok)
-                  and bool(str(record.get("latent") or "")))
+                  and bool(latent) and Path(latent).is_file())
             chain_ok[chain_id] = ok
             reusable.append(ok)
         reused = sum(1 for value in reusable if value)
