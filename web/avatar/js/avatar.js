@@ -888,6 +888,9 @@ function syncAnchorUI() {
   if (stitchInput.value === "relay" && anchorAvailable) {
     stitchInput.value = "hard";
   }
+  if (stitchInput.value === "mixed" && mode === 3) {
+    stitchInput.value = "hard";
+  }
   const on = stitchInput.value === "anchor" && anchorAvailable;
   const fields = $("#anchor-fields");
   if (fields) fields.hidden = !on;
@@ -900,8 +903,10 @@ function syncAnchorUI() {
   const stitchSeg = $("#f-stitch-seg");
   if (stitchSeg) {
     const options = anchorAvailable
-      ? [["hard", "硬切"], ["anchor", "首尾帧锚定"], ["seam", "接缝接续"]]
-      : [["hard", "硬切"], ["relay", "尾帧接力"], ["seam", "接缝接续"]];
+      ? [["hard", "硬切"], ["anchor", "首尾帧锚定"], ["seam", "接缝接续"], ["mixed", "混合"]]
+      : mode === 3
+        ? [["hard", "硬切"], ["relay", "尾帧接力"], ["seam", "接缝接续"]]
+        : [["hard", "硬切"], ["relay", "尾帧接力"], ["seam", "接缝接续"], ["mixed", "混合"]];
     const signature = options.map((item) => item[0]).join("|");
     if (stitchSeg.dataset.options !== signature) {
       stitchSeg.dataset.options = signature;
@@ -914,17 +919,20 @@ function syncAnchorUI() {
   }
   const stitchStatic = $("#stitch-static-hint");
   if (stitchStatic) {
-    stitchStatic.hidden = !(stitchInput.value === "seam");
-    stitchStatic.textContent = anchorAvailable
-      ? "音频接续：整条驱动音频按窗口绝对区间切片并锁定，逐窗续接 AV latent；"
-        + "上一窗保留重叠区，合成时裁头拼接，口型不吞字、画面不留缝。"
-      : "尾帧接力：把上一段末帧作为本段第 0 帧的软引导，姿态/背景更连续；"
-        + "接缝接续：相邻段多生成 5 帧重叠，上一段拥有重叠区，合成时裁头拼接，画面与声音都不留缝；"
-        + "两者每段仍用自己的音色生成台词，音轨按段拼接。";
+    stitchStatic.hidden = !["seam", "mixed"].includes(stitchInput.value);
+    stitchStatic.textContent = stitchInput.value === "mixed"
+      ? "混合：每段卡片上选「续接上段」或「硬切」；连续的续接段组成一条链，"
+        + "链内 latent 续接、链间硬切，链级断点续跑。"
+      : anchorAvailable
+        ? "音频接续：整条驱动音频按窗口绝对区间切片并锁定，逐窗续接 AV latent；"
+          + "上一窗保留重叠区，合成时裁头拼接，口型不吞字、画面不留缝。"
+        : "尾帧接力：把上一段末帧作为本段第 0 帧的软引导，姿态/背景更连续；"
+          + "接缝接续：相邻段多生成 5 帧重叠，上一段拥有重叠区，合成时裁头拼接，画面与声音都不留缝；"
+          + "两者每段仍用自己的音色生成台词，音轨按段拼接。";
   }
   const seamRow = $("#seam-overlap-row");
-  if (seamRow) seamRow.hidden = stitchInput.value !== "seam";
-  if (stitchInput.value === "seam") {
+  if (seamRow) seamRow.hidden = !["seam", "mixed"].includes(stitchInput.value);
+  if (["seam", "mixed"].includes(stitchInput.value)) {
     const overlap = $("#f-seam-overlap");
     if (overlap) {
       if (anchorAvailable && overlap.value === "5") overlap.value = "22";
@@ -957,7 +965,8 @@ function syncAnchorUI() {
     wfTitle.textContent = on ? "首尾帧 · FL2VA 首尾同图"
       : mode === 2 ? "参考音色 · 逐段生成"
         : mode === 3 ? "无音频参考 · 逐段生成"
-          : stitchInput.value === "seam" ? "Ref 模式 · 锁定音轨 · 逐窗接续"
+          : stitchInput.value === "mixed" ? "Ref 模式 · 锁定音轨 · 混合接续（链内续接）"
+            : stitchInput.value === "seam" ? "Ref 模式 · 锁定音轨 · 逐窗接续"
             : "Ref 模式 · 锁定音轨";
   }
   if (wfTemplate) wfTemplate.textContent = on ? "提示词：FL2VA 固定模板" : "提示词：Ref2VA 六段";
@@ -4590,6 +4599,16 @@ function segCardHtml(project, seg) {
     ? (seg.prompt ? "重填模板" : "填入模板")
     : (seg.prompt ? "重新润色" : "润色（可选）");
   const takes = Array.isArray(seg.takes) ? seg.takes : [];
+  const mixed = String((project.generation || {}).stitch || "hard") === "mixed";
+  const rowStitch = mixed && mode !== 3 && seg.index > 0
+    ? `<label class="av-seg-stitch" title="本段与上一段之间：续接会和上一段共用 latent，硬切会重新起势">
+        <span>接续</span>
+        <select class="input" data-action="seg-stitch" data-index="${seg.index}">
+          <option value="hard"${String(seg.stitch || "") === "seam" ? "" : " selected"}>硬切</option>
+          <option value="seam"${String(seg.stitch || "") === "seam" ? " selected" : ""}>续接上段</option>
+        </select>
+      </label>`
+    : "";
   const activeTab = state.segTabs[seg.index] || "clip";
   const tabBtn = (key, label, count) => `<button type="button" role="tab"
     class="av-seg-tab ${activeTab === key ? "active" : ""}"
@@ -4603,6 +4622,7 @@ function segCardHtml(project, seg) {
         <h3>第 ${seg.index + 1} 段</h3>
         <span class="pill seg-status ${statusClass}">${statusText}</span>
         <span class="av-seg-meta">${esc(segMetaLabel(project, seg))}</span>
+        ${rowStitch}
         ${overlayPill}
         ${seg.prompt ? `<span class="pill vocal">${promptKind(seg) === "polished" ? "已润色" : promptKind(seg) === "manual" ? "已手改" : "已备提示词"}</span>` : ""}
       </div>
@@ -5173,6 +5193,24 @@ async function saveSegmentText(index, value) {
     syncButtons();
   } catch (err) {
     toast(`台词保存失败：${err.message}`, "err", 6000);
+  }
+}
+
+async function setSegmentStitch(index, value) {
+  const p = state.project;
+  if (!p) return;
+  const seg = currentSegment(index);
+  if (!seg || String(seg.stitch || "hard") === value) return;
+  try {
+    const data = await api.patchSegment(p.id, index, { stitch: value });
+    state.project = data.project;
+    renderSegments();
+    renderProjectContext();
+    updateSummary(data.project);
+    syncButtons();
+  } catch (err) {
+    toast(`接续方式保存失败：${err.message}`, "err", 6000);
+    renderSegments();
   }
 }
 
@@ -6002,6 +6040,11 @@ function bindEvents() {
     if (el.matches?.('textarea[data-action="seg-text"]')) {
       saveSegmentText(Number(el.dataset.index), el.value);
     }
+  });
+
+  $("#seg-list").addEventListener("change", (event) => {
+    const el = event.target.closest?.('select[data-action="seg-stitch"]');
+    if (el) setSegmentStitch(Number(el.dataset.index), el.value);
   });
 
   $("#seg-list").addEventListener("keydown", (event) => {

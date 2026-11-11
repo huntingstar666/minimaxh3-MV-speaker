@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 
+from ..seam import group_chains
 from . import config
 
 # 影响画面的生成参数：窗口指纹只比较这些，后处理开关（crf/文件名）不算。
@@ -103,6 +104,80 @@ def plan(segments: list[dict[str, Any]], mode: int,
         "total_frames": int(windows[-1]["total_visible"]) if windows else 0,
         "overshoot": int(windows[-1].get("overshoot") or 0) if windows else 0,
     }
+
+
+def plan_chains(segments: list[dict[str, Any]], mode: int,
+                overlap: int | None = None) -> dict[str, Any]:
+    """mixed：按行级 ``stitch`` 切链，链内复用 ``plan_windows``。
+
+    只有 ``row.stitch == "seam"`` 才把本段并入上一链；``hard`` / ``anchor`` /
+    ``relay`` / 缺省 / 非法值都在本段之前断链（与 MV ``group_chains`` 一致）。
+
+    返回的窗口坐标已换算成**成片绝对帧号**，并补两个字段：
+
+    - ``index``：该窗对应的全局分段下标（生成/落库用）；
+    - ``chain`` / ``chain_first``：链号与链首标记（链首不接上一链的 latent，
+      提示词也不加「延续上一段」的约束）。
+
+    每条链的 ``target`` 是交付帧数，``overshoot`` 是链尾多生成的帧数，
+    装配时在该链最后一场裁掉，保证链间硬切点精确。
+    """
+    used = default_overlap(mode) if overlap is None else int(overlap)
+    chains: list[dict[str, Any]] = []
+    absolute = 0
+    for chain_id, indexes in enumerate(group_chains(segments)):
+        rows = [segments[index] for index in indexes]
+        windows = plan_windows(rows, mode, used)
+        for position, window in enumerate(windows):
+            window["index"] = int(indexes[position])
+            window["chain"] = chain_id
+            window["chain_first"] = position == 0
+            window["start"] = int(window["start"]) + absolute
+            window["end"] = int(window["end"]) + absolute
+        target = sum(int(window["target_visible"]) for window in windows)
+        visible_end = (int(windows[-1]["end"]) - absolute) if windows else 0
+        chains.append({
+            "id": chain_id,
+            "rows": list(indexes),
+            "start": int(absolute),
+            "end": int(absolute + target),
+            "target": int(target),
+            "visible_end": int(visible_end),
+            "overshoot": int(visible_end - target),
+            "windows": windows,
+            "units": units(windows, used),
+        })
+        absolute += target
+    return {
+        "overlap": used,
+        "chains": chains,
+        "windows": [window for chain in chains for window in chain["windows"]],
+        "total_frames": int(absolute),
+    }
+
+
+def single_chain(plan_data: dict[str, Any]) -> dict[str, Any]:
+    """给全局 ``seam`` 的计划补上 ``chains`` / ``chain`` / ``chain_first``。
+
+    全局 seam 就是「全片一条链」，补这些字段后生成与装配可以走同一套代码，
+    行为与逐窗逻辑完全一致（链首仍是第 1 窗，链尾仍交付 ``total_frames``）。
+    """
+    windows = plan_data.get("windows") or []
+    for position, window in enumerate(windows):
+        window["chain"] = 0
+        window["chain_first"] = position == 0
+    plan_data["chains"] = [{
+        "id": 0,
+        "rows": [int(window["index"]) for window in windows],
+        "start": 0,
+        "end": int(plan_data.get("total_frames") or 0),
+        "target": int(plan_data.get("total_frames") or 0),
+        "visible_end": int(plan_data.get("total_frames") or 0),
+        "overshoot": int(plan_data.get("overshoot") or 0),
+        "windows": windows,
+        "units": plan_data.get("units") or [],
+    }]
+    return plan_data
 
 
 def units(windows: list[dict[str, Any]], overlap: int | None = None) -> list[dict[str, Any]]:

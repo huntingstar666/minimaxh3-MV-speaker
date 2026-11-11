@@ -275,6 +275,10 @@ def validate_manifest(manifest: Any, names: set[str]) -> dict[str, Any]:
             if note_errors:
                 _fail(f"segments[{index}].note 素材引用无效：" + "；".join(note_errors))
         seconds = round(frames_value / config.FPS, 3)
+        # 行级接续：只有 mixed 用；第 1 段没有上一段，一律归一成 hard
+        row_stitch = str(item.get("stitch") or "").strip().lower()
+        if row_stitch not in {"hard", "seam"} or index == 0:
+            row_stitch = "hard"
         normalized.append({
             "index": index,
             "text": text,
@@ -289,6 +293,7 @@ def validate_manifest(manifest: Any, names: set[str]) -> dict[str, Any]:
             "prompt_meta": item.get("prompt_meta") if isinstance(item.get("prompt_meta"), dict) else {},
             "note": note,
             "ref_ids": ref_ids,
+            "stitch": row_stitch,
         })
     material_note = str(manifest.get("material_note") or "").strip()
     if material_note:
@@ -515,6 +520,7 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
                     "beats": item.get("beats") or [],
                     "note": str(item.get("note") or ""),
                     "ref_ids": item.get("ref_ids"),
+                    "stitch": str(item.get("stitch") or "hard"),
                     "status": "idle",
                     "error": None,
                     "takes": [],
@@ -626,6 +632,7 @@ def export_pack(project_id: str) -> Path:
             "prompt_meta": segment.get("prompt_meta") or {},
             "note": str(segment.get("note") or ""),
             "ref_ids": segment.get("ref_ids") if isinstance(segment.get("ref_ids"), list) else None,
+            "stitch": str(segment.get("stitch") or "hard"),
         })
         start += frames
 

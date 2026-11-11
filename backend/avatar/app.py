@@ -210,14 +210,19 @@ def _validate_anchor(project: dict[str, Any], generation: dict[str, Any],
                      check_nodes: bool = False) -> None:
     stitch = str(generation.get("stitch") or "hard").strip().lower()
     mode = int(project.get("mode") or 0)
-    allowed = ({"hard", "anchor", "seam"} if mode == config.MODE_AUDIO_DRIVE
-               else {"hard", "relay", "seam"})
+    if mode == config.MODE_AUDIO_DRIVE:
+        allowed = {"hard", "anchor", "seam", "mixed"}
+    elif mode == config.MODE_TEXT_ONLY:
+        allowed = {"hard", "relay", "seam"}
+    else:
+        allowed = {"hard", "relay", "seam", "mixed"}
     if stitch not in allowed:
         raise HTTPException(
             400, "stitch 只能是 " + " 或 ".join(sorted(allowed))
-                 + ("（模式 1 用 anchor 或 seam）" if mode == config.MODE_AUDIO_DRIVE
-                    else "（模式 2/3 用 relay 或 seam）") + "。")
-    if stitch == "seam":
+                 + ("（模式 1 用 anchor / seam / mixed）" if mode == config.MODE_AUDIO_DRIVE
+                    else "（模式 3 不支持 mixed）" if mode == config.MODE_TEXT_ONLY
+                    else "（模式 2 用 relay / seam / mixed）") + "。")
+    if stitch in {"seam", "mixed"}:
         raw = generation.get("seam_overlap", 5)
         try:
             overlap = 5 if raw in (None, "") else int(raw)
@@ -1442,6 +1447,18 @@ def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[
             _instruction_ok(project, str(row["note"]), "本段创作要求",
                             plan.segment_ref_indices(project, row))
         _mark_prompt_meta_stale(row)
+    if "stitch" in payload:
+        # 行级接续：只在本段与上一段之间生效，mixed 之外的全局模式忽略它
+        stitch = str(payload.get("stitch") or "").strip().lower()
+        if stitch not in {"hard", "seam"}:
+            raise HTTPException(400, "行级 stitch 只能是 hard 或 seam。")
+        if int(project.get("mode") or 0) == config.MODE_TEXT_ONLY:
+            raise HTTPException(400, "模式 3 不支持混合接续。")
+        if index == 0:
+            raise HTTPException(400, "第 1 段没有上一段，只能是硬切。")
+        if stitch != str(row.get("stitch") or "hard"):
+            row["stitch"] = stitch
+            _mark_final_stale(project)
     is_audio = int(project.get("mode") or 0) == config.MODE_AUDIO_DRIVE
     if is_audio:
         # 模式 1：时间轴由音频切点决定，台词只影响提示词，不改帧数

@@ -721,6 +721,8 @@
 .av-seg.completed .seg-num{color:var(--ok);background:var(--av-ok-soft);border-color:color-mix(in srgb,var(--ok) 24%,transparent)}
 .av-seg.failed .seg-num{color:var(--danger);background:var(--av-danger-soft);border-color:color-mix(in srgb,var(--danger) 28%,transparent)}
 .av-seg-meta{font-family:var(--mono);font-size:10px;color:var(--faint);font-variant-numeric:tabular-nums;letter-spacing:.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.av-seg-stitch{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--dim)}
+.av-seg-stitch select{padding:2px 4px;font-size:10px;border-radius:6px;border:1px solid var(--line);background:var(--av-panel);color:var(--text)}
 .av-seg-main{min-width:0;display:flex;flex-direction:column;gap:8px}
 .av-seg-tabs{display:flex;align-items:center;gap:2px;margin:1px 0 -2px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .av-seg-tab{position:relative;padding:5px 9px 6px;border:0;border-radius:7px 7px 0 0;background:transparent;font-size:10px;color:var(--dim);letter-spacing:.01em;transition:color var(--av-dur) var(--av-ease),background var(--av-dur) var(--av-ease)}

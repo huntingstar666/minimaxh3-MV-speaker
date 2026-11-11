@@ -94,6 +94,52 @@ def test_mode1_stitch_choices() -> None:
     require(patch(pid, {"stitch": "relay"}) == 400, "模式 1 relay 应拒绝")
 
 
+def test_mixed_modes() -> None:
+    for mode in (1, 2):
+        pid = create(mode)
+        require(patch(pid, {"stitch": "mixed", "seam_overlap": 22}) == 200,
+                f"模式 {mode} mixed 应允许")
+        require(patch(pid, {"stitch": "mixed", "seam_overlap": 6}) == 400,
+                "mixed 也必须校验 seam_overlap")
+    require(patch(create(3), {"stitch": "mixed", "seam_overlap": 22}) == 400,
+            "模式 3 mixed 应拒绝")
+
+
+def patch_segment(project_id: str, index: int, payload: dict) -> int:
+    return client.patch(f"/api/projects/{project_id}/segments/{index}",
+                        json=payload).status_code
+
+
+def test_row_stitch_patch() -> None:
+    pid = create(2)
+    project = store.get(pid)
+    project["segments"] = [
+        {"index": index, "text": f"第 {index + 1} 段", "chars": 4, "frames": 124,
+         "edit_frames": 124, "start_frame": index * 124, "end_frame": (index + 1) * 124,
+         "prompt": "P", "takes": [], "status": "idle"}
+        for index in range(3)
+    ]
+    store.save(project)
+    require(patch_segment(pid, 0, {"stitch": "seam"}) == 400, "第 1 段没有上一段，必须硬切")
+    require(patch_segment(pid, 1, {"stitch": "seam"}) == 200, "第 2 段可以续接上段")
+    require(store.get(pid)["segments"][1].get("stitch") == "seam", "行级 stitch 应落库")
+    require(patch_segment(pid, 1, {"stitch": "hard"}) == 200, "可以改回硬切")
+    require(patch_segment(pid, 1, {"stitch": "relay"}) == 400, "行级只接受 hard / seam")
+
+
+def test_row_stitch_mode3_rejected() -> None:
+    pid = create(3)
+    project = store.get(pid)
+    project["segments"] = [
+        {"index": 0, "text": "A", "chars": 1, "frames": 124, "edit_frames": 124,
+         "start_frame": 0, "end_frame": 124, "prompt": "P", "takes": [], "status": "idle"},
+        {"index": 1, "text": "B", "chars": 1, "frames": 124, "edit_frames": 124,
+         "start_frame": 124, "end_frame": 248, "prompt": "P", "takes": [], "status": "idle"},
+    ]
+    store.save(project)
+    require(patch_segment(pid, 1, {"stitch": "seam"}) == 400, "模式 3 行级续接应拒绝")
+
+
 def test_default_overlap_recorded() -> None:
     pid = create(2)
     response = client.patch(f"/api/projects/{pid}",
@@ -122,6 +168,9 @@ def main() -> int:
     run("模式 2 可选模式", test_mode2_modes)
     run("模式 3 可选模式", test_mode3_modes)
     run("模式 1 允许 seam、拒绝 relay", test_mode1_stitch_choices)
+    run("模式 1/2 允许 mixed", test_mixed_modes)
+    run("行级接续", test_row_stitch_patch)
+    run("模式 3 行级续接拒绝", test_row_stitch_mode3_rejected)
     run("默认 overlap", test_default_overlap_recorded)
     run("按模式默认 stitch", test_default_stitch_by_mode)
 
