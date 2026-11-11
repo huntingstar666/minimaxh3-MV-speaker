@@ -179,6 +179,12 @@ def main() -> int:
         # ------------------------------------------------------------------
         # 2) 导出 → 技能校验器 → 再导入（roundtrip）
         # ------------------------------------------------------------------
+        # 导出前写入非默认接缝重叠，验证包 roundtrip 不丢生成参数
+        patched_overlap = client.patch(
+            f"/api/projects/{project_id}", json={"generation": {"seam_overlap": 39}})
+        check("项目可设置接缝重叠 39", patched_overlap.status_code == 200
+              and patched_overlap.json()["project"]["generation"]["seam_overlap"] == 39,
+              str(patched_overlap.status_code))
         exported = client.get(f"/api/projects/{project_id}/export")
         check("导出 .h3avatar.zip", exported.status_code == 200
               and exported.content[:2] == b"PK", str(exported.status_code))
@@ -194,6 +200,9 @@ def main() -> int:
               exported_manifest.get("schema") == "h3-avatar-pack"
               and exported_manifest.get("mode") == 1
               and exported_manifest.get("workflow") == "locked_audio")
+        check("导出保留 seam_overlap",
+              exported_manifest.get("generation", {}).get("seam_overlap") == 39,
+              str(exported_manifest.get("generation")))
         check("导出分段 H3 合法帧数/连续",
               all(legal_frames(int(item["frames"])) for item in exported_manifest["segments"])
               and all(int(a["end_frame"]) == int(b["start_frame"])
@@ -215,6 +224,9 @@ def main() -> int:
                   again.get("mode") == 1 and len(again.get("segments") or []) == 1
                   and len(again["segments"][0].get("beats") or []) >= 1
                   and again["segments"][0].get("prompt") == row.get("prompt"))
+            check("roundtrip 保留 seam_overlap",
+                  again.get("generation", {}).get("seam_overlap") == 39,
+                  str(again.get("generation", {}).get("seam_overlap")))
 
         # ------------------------------------------------------------------
         # 3) mode2 参考音色包
