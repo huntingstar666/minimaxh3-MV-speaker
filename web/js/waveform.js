@@ -374,8 +374,11 @@ export class Waveform {
     }
   }
 
-  boundaryAt(x) {
+  boundaryAt(x, y) {
     if (!this.duration || !this.segments.length) return null;
+    // 分割线只在波形主体内可拖动：标尺/播放头表头区域一律让位给播放头，
+    // 避免想拖播放头时误抓到切点
+    if (Number.isFinite(y) && y < RULER_H) return null;
     for (let index = 0; index < this.segments.length - 1; index += 1) {
       const position = (Number(this.segments[index].end) / this.duration) * this.width;
       if (Math.abs(x - position) <= 12) return index;
@@ -689,7 +692,13 @@ export class Waveform {
   _localX(event) {
     const rect = this.canvas.getBoundingClientRect();
     const width = Math.max(1, rect.width);
-    return { rect, width, x: event.clientX - rect.left, ratio: clamp((event.clientX - rect.left) / width, 0, 1) };
+    return {
+      rect,
+      width,
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+      ratio: clamp((event.clientX - rect.left) / width, 0, 1),
+    };
   }
 
   // 播放头命中带：±24px 内视为抓到了播放头，光标变 ew-resize（手柄小，给足容错）
@@ -699,9 +708,9 @@ export class Waveform {
 
   _onPointerDown(event) {
     if (!this.duration || event.button !== 0) return; // 只响应左键：右键走 contextmenu 删除
-    const { x, ratio } = this._localX(event);
+    const { x, y, ratio } = this._localX(event);
     const time = ratio * this.duration;
-    const hit = this.editable ? this.boundaryAt(x) : null;
+    const hit = this.editable ? this.boundaryAt(x, y) : null;
     if (hit !== null) {
       this.dragging = hit;
       this.dragTime = Number(this.segments[hit]?.end) || 0;
@@ -729,7 +738,7 @@ export class Waveform {
   }
 
   _onPointerMove(event) {
-    const { x, width, ratio } = this._localX(event);
+    const { x, y, width, ratio } = this._localX(event);
     if (this.scrubbing) {
       this.scrubTime = ratio * this.duration;
       this.playhead = this.scrubTime;
@@ -753,7 +762,7 @@ export class Waveform {
     }
     if (!this.duration) return;
     const isMouse = !event.pointerType || event.pointerType === "mouse" || event.pointerType === "pen";
-    const hit = this.editable ? this.boundaryAt(x) : null;
+    const hit = this.editable ? this.boundaryAt(x, y) : null;
     const near = hit === null && this._nearPlayhead(x);
     const hoverChanged = isMouse && Math.abs((this.hoverX ?? -9999) - x) > 0.5;
     const boundaryChanged = hit !== this.hoverBoundary;
@@ -860,15 +869,17 @@ export class Waveform {
 
   _onDoubleClick(event) {
     if (!this.editable || !this.onSplit || !this.duration) return;
-    const { ratio } = this._localX(event);
+    const { y, ratio } = this._localX(event);
+    // 只有双击波形主体才切分；标尺留给播放头
+    if (Number.isFinite(y) && y < RULER_H) return;
     this.hideTip();
     this.onSplit(ratio * this.duration);
   }
 
   _onContextMenu(event) {
     if (!this.editable || !this.onDeleteBoundary || !this.duration) return;
-    const { x } = this._localX(event);
-    const hit = this.boundaryAt(x);
+    const { x, y } = this._localX(event);
+    const hit = this.boundaryAt(x, y);
     if (hit === null) return;
     event.preventDefault();
     this.hideTip();

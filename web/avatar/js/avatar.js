@@ -2908,9 +2908,10 @@ function renderAudio() {
     drop.classList.add("hidden");
     row.classList.remove("hidden");
     $("#audio-name").textContent = audio.filename || "音频";
+    $("#audio-name").title = audio.filename || "";
     const parts = [];
     if (num(audio.duration) > 0) parts.push(`${num(audio.duration).toFixed(1)} 秒`);
-    if (audio.pending) parts.push(audio.replacing ? "待上传替换 · 分析时生效" : "待上传 · 点「上传并分析」");
+    if (audio.pending) parts.push(audio.replacing ? "待上传替换" : "待上传");
     else if (audio.sample_rate) parts.push(`${num(audio.sample_rate)} Hz`);
     if (!parts.length) parts.push("已上传");
     $("#audio-duration").textContent = parts.join(" · ");
@@ -4892,14 +4893,16 @@ function segCardHtml(project, seg) {
     : (seg.prompt ? "重新润色" : "润色（可选）");
   const takes = Array.isArray(seg.takes) ? seg.takes : [];
   const mixed = String((project.generation || {}).stitch || "hard") === "mixed";
+  const rowStitchValue = String(seg.stitch || "") === "seam" ? "seam" : "hard";
   const rowStitch = mixed && mode !== 3 && seg.index > 0
-    ? `<label class="av-seg-stitch" title="本段与上一段之间：续接会和上一段共用 latent，硬切会重新起势">
-        <span>接续</span>
-        <select class="input" data-action="seg-stitch" data-index="${seg.index}">
-          <option value="hard"${String(seg.stitch || "") === "seam" ? "" : " selected"}>硬切</option>
-          <option value="seam"${String(seg.stitch || "") === "seam" ? " selected" : ""}>续接上段</option>
-        </select>
-      </label>`
+    ? `<div class="av-row-stitch" role="group" aria-label="本段接续方式"
+        title="本段与上一段之间：续接会和上一段共用 latent，硬切会重新起势">
+        <span class="av-row-stitch-label">段间接续</span>
+        <button type="button" class="av-row-stitch-opt hard ${rowStitchValue === "hard" ? "active" : ""}"
+          data-action="seg-stitch" data-index="${seg.index}" data-value="hard">硬切</button>
+        <button type="button" class="av-row-stitch-opt seam ${rowStitchValue === "seam" ? "active" : ""}"
+          data-action="seg-stitch" data-index="${seg.index}" data-value="seam">续接上段</button>
+      </div>`
     : "";
   const activeTab = state.segTabs[seg.index] || "clip";
   const tabBtn = (key, label, count) => `<button type="button" role="tab"
@@ -6537,6 +6540,9 @@ function bindEvents() {
     }
     else if (action === "seg-regen") regenerateSegment(index);
     else if (action === "seg-merge") mergeDown(index);
+    else if (action === "seg-stitch") {
+      setSegmentStitch(index, el.dataset.value === "seam" ? "seam" : "hard");
+    }
     else if (action === "save-prompt") {
       const card = el.closest(".av-seg");
       const area = card?.querySelector(".av-prompt-area");
@@ -6567,11 +6573,6 @@ function bindEvents() {
     if (el.matches?.('textarea[data-action="seg-text"]')) {
       saveSegmentText(Number(el.dataset.index), el.value);
     }
-  });
-
-  $("#seg-list").addEventListener("change", (event) => {
-    const el = event.target.closest?.('select[data-action="seg-stitch"]');
-    if (el) setSegmentStitch(Number(el.dataset.index), el.value);
   });
 
   $("#seg-list").addEventListener("keydown", (event) => {

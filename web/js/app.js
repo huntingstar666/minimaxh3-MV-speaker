@@ -1904,14 +1904,10 @@ function bindEvents() {
     if (target.dataset.act === "refs") openSegRefs(index);
     if (target.dataset.act === "merge") mergeSegment(index);
     if (target.dataset.act === "seam-frame") openSeamFrame(index);
-  });
-
-  $("#segment-list").addEventListener("change", (event) => {
-    const select = event.target.closest("[data-act='stitch']");
-    if (!select) return;
-    const [kind, overlap] = String(select.value).split(":");
-    setSegmentStitch(Number(select.dataset.index), kind,
-                     overlap ? Number(overlap) : null);
+    if (target.dataset.act === "stitch-set") {
+      const [kind, overlap] = String(target.dataset.value || "").split(":");
+      if (kind) setSegmentStitch(index, kind, overlap ? Number(overlap) : null);
+    }
   });
 
   $("#btn-assemble").addEventListener("click", assembleProject);

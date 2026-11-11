@@ -643,14 +643,28 @@ input[type=range]:active::-webkit-slider-thumb{transform:scale(1.02)}
 .pill.energy-high{color:#ffab9c;border-color:rgba(255,171,156,.28);background:rgba(255,171,156,.08)}
 .pill.vocal{color:var(--mint);border-color:rgba(87,224,192,.26);background:rgba(87,224,192,.07)}
 .pill.instrumental{color:var(--violet);border-color:rgba(167,139,250,.26);background:rgba(167,139,250,.07)}
-.seg-stitch{display:inline-flex;align-items:center}
-.seg-stitch-select{
-  font-family:inherit;font-size:9px;padding:1px 5px;border-radius:99px;
-  border:1px solid var(--line);color:var(--dim);background:rgba(255,255,255,.028);
-  line-height:1.5;cursor:pointer;appearance:none;
+.seg-stitch{
+  display:inline-flex;align-items:center;gap:2px;padding:2px 2px 2px 5px;
+  border-radius:8px;border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.045);box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
-.seg-stitch-select:hover{color:var(--text);border-color:rgba(255,255,255,.22)}
-.seg-stitch-select:disabled{opacity:.45;cursor:not-allowed}
+.seg-stitch-label{font-size:9.5px;color:var(--faint);letter-spacing:.06em;margin-right:2px}
+.seg-stitch.locked{opacity:.7;padding-right:8px}
+.seg-stitch.locked b{font-size:10px;font-weight:600;color:var(--dim)}
+.seg-stitch-opt{
+  appearance:none;border:1px solid transparent;background:transparent;
+  color:var(--dim);font:inherit;font-size:10px;line-height:1.5;
+  padding:2.5px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;
+  transition:color .14s ease,background .14s ease,border-color .14s ease,box-shadow .14s ease;
+}
+.seg-stitch-opt:hover{color:var(--text);background:rgba(255,255,255,.08)}
+.seg-stitch-opt.active.hard{
+  color:var(--text);border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.1);font-weight:600;
+}
+.seg-stitch-opt.active.seam{
+  color:var(--mint);border-color:rgba(87,224,192,.5);background:rgba(87,224,192,.13);
+  font-weight:650;box-shadow:0 0 10px rgba(87,224,192,.14);
+}
 .pill.chain-tag{color:#b8c6d8;border-color:rgba(167,139,250,.26);background:rgba(167,139,250,.06)}
 .pill.chain-tag.chain-head{color:var(--violet);border-color:rgba(167,139,250,.45);background:rgba(167,139,250,.13)}
 .pill.ref-override{color:#d9c6ff;border-color:rgba(167,139,250,.45);background:rgba(167,139,250,.13)}

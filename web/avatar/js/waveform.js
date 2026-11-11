@@ -375,8 +375,11 @@ export class Waveform {
     }
   }
 
-  boundaryAt(x) {
+  boundaryAt(x, y) {
     if (!this.duration || !this.segments.length) return null;
+    // 分割线只在波形主体内可拖动：标尺/播放头表头区域一律让位给播放头，
+    // 避免想拖播放头时误抓到切点
+    if (Number.isFinite(y) && y < RULER_H) return null;
     for (let index = 0; index < this.segments.length - 1; index += 1) {
       const position = (Number(this.segments[index].end) / this.duration) * this.width;
       if (Math.abs(x - position) <= 10) return index;
@@ -449,17 +452,17 @@ export class Waveform {
     if (kind === "instrumental") {
       return {
         kind,
-        tip: toRgba(colors.mint, light ? .82 : .90),
-        core: toRgba(colors.mint, light ? .34 : .26),
+        tip: toRgba(colors.mint, light ? .78 : .84),
+        core: toRgba(colors.mint, light ? .30 : .22),
         tintA: toRgba(colors.mint, light ? .055 : .028),
         tintB: toRgba(colors.mint, light ? .10 : .046),
       };
     }
     return {
       kind: "vocal",
-      tip: toRgba(colors.amber, light ? .88 : .95),
+      tip: toRgba(colors.amber, light ? .84 : .88),
       // 浅色下深色背景不成立：核心用同色相中低透明，避免琥珀→橙的渐变在白色上发脏
-      core: toRgba(light ? colors.amber : colors.amber2, light ? .34 : .26),
+      core: toRgba(light ? colors.amber : colors.amber2, light ? .30 : .22),
       tintA: toRgba(colors.amber, light ? .05 : .026),
       tintB: toRgba(colors.amber, light ? .10 : .044),
     };
@@ -481,8 +484,8 @@ export class Waveform {
     const bucket = Math.max(1, Math.ceil(count / maxBars));
     const barCount = Math.ceil(count / bucket);
     const stepX = width / barCount;
-    const barWidth = Math.max(1, Math.min(stepX * 0.58, 3.4));
-    const bodyHalf = Math.max(6, (bodyBottom - bodyTop) / 2 - 6);
+    const barWidth = Math.max(1, Math.min(stepX * 0.54, 3.2));
+    const bodyHalf = Math.max(6, (bodyBottom - bodyTop) / 2 - 8);
 
     const groups = { vocal: [], instrumental: [] };
     for (let b = 0; b < barCount; b += 1) {
@@ -521,27 +524,29 @@ export class Waveform {
 
   drawBoundaries(ctx, width, timeToX, bodyTop, bodyBottom) {
     ctx.save();
+    // 切点用强调色（而不是白色）：与播放头区分，同时让分段边界更像“编辑点”
+    const light = this.isLight;
+    const cut = this.colors?.cut || this.colors?.amber || FALLBACK_COLORS.amber;
     this.segments.forEach((segment, index) => {
       if (index === 0) return; // 0s 处不画分割线
       const x = Math.round(timeToX(segment.start)) + 0.5;
       if (x < 0 || x > width) return;
-      // 先在波形上“挖”一条背景色间隙，再压深色实线：
-      // 密集柱体里 1px 半透明线几乎不可见，留白 + 实线才能一眼看出切点
+      // 先在波形上“挖”一条背景色间隙，再压实线：密集柱体里半透明线几乎不可见
       ctx.strokeStyle = this.chromeOf("boundaryGap");
-      ctx.lineWidth = 4.5;
+      ctx.lineWidth = 3.4;
       ctx.beginPath();
       ctx.moveTo(x, bodyTop);
       ctx.lineTo(x, bodyBottom);
       ctx.stroke();
-      ctx.strokeStyle = this.chromeOf("boundary");
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = toRgba(cut, light ? .72 : .88);
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(x, bodyTop);
       ctx.lineTo(x, bodyBottom);
       ctx.stroke();
       // 顶部把手：贴着标尺下沿，提示这里可拖
-      ctx.fillStyle = this.chromeOf("boundaryMark");
-      this.roundRect(ctx, x - 2, bodyTop + 0.5, 4, 10, 2);
+      ctx.fillStyle = toRgba(cut, light ? .84 : .96);
+      this.roundRect(ctx, x - 2.5, bodyTop + 0.5, 5, 10, 2);
       ctx.fill();
     });
     ctx.restore();
@@ -724,7 +729,13 @@ export class Waveform {
   _localX(event) {
     const rect = this.canvas.getBoundingClientRect();
     const width = Math.max(1, rect.width);
-    return { rect, width, x: event.clientX - rect.left, ratio: clamp((event.clientX - rect.left) / width, 0, 1) };
+    return {
+      rect,
+      width,
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+      ratio: clamp((event.clientX - rect.left) / width, 0, 1),
+    };
   }
 
   // 播放头命中带：±24px 内视为抓到了播放头，光标变 ew-resize（手柄小，给足容错）
@@ -734,9 +745,9 @@ export class Waveform {
 
   _onPointerDown(event) {
     if (!this.duration || event.button !== 0) return; // 只响应左键：右键走 contextmenu 删除
-    const { x, ratio } = this._localX(event);
+    const { x, y, ratio } = this._localX(event);
     const time = ratio * this.duration;
-    const hit = this.editable ? this.boundaryAt(x) : null;
+    const hit = this.editable ? this.boundaryAt(x, y) : null;
     if (hit !== null) {
       this.dragging = hit;
       this.dragTime = Number(this.segments[hit]?.end) || 0;
@@ -764,7 +775,7 @@ export class Waveform {
   }
 
   _onPointerMove(event) {
-    const { x, width, ratio } = this._localX(event);
+    const { x, y, width, ratio } = this._localX(event);
     if (this.scrubbing) {
       this.scrubTime = ratio * this.duration;
       this.playhead = this.scrubTime;
@@ -788,7 +799,7 @@ export class Waveform {
     }
     if (!this.duration) return;
     const isMouse = !event.pointerType || event.pointerType === "mouse" || event.pointerType === "pen";
-    const hit = this.editable ? this.boundaryAt(x) : null;
+    const hit = this.editable ? this.boundaryAt(x, y) : null;
     const near = hit === null && this._nearPlayhead(x);
     const hoverChanged = isMouse && Math.abs((this.hoverX ?? -9999) - x) > 0.5;
     const boundaryChanged = hit !== this.hoverBoundary;
@@ -895,15 +906,17 @@ export class Waveform {
 
   _onDoubleClick(event) {
     if (!this.editable || !this.onSplit || !this.duration) return;
-    const { ratio } = this._localX(event);
+    const { y, ratio } = this._localX(event);
+    // 只有双击波形主体才切分；标尺留给播放头
+    if (Number.isFinite(y) && y < RULER_H) return;
     this.hideTip();
     this.onSplit(ratio * this.duration);
   }
 
   _onContextMenu(event) {
     if (!this.editable || !this.onDeleteBoundary || !this.duration) return;
-    const { x } = this._localX(event);
-    const hit = this.boundaryAt(x);
+    const { x, y } = this._localX(event);
+    const hit = this.boundaryAt(x, y);
     if (hit === null) return;
     event.preventDefault();
     this.hideTip();

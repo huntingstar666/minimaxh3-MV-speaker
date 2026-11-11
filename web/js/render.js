@@ -440,13 +440,18 @@ function stitchSelect(row, index) {
   const value = stitch === "seam" ? `seam:${overlap}` : "hard";
   const locked = index === 0;
   const title = locked ? "第 1 段没有上一段，只能是硬切" : "本段与上一段的接续方式与重叠帧数";
-  return `<label class="seg-stitch" title="${title}">
-    <select class="seg-stitch-select" data-act="stitch" data-index="${index}" ${locked ? "disabled" : ""}>
-      <option value="hard" ${value === "hard" ? "selected" : ""}>硬切</option>
-      <option value="seam:22" ${value === "seam:22" ? "selected" : ""}>续接 22</option>
-      <option value="seam:39" ${value === "seam:39" ? "selected" : ""}>续接 39</option>
-    </select>
-  </label>`;
+  if (locked) {
+    return `<span class="seg-stitch locked" title="${title}"><span class="seg-stitch-label">接续</span><b>硬切</b></span>`;
+  }
+  const option = (optionValue, label, cls) => `
+    <button type="button" class="seg-stitch-opt ${cls} ${value === optionValue ? "active" : ""}"
+      data-act="stitch-set" data-index="${index}" data-value="${optionValue}">${label}</button>`;
+  return `<span class="seg-stitch" role="group" title="${title}">
+    <span class="seg-stitch-label">接续</span>
+    ${option("hard", "硬切", "hard")}
+    ${option("seam:22", "续接 22", "seam")}
+    ${option("seam:39", "续接 39", "seam")}
+  </span>`;
 }
 
 function segmentSignature(row) {
