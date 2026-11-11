@@ -136,6 +136,8 @@ python run.py          # Windows 可直接双击 start.bat
 
 只改视觉，不写入项目参数；切换时有一次全屏转场，`prefers-reduced-motion` 下自动降级。样式文件：`web/css/theme-pink.css`、`web/avatar/css/avatar-themes.css`。
 
+两个工作台顶栏统一为：切换工作台 → 主题 → 导入包 → 导出包 → 历史作品 → 设置。MV 的导入/导出已从左侧栏移到顶栏；数字人的最近作品已从左侧栏移到「历史作品」弹窗，卡片封面优先用第一张参考图，没有参考图的项目不显示封面占位。
+
 ## 2. 环境要求
 
 | 项目 | 要求 |

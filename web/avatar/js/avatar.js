@@ -3421,32 +3421,32 @@ function renderProjectList() {
     }
     return num(b.updated) - num(a.updated);
   });
-  $("#project-count").textContent = query
-    ? `${items.length}/${state.projects.length} 个`
-    : `${items.length} 个`;
+  const countBox = $("#project-count");
+  if (countBox) {
+    countBox.textContent = query
+      ? `${items.length}/${state.projects.length} 个`
+      : `${items.length} 个`;
+  }
   if (!items.length) {
-    box.innerHTML = `<div class="av-list-empty">${query ? "没有匹配的作品" : "暂无作品，先在左侧新建"}</div>`;
+    box.innerHTML = `<div class="history-empty">${query ? "没有匹配的作品" : "暂无作品，先在「设置 → 新建作品」开始"}</div>`;
     return;
   }
   box.innerHTML = items
     .map((item) => {
-      const active = state.project?.id === item.id;
       const count = Array.isArray(item.segments) ? item.segments.length : num(item.segments);
       const mode = clamp(Number(item.mode) || 1, 1, 3);
       const dup = (nameCounts.get(String(item.name || "未命名作品")) || 0) > 1;
-      return `<div class="av-project ${active ? "active" : ""}" role="button" tabindex="0"
+      const cover = item.cover ? mediaUrl(item.id, item.cover, item.updated) : "";
+      return `<div class="history-item" role="button" tabindex="0"
         data-action="open-project" data-id="${esc(item.id)}" title="打开作品">
-        <span class="av-project-main">
+        <button class="history-del" type="button" data-action="del-project" data-id="${esc(item.id)}" title="删除作品">
+          <svg><use href="#i-trash"/></svg>
+        </button>
+        ${cover ? `<div class="history-thumb"><img src="${esc(cover)}" alt="" loading="lazy" decoding="async"></div>` : ""}
+        <div class="history-meta">
           <strong>${esc(item.name || "未命名作品")}</strong>
           <span>${MODE_LABEL[mode]} · ${count} 段 · ${fmtWhen(item.updated)}${dup ? " · 同名" : ""}</span>
-        </span>
-        <span class="av-project-side">
-          <i class="av-project-dot mode${mode}" title="${MODE_LABEL[mode]}"></i>
-          ${item.final ? '<span class="pill status-completed" title="已有成片">成片</span>' : ""}
-          <button class="av-project-del" type="button" data-action="del-project" data-id="${esc(item.id)}" title="删除作品">
-            <svg><use href="#i-trash"/></svg>
-          </button>
-        </span>
+        </div>
       </div>`;
     })
     .join("");
@@ -3475,6 +3475,7 @@ async function openProject(id) {
     state.pendingAudio = null;
     state.pendingVoice = null;
     applyProject(data.project, { fill: true });
+    $("#modal-history").hidden = true;
     localStorage.setItem(LAST_KEY, data.project.id);
     // 设计层单独再读一次 /design：项目 JSON 可能落后于最近一次设计保存
     try {
@@ -5713,7 +5714,11 @@ function bindDesignEvents() {
 }
 
 function bindEvents() {
-  $("#btn-refresh").addEventListener("click", async (event) => {
+  $("#btn-history")?.addEventListener("click", async () => {
+    await loadProjects();
+    $("#modal-history").hidden = false;
+  });
+  $("#btn-refresh")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
     await withBusy(button, async () => {
       await Promise.allSettled([loadHealth(), loadOptions(), loadProjects()]);
@@ -6083,7 +6088,17 @@ function bindEvents() {
 
 /* ---------------- 启动 ---------------- */
 
+function mountHistoryPanel() {
+  const panel = $("#panel-projects");
+  const body = $("#history-body");
+  if (!panel || !body) return;
+  panel.hidden = false;
+  panel.classList.add("history-panel");
+  body.append(panel);
+}
+
 async function boot() {
+  mountHistoryPanel();
   buildVoiceCardFields();
   bindEvents();
   initAnchorControls();

@@ -212,7 +212,8 @@ function bindDialog(modal, openSelector) {
 }
 
 function initDialogs() {
-  bindDialog(document.getElementById("modal-settings"), "#btn-settings");
+  bindDialog(document.getElementById("modal-settings"), "#btn-settings, #btn-settings-top");
+  bindDialog(document.getElementById("modal-history"), "#btn-history");
   bindDialog(document.getElementById("modal-params"), '[data-sheet="params"]');
   bindDialog(document.getElementById("modal-advanced"), '[data-sheet="advanced"]');
   bindDialog(document.getElementById("modal-prompts"), '[data-sheet="prompts"]');

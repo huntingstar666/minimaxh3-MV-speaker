@@ -157,6 +157,14 @@ def list_projects() -> list[dict[str, Any]]:
         thumb = None
         if final.get("thumb") and (directory / final["thumb"]).is_file():
             thumb = final["thumb"]
+        # 最近作品封面优先用参考图（人物优先），没有参考图就不放封面
+        cover = None
+        refs = [ref for ref in (project.get("refs") or []) if isinstance(ref, dict)]
+        for ref in sorted(refs, key=lambda item: 0 if item.get("role") == "performer" else 1):
+            name = str(ref.get("filename") or "").strip()
+            if name and (directory / "refs" / name).is_file():
+                cover = f"refs/{name}"
+                break
         items.append({
             "id": project.get("id"),
             "name": project.get("name"),
@@ -168,6 +176,7 @@ def list_projects() -> list[dict[str, Any]]:
             "status": (project.get("run") or {}).get("status", "idle"),
             "final": final.get("path"),
             "thumb": thumb,
+            "cover": cover,
         })
     items.sort(key=lambda item: item.get("updated") or 0, reverse=True)
     return items

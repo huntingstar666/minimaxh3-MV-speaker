@@ -1745,22 +1745,7 @@ function bindEvents() {
     importPack(event.target.files?.[0]);
     event.target.value = "";
   });
-  const packZone = $("#pack-drop");
-  if (packZone) {
-    ["dragenter", "dragover"].forEach((type) => packZone.addEventListener(type, (event) => {
-      event.preventDefault();
-      packZone.classList.add("drag");
-    }));
-    ["dragleave", "drop"].forEach((type) => packZone.addEventListener(type, (event) => {
-      event.preventDefault();
-      packZone.classList.remove("drag");
-    }));
-    packZone.addEventListener("drop", (event) => {
-      const file = event.dataTransfer?.files?.[0];
-      if (isPackFile(file)) importPack(file);
-      else toast("请拖入 .h3pack.zip 包（音频请拖到上方区域）。", "warn");
-    });
-  }
+  $("#btn-import-pack")?.addEventListener("click", () => $("#pack-input")?.click());
   const dropzone = $("#audio-drop");
   ["dragenter", "dragover"].forEach((type) => dropzone.addEventListener(type, (event) => {
     event.preventDefault();

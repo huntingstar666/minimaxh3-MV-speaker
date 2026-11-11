@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/avatar/static/css/avatar.css">
 <link rel="stylesheet" href="/avatar/static/css/avatar-light.css">
 <link rel="stylesheet" href="/avatar/static/css/avatar-themes.css">
+<link rel="stylesheet" href="/avatar/static/css/avatar-history.css">
 </head>
 <body class="av-body av-gold">
 <script>
@@ -69,8 +70,12 @@
   </div>
   <div class="top-actions">
     <button class="btn ghost sm av-theme-btn" id="btn-theme" type="button" title="切换 8-bit 复古风格" aria-pressed="false"><span class="av-theme-dot"></span><span id="theme-label">黑金</span></button>
-    <button class="btn ghost sm" id="btn-refresh" title="重新检测系统状态与可选参数"><svg><use href="#i-refresh"/></svg>刷新状态</button>
     <a class="btn ghost sm" href="/" title="回到音频驱动的 MV 工作台"><svg><use href="#i-film"/></svg>MV 工作台</a>
+    <button class="btn ghost sm" id="btn-import-pack"><svg><use href="#i-plus"/></svg>导入 .h3avatar 包</button>
+    <button class="btn ghost sm" id="btn-export-pack" title="创作包：manifest + 提示词 + 参考图/音色（不含生成片段与成片）"><svg><use href="#i-film"/></svg>导出创作包</button>
+    <input id="pack-input" type="file" accept=".zip,.h3avatar" hidden>
+    <button class="btn ghost sm" id="btn-history"><svg><use href="#i-film"/></svg>历史作品</button>
+    <button class="btn ghost sm" id="btn-settings-top"><svg><use href="#i-layers"/></svg>设置</button>
   </div>
 </header>
 
@@ -109,14 +114,14 @@
       </div>
       <p class="panel-note tiny" id="mode-hint">模式 2 / 3 的成片视频自带生成音频；模式 1 保留上传音频原声。</p>
     </section>
-    <section class="panel" id="panel-projects">
-      <div class="panel-head"><h2>最近作品</h2><span class="hint" id="project-count">0 个</span></div>
+    <section class="panel" id="panel-projects" hidden>
+
       <div class="av-form-actions-row">
-        <button class="btn ghost sm" id="btn-import-pack"><svg><use href="#i-plus"/></svg>导入 .h3avatar 包</button>
-        <button class="btn ghost sm" id="btn-export-pack" title="创作包：manifest + 提示词 + 参考图/音色（不含生成片段与成片）"><svg><use href="#i-film"/></svg>导出创作包</button>
+
+
         <button class="btn ghost sm" id="btn-backup"><svg><use href="#i-layers"/></svg>备份与恢复</button>
         <button class="btn ghost sm" id="btn-trash"><svg><use href="#i-trash"/></svg>回收站</button>
-        <input id="pack-input" type="file" accept=".zip,.h3avatar" hidden>
+
       </div>
       <div class="av-project-tools">
         <input id="project-search" class="input" type="search" placeholder="搜索作品名" autocomplete="off">
@@ -126,8 +131,8 @@
           <option value="mode">模式</option>
         </select>
       </div>
-      <div class="av-project-list" id="project-list">
-        <div class="av-list-empty">暂无作品</div>
+      <div class="history-grid" id="project-list">
+        <div class="history-empty">暂无作品</div>
       </div>
     </section>
   </aside>
@@ -331,6 +336,13 @@
 <script type="module" src="/avatar/static/js/theme.js"></script>
 <script type="module" src="/avatar/static/js/avatar.js"></script>
 <script type="module" src="/avatar/static/js/avatar-polish.js"></script>
+
+<div class="modal" id="modal-history" hidden>
+  <div class="modal-card wide">
+    <div class="modal-head"><h2>历史作品</h2><button class="icon-btn" data-close aria-label="关闭" data-tip="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body history-body" id="history-body"></div>
+  </div>
+</div>
 
 <div class="modal av-settings-modal" id="modal-settings" hidden>
   <div class="modal-card av-settings-card">
