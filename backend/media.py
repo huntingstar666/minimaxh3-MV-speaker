@@ -164,6 +164,21 @@ def thumbnail(video: Path, out: Path, at: float = 0.8) -> None:
     ], timeout=120)
 
 
+def frame_at(video: Path, out: Path, at: float, scale: int = 560) -> bool:
+    """精确抽指定时间点的一帧。
+
+    用输出端 seek（``-ss`` 在 ``-i`` 之后）逐帧解码到目标位置，
+    避免输入端 seek 只能落在关键帧上、抽到前后好几秒的画面。
+    """
+    out.parent.mkdir(parents=True, exist_ok=True)
+    audio.command([
+        audio.ffmpeg(), "-y", "-v", "error", "-i", str(video),
+        "-ss", f"{max(at, 0):.3f}", "-frames:v", "1",
+        "-vf", f"scale={int(scale)}:-2", str(out),
+    ], timeout=180)
+    return out.is_file() and out.stat().st_size > 0
+
+
 def duration(video: Path) -> float:
     try:
         return float(audio.probe(video)["duration"])

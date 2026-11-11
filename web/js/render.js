@@ -405,6 +405,7 @@ export function renderSegments() {
           <div class="seg-actions">
             <button class="btn ghost" data-act="open-prompt" data-index="${index}"><svg><use href="#i-spark"/></svg>提示词</button>
             <button class="btn ghost ${refOverride ? "active" : ""}" data-act="refs" data-index="${index}"><svg><use href="#i-layers"/></svg>参考图</button>
+            ${index > 0 && project.final ? `<button class="btn ghost" data-act="seam-frame" data-index="${index}"><svg><use href="#i-layers"/></svg>接缝</button>` : ""}
             <button class="btn ghost ${state.auditionSegment === index ? "active" : ""}" data-act="audition" data-index="${index}"><svg><use href="#${state.auditionSegment === index ? "i-stop" : "i-play"}"/></svg>${state.auditionSegment === index ? "停止" : "试听"}</button>
             <button class="btn ghost" data-act="merge" data-index="${index}" ${index === segments.length - 1 ? "disabled" : ""}><svg><use href="#i-merge"/></svg>合并下段</button>
             <button class="btn ghost" data-act="regen" data-index="${index}" ${isSeam ? 'disabled title="整条生成模式不能单段重生成"' : ""}><svg><use href="#i-refresh"/></svg>重生成</button>

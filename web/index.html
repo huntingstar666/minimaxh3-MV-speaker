@@ -494,6 +494,19 @@
   </div>
 </div>
 
+<div class="modal" id="modal-seam-frame" hidden>
+  <div class="modal-card wide">
+    <div class="modal-head"><h2>接缝预览</h2><button class="icon-btn" data-close aria-label="关闭" data-tip="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body">
+      <div class="seam-frame-grid">
+        <figure><img id="seam-frame-prev" alt="上一段末帧"><figcaption id="seam-frame-prev-label">上一段末帧</figcaption></figure>
+        <figure><img id="seam-frame-next" alt="本段首帧"><figcaption id="seam-frame-next-label">本段首帧</figcaption></figure>
+      </div>
+      <p class="modal-sub">首尾帧从当前成片里抽；连续段之间是 latent 续接，链边界是硬切。</p>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="modal-history" hidden>
   <div class="modal-card wide">
     <div class="modal-head"><h2>历史作品</h2><button class="icon-btn" data-close aria-label="关闭" data-tip="关闭"><svg><use href="#i-close"/></svg></button></div>

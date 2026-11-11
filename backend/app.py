@@ -893,6 +893,36 @@ def run_state(project_id: str) -> dict[str, Any]:
     return {"ok": True, "run": jobs.runner.snapshot(project_id)}
 
 
+@app.get("/api/projects/{project_id}/segments/{index}/frame")
+def segment_frame(project_id: str, index: int, edge: str = "first") -> dict[str, Any]:
+    """从成片里抽某段的首帧/尾帧，用于检查接缝与硬切。
+
+    抽帧结果缓存在 `cache/seg_XXXX_<edge>.jpg`；成片更新后（mtime 变）自动重抽。
+    """
+    if edge not in {"first", "last"}:
+        raise HTTPException(400, "edge 只能是 first 或 last。")
+    project = store.get(project_id)
+    row = store.find_segment(project, index)
+    final = project.get("final") or {}
+    if not final.get("path"):
+        raise HTTPException(400, "还没有成片，无法预览接缝。")
+    directory = store.project_dir(project_id)
+    video = directory / str(final["path"])
+    if not video.is_file():
+        raise HTTPException(404, "成片文件不存在。")
+    fps = int(final.get("fps") or frames.FPS) or frames.FPS
+    margin = 1.5 / fps
+    if edge == "first":
+        at = float(row.get("start") or 0) + margin
+    else:
+        at = max(0.0, float(row.get("end") or 0) - margin)
+    target = directory / "cache" / f"seg_{index:04d}_{edge}.jpg"
+    if not target.is_file() or target.stat().st_mtime < video.stat().st_mtime:
+        if not media.frame_at(video, target, at):
+            raise HTTPException(500, "抽帧失败，请检查 ffmpeg。")
+    return {"ok": True, "path": f"cache/{target.name}", "at": round(at, 3)}
+
+
 @app.post("/api/projects/{project_id}/segments/{index}/regenerate")
 def regenerate(project_id: str, index: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     try:

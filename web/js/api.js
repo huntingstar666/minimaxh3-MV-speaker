@@ -68,6 +68,7 @@ export const api = {
   patchRef: (id, index, body) => patch(`/api/projects/${id}/refs/${index}`, body),
   deleteRef: (id, index) => del(`/api/projects/${id}/refs/${index}`),
   patchSegment: (id, index, body) => patch(`/api/projects/${id}/segments/${index}`, body),
+  segmentFrame: (id, index, edge) => get(`/api/projects/${id}/segments/${index}/frame`, { edge }),
   setBoundaries: (id, cuts) => put(`/api/projects/${id}/boundaries`, { cuts }),
   splitSegment: (id, time) => post(`/api/projects/${id}/split`, { time }),
   mergeSegment: (id, index) => post(`/api/projects/${id}/segments/${index}/merge`, {}),

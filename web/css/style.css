@@ -657,6 +657,13 @@ input[type=range]:active::-webkit-slider-thumb{transform:scale(1.02)}
 .pill.status-completed{color:var(--ok);border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.08)}
 .pill.status-running{color:var(--amber);border-color:rgba(247,185,85,.35);background:rgba(247,185,85,.1)}
 .pill.status-failed{color:var(--danger);border-color:rgba(255,107,107,.35);background:rgba(255,107,107,.1)}
+.seam-frame-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.seam-frame-grid figure{margin:0;display:flex;flex-direction:column;gap:6px}
+.seam-frame-grid img{
+  width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:10px;
+  border:1px solid var(--line);background:#0d1117;
+}
+.seam-frame-grid figcaption{font-size:11px;color:var(--dim);text-align:center}
 .pill.status-cancelled,.pill.status-pending{color:var(--dim)}
 .seg-line{font-size:10.5px;color:var(--dim);line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .seg-cam{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}

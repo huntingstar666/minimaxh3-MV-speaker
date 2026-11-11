@@ -559,6 +559,31 @@ async function setSegmentStitch(index, value) {
   }
 }
 
+// ------------------------------- 接缝预览 -------------------------------
+async function openSeamFrame(index) {
+  if (!state.project || index < 1) return;
+  const id = state.project.id;
+  busy("正在从成片抽帧…");
+  try {
+    const [prev, next] = await Promise.all([
+      api.segmentFrame(id, index - 1, "last"),
+      api.segmentFrame(id, index, "first"),
+    ]);
+    const stamp = Date.now();
+    $("#seam-frame-prev").src = `/api/projects/${id}/media/${prev.path}?v=${stamp}`;
+    $("#seam-frame-next").src = `/api/projects/${id}/media/${next.path}?v=${stamp}`;
+    $("#seam-frame-prev-label").textContent =
+      `第 ${index} 段末帧 · ${formatTime(prev.at)}`;
+    $("#seam-frame-next-label").textContent =
+      `第 ${index + 1} 段首帧 · ${formatTime(next.at)}`;
+    openModal("modal-seam-frame");
+  } catch (error) {
+    toast(error.message || "抽帧失败", "err");
+  } finally {
+    busy("", false);
+  }
+}
+
 // ------------------------------- 参考图 -------------------------------
 async function uploadRef(file, role) {
   if (!file || !state.project) return;
@@ -1570,6 +1595,7 @@ function bindEvents() {
     if (target.dataset.act === "audition") toggleAudition(index);
     if (target.dataset.act === "refs") openSegRefs(index);
     if (target.dataset.act === "merge") mergeSegment(index);
+    if (target.dataset.act === "seam-frame") openSeamFrame(index);
   });
 
   $("#segment-list").addEventListener("change", (event) => {
