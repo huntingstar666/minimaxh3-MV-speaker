@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from typing import Any
 
@@ -15,6 +17,43 @@ from .frames import FPS
 DEFAULT_OVERLAP = 22
 # TimelinePlanner 的 generation_seconds 上限是 150（节点输入约束），单链不能超过。
 MAX_PLAN_SECONDS = 150.0
+# 影响画面的生成参数白名单：只要这些值不变，同一条链的输出就可以复用。
+# 后处理开关（修复/编码/crf）不在此列，它们只影响重新拼装。
+FINGERPRINT_KEYS = (
+    "unet", "clip", "vae_video", "vae_audio", "lora", "lora_strength",
+    "aspect_ratio", "megapixels", "multiple", "steps", "cfg", "sampler", "scheduler",
+    "upscaler_model", "ref_image_size", "seed", "seam_second_pass",
+    "transition_step", "lowres_scale", "rho", "w_min", "w_max", "highres_tiling",
+    "sigma_shift", "shift_video", "shift_audio",
+    "sigma_refiner", "refiner_extra_steps", "refiner_start_sigma",
+    "refiner_end_sigma", "refiner_spacing",
+)
+
+
+def chain_fingerprint(rows: list[dict[str, Any]], indexes: list[int],
+                      generation: dict[str, Any], plan: dict[str, Any],
+                      fps: int, overlap: int) -> str:
+    """一条链的计划指纹：命中即可跳过提交，直接复用上次的链输出。
+
+    只包含**影响该链画面**的项：全局生成参数、本链各段的内容（帧数/提示词/参考图）、
+    链内窗口与目标帧数。链间不传 latent，所以一条链的改动不会影响其他链。
+    """
+    payload = {
+        "version": 1,
+        "fps": int(fps),
+        "overlap": int(overlap),
+        "global": {key: generation.get(key) for key in FINGERPRINT_KEYS},
+        "rows": [{
+            "edit_frames": int(rows[index].get("edit_frames") or 0),
+            "prompt": str(rows[index].get("final_prompt") or ""),
+            "ref_ids": rows[index].get("ref_ids"),
+        } for index in indexes],
+        "windows": [{"start": int(window["start"]), "end": int(window["end"])}
+                    for window in plan["windows"]],
+        "target": int(plan["target"]),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
 def legal_frames(length: int) -> int:

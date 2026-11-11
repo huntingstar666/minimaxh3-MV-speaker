@@ -357,6 +357,40 @@ def test_split_respects_fps() -> None:
                 f"链 {plan['id']} 超上限")
 
 
+def test_chain_fingerprint() -> None:
+    rows = [
+        {"edit_frames": 120, "final_prompt": "P0", "ref_ids": None, "stitch": "hard"},
+        {"edit_frames": 96, "final_prompt": "P1", "ref_ids": [0], "stitch": "seam"},
+        {"edit_frames": 144, "final_prompt": "P2", "ref_ids": None, "stitch": "hard"},
+    ]
+    plans = seam.plan_chain_windows(rows, 24, 22)
+    generation = {"seed": 7, "steps": 6, "crf": 19, "filename_prefix": "x"}
+    base = seam.chain_fingerprint(rows, plans[0]["rows"], generation, plans[0], 24, 22)
+    require(base == seam.chain_fingerprint(rows, plans[0]["rows"], dict(generation),
+                                           plans[0], 24, 22),
+            "同输入必须稳定")
+
+    changed = [dict(row) for row in rows]
+    changed[1]["final_prompt"] = "P1x"
+    changed_plans = seam.plan_chain_windows(changed, 24, 22)
+    require(seam.chain_fingerprint(changed, changed_plans[0]["rows"], generation,
+                                   changed_plans[0], 24, 22) != base,
+            "本链提示词变了，指纹必须变")
+    require(seam.chain_fingerprint(changed, changed_plans[1]["rows"], generation,
+                                   changed_plans[1], 24, 22)
+            == seam.chain_fingerprint(rows, plans[1]["rows"], generation, plans[1], 24, 22),
+            "改链 0 的段不应影响链 1")
+
+    require(seam.chain_fingerprint(rows, plans[0]["rows"], {**generation, "seed": 8},
+                                   plans[0], 24, 22) != base, "seed 变必须变")
+    require(seam.chain_fingerprint(
+        rows, plans[0]["rows"],
+        {**generation, "crf": 25, "filename_prefix": "y"}, plans[0], 24, 22) == base,
+        "后处理键（crf / 文件名前缀）不应影响指纹")
+    require(seam.chain_fingerprint(rows, plans[0]["rows"], generation,
+                                   plans[0], 24, 39) != base, "overlap 变必须变")
+
+
 def main() -> int:
     run("group_chains 空输入", test_group_chains_empty)
     run("group_chains 全 hard", test_group_chains_all_hard)
@@ -379,6 +413,7 @@ def main() -> int:
     run("短链不拆", test_short_chain_not_split)
     run("split_long_chain 直接调用", test_split_long_chain_direct)
     run("拆链按输出帧率", test_split_respects_fps)
+    run("链指纹", test_chain_fingerprint)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + ", ".join(failures))

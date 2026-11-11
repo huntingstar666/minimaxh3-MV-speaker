@@ -444,6 +444,72 @@ def test_over_limit_single_segment() -> None:
     require(not observed["graphs"], "报错前不能提交任何链")
 
 
+def rerun(out: dict, force: set[int] | None = None, mutate=None) -> dict:
+    """对同一个项目再跑一次，用来验证链级复用。"""
+    project = store.get(out["id"])
+    if mutate:
+        mutate(project)
+        store.save(project)
+    runner = make_runner(out["id"])
+    generation = {
+        "stitch": "mixed", "seam_overlap": 22, "output_fps": FPS,
+        "upscaler_model": "", "seam_second_pass": False,
+    }
+    observed: dict = {"graphs": [], "timelines": [], "seconds": [], "prefixes": [],
+                      "normalize": [], "concat": None, "uploaded": {}}
+    with fake_comfy(observed):
+        runner._generate_mixed(out["id"], project, generation, {}, force=force)
+    observed.update({"id": out["id"], "project": project, "directory": out["directory"]})
+    return observed
+
+
+def test_chain_cache_reuse() -> None:
+    first = run_mixed(ROWS)
+    require(len(first["graphs"]) == 2, f"首次应提交 2 条链，实际 {len(first['graphs'])}")
+    require(first["project"]["final"]["chains_reused"] == 0, "首次不应有复用")
+
+    second = rerun(first)
+    require(not second["graphs"],
+            f"计划未变应全部复用，实际提交 {len(second['graphs'])} 次")
+    require(second["project"]["final"]["chains_reused"] == 2,
+            f"应复用 2 条：{second['project']['final']['chains_reused']}")
+    require(all(entry["reused"] for entry in second["project"]["final"]["chains"]),
+            "账本里每条链都应标记 reused")
+
+
+def test_cache_invalidates_only_changed_chain() -> None:
+    first = run_mixed(ROWS)
+
+    def bump(project):
+        project["segments"][1]["final_prompt"] += "\n改一句台词"
+
+    second = rerun(first, mutate=bump)
+    require(len(second["graphs"]) == 1,
+            f"只有链 0 该重跑，实际提交 {len(second['graphs'])} 次")
+    final = second["project"]["final"]
+    require(final["chains_reused"] == 1, f"应复用链 1：{final['chains_reused']}")
+    require(final["chains"][0]["reused"] is False, "链 0 必须重跑")
+    require(final["chains"][1]["reused"] is True, "链 1 必须复用")
+
+
+def test_force_regenerates_all() -> None:
+    first = run_mixed(ROWS)
+    second = rerun(first, force=set(range(len(ROWS))))
+    require(len(second["graphs"]) == 2,
+            f"force 应整条重跑 2 条链，实际 {len(second['graphs'])}")
+    require(second["project"]["final"]["chains_reused"] == 0, "force 不应复用")
+
+
+def test_missing_chain_file_regenerates() -> None:
+    first = run_mixed(ROWS)
+    target = first["directory"] / "takes" / "_mixed" / "chains" / "chain_01.mp4"
+    require(target.is_file(), "首次生成必须落盘链文件")
+    target.unlink()
+    second = rerun(first)
+    require(len(second["graphs"]) == 1,
+            f"链文件缺失时只该重跑链 1，实际 {len(second['graphs'])}")
+
+
 def test_final_stale_reason() -> None:
     """成片过期判断：hard 看 take，seam/mixed 看切点 + 接续方式。"""
     require(jobs.final_stale_reason({}) == "", "没有 final 时不应判过期")
@@ -506,6 +572,10 @@ def main() -> int:
     run("成片过期判断", test_final_stale_reason)
     run("超长链自动拆分", test_auto_split_long_chain)
     run("超长单段报错", test_over_limit_single_segment)
+    run("链级缓存复用", test_chain_cache_reuse)
+    run("只重跑改动所在的链", test_cache_invalidates_only_changed_chain)
+    run("force 全量重跑", test_force_regenerates_all)
+    run("链文件缺失重跑", test_missing_chain_file_regenerates)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))

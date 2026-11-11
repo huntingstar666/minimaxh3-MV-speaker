@@ -520,7 +520,8 @@ class JobRunner:
                     raise ValueError(
                         f"{stitch} 模式一次生成整条，不支持单段重生成；请用「重新生成全部」。")
                 if stitch == "mixed":
-                    self._generate_mixed(project_id, project, generation, refs)
+                    self._generate_mixed(project_id, project, generation, refs,
+                                         force=force)
                 else:
                     self._generate_seam(project_id, project, generation, refs)
                 return
@@ -1025,13 +1026,38 @@ class JobRunner:
             chunk = np.concatenate([chunk, pad], axis=0)
         audio.write_wav(target, chunk, sample_rate)
 
+    @staticmethod
+    def _chain_entry(plan: dict[str, Any], position: int, overlap: int,
+                     fingerprint: str, reused: bool) -> dict[str, Any]:
+        """链账本条目：复用与现场生成共用，避免两处字段不一致。"""
+        return {
+            "index": position,
+            "rows": list(plan["rows"]),
+            "start": int(plan["start"]),
+            "end": int(plan["end"]),
+            "target": int(plan["target"]),
+            "visible_end": int(plan["visible_end"]),
+            "overshoot": int(plan["overshoot"]),
+            "overlap": int(overlap) if len(plan["rows"]) > 1 else 0,
+            "fingerprint": fingerprint,
+            "reused": bool(reused),
+            "windows": [{"start": int(window["start"]), "end": int(window["end"]),
+                         "length": int(window["length"])}
+                        for window in plan["windows"]],
+        }
+
     def _generate_mixed(self, project_id: str, project: dict, generation: dict,
-                        ref_names: dict[int, str]) -> None:
+                        ref_names: dict[int, str],
+                        force: set[int] | None = None) -> None:
         """混合模式：按行级 stitch 切链，逐链提交，链间硬切。
 
         链内仍是 latent 续接（``MiniMaxH3FiniteSegmentVideoSampler``），但每条链
         单独切源音频、单独提交，所以链边界天然是硬切，链内窗口坐标是链内 0 基，
         装配时再加链的绝对 ``start``。
+
+        链输出落在 ``takes/_mixed/chains/`` 并配 ``manifest.json`` 记录指纹：
+        - ``force`` 为空时按链复用，改一段只重跑它所在的链，失败后可断点续跑；
+        - ``force`` 非空（「重新生成全部」）时忽略缓存，整条重跑。
         """
         directory = store.project_dir(project_id)
         segments = project.get("segments") or []
@@ -1067,8 +1093,20 @@ class JobRunner:
         source = directory / "source.wav"
         samples, sample_rate = audio.read_wav(source)
         work = directory / "takes" / "_mixed"
-        shutil.rmtree(work, ignore_errors=True)
+        chains_dir = work / "chains"
+        # chains/ 是断点续跑的资产，不能整目录删；只清本轮会重建的临时文件
         work.mkdir(parents=True, exist_ok=True)
+        chains_dir.mkdir(parents=True, exist_ok=True)
+        for stale in list(work.glob("chain_*.wav")) + list(work.glob("chain_*_raw.mp4")):
+            stale.unlink(missing_ok=True)
+        manifest_path = chains_dir / "manifest.json"
+        cache: dict[str, Any] = {}
+        if not force and manifest_path.is_file():
+            try:
+                cache = json.loads(
+                    manifest_path.read_text(encoding="utf-8")).get("chains") or {}
+            except (json.JSONDecodeError, OSError):
+                cache = {}
 
         chain_prompts: dict[int, list[str]] = {}
         prompt_baselines: dict[int, str] = {}
@@ -1087,12 +1125,27 @@ class JobRunner:
 
         clips: list[Path] = []
         chain_manifest: list[dict[str, Any]] = []
+        reused = 0
         for position, plan in enumerate(plans):
             if self.cancel_events[project_id].is_set():
                 raise comfy.ComfyError("任务已取消。")
             label = f"mixed 链 {position + 1}/{len(plans)}"
             low = 0.05 + 0.8 * position / len(plans)
             high = 0.05 + 0.8 * (position + 1) / len(plans)
+            clip = chains_dir / f"chain_{position:02d}.mp4"
+            fingerprint = seam.chain_fingerprint(
+                segments, plan["rows"], generation, plan, fps, overlap)
+            cached = cache.get(str(position))
+            if (not force and isinstance(cached, dict)
+                    and cached.get("fingerprint") == fingerprint
+                    and int(cached.get("target") or 0) == int(plan["target"])
+                    and clip.is_file() and clip.stat().st_size > 0):
+                reused += 1
+                clips.append(clip)
+                chain_manifest.append(self._chain_entry(
+                    plan, position, overlap, fingerprint, reused=True))
+                self._log(project_id, f"{label}：计划未变，复用已有输出")
+                continue
             chain_audio = work / f"chain_{position:02d}.wav"
             self._slice_chain_audio(samples, sample_rate, chain_audio,
                                     int(plan["start"]), int(plan["visible_end"]), fps)
@@ -1115,25 +1168,23 @@ class JobRunner:
                          progress=round(low, 4))
             raw = work / f"chain_{position:02d}_raw.mp4"
             self._sample_seam(project_id, graph, raw, low, high, label)
-            clip = work / f"chain_{position:02d}.mp4"
             self._update(project_id, stage="assemble",
                          message=f"{label}：裁到 {plan['target']} 帧",
                          progress=round(high, 4))
             media.normalize(raw, clip, int(plan["target"]), fps=fps)
-            clips.append(clip)
-            chain_manifest.append({
-                "index": position,
-                "rows": list(plan["rows"]),
-                "start": int(plan["start"]),
-                "end": int(plan["end"]),
+            cache[str(position)] = {
+                "fingerprint": fingerprint,
                 "target": int(plan["target"]),
-                "visible_end": int(plan["visible_end"]),
-                "overshoot": int(plan["overshoot"]),
-                "overlap": int(overlap) if len(plan["rows"]) > 1 else 0,
-                "windows": [{"start": int(window["start"]), "end": int(window["end"]),
-                             "length": int(window["length"])}
-                            for window in plan["windows"]],
-            })
+                "rows": list(plan["rows"]),
+                "file": clip.name,
+            }
+            # 每链完成就落盘：中断后重跑时已完成的链能直接复用
+            manifest_path.write_text(
+                json.dumps({"version": 1, "chains": cache}, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+            clips.append(clip)
+            chain_manifest.append(self._chain_entry(
+                plan, position, overlap, fingerprint, reused=False))
 
         total_edit = sum(int(row.get("edit_frames") or 0) for row in segments)
         total_target = sum(int(plan["target"]) for plan in plans)
@@ -1159,12 +1210,15 @@ class JobRunner:
             "stitch": "mixed",
             "chains": chain_manifest,
             "chains_auto_split": bool(auto_split),
+            "chains_reused": reused,
             "segment_signature": cuts_signature({"segments": segments}),
         }
         self._commit(project_id, project)
-        shutil.rmtree(work, ignore_errors=True)
+        # 只清本轮临时音频与原始视频；chains/ 留着给下次断点续跑
+        for stale in list(work.glob("chain_*.wav")) + list(work.glob("chain_*_raw.mp4")):
+            stale.unlink(missing_ok=True)
         self._log(project_id, f"mixed 成片完成（{len(plans)} 条链、{len(segments)} 段、"
-                              f"overlap {overlap} 帧）")
+                              f"overlap {overlap} 帧，复用 {reused} 条）")
         self._update(project_id, status="completed", stage="done", progress=1.0,
                      message="成片已完成（mixed）", finished=time.time())
 
