@@ -206,6 +206,8 @@ code{
   color:var(--text);font-weight:650;white-space:nowrap;
 }
 .panel-head .hint{font-size:10.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-actions{display:flex;gap:8px;margin:0 0 10px}
+.project-actions .btn{flex:1;justify-content:center}
 .panel-note{margin:-2px 0 10px;font-size:11.5px;line-height:1.65;color:var(--faint)}
 .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:11px}
 .meta-grid div{

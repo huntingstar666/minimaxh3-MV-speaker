@@ -241,12 +241,112 @@ async function refreshProjectQuiet() {
   } catch { /* 轮询期间忽略 */ }
 }
 
+function projectHasAudio(project = state.project) {
+  return Number(project?.source?.samples || 0) > 0 || Number(project?.source?.duration || 0) > 0;
+}
+
+function projectNameFrom(file) {
+  const typed = ($("#project-name").value || "").trim();
+  if (typed) return typed.slice(0, 60);
+  const base = String(file?.name || "").replace(/\.[^.]+$/, "").slice(0, 60);
+  return base || "未命名作品";
+}
+
+function creationFields(file, name = projectNameFrom(file)) {
+  return {
+    name,
+    mode: $("#mode-select").value || "singing",
+    script: $("#script-input").value || "",
+    target_seconds: Number($("#target-range").value),
+    max_seconds: Number($("#max-range").value),
+  };
+}
+
+function newProjectNameFor(file) {
+  const typed = ($("#project-name").value || "").trim();
+  const current = (state.project?.name || "").trim();
+  // 当前作品已有音轨时，拖音频默认是「另起一部」：优先用文件名，
+  // 除非用户明确改了名称（与当前作品名不同）。
+  if (typed && typed !== current) return typed.slice(0, 60);
+  const base = String(file?.name || "").replace(/\.[^.]+$/, "").slice(0, 60);
+  return base || typed || "未命名作品";
+}
+
+async function createBlankProject() {
+  busy("正在创建空白作品…");
+  try {
+    const created = await api.createProject(creationFields());
+    stopPolling();
+    cutHistory.length = 0;
+    updateUndoButton();
+    setProject(created.project);
+    state.run = created.project.run || null;
+    lastRunStatus = state.run?.status || "";
+    renderProject();
+    setAudioWaveform(waveform);
+    await loadProjects();
+    renderHistory();
+    toast("空白作品已创建：拖入音频后点「分析音频并分段」", "ok", 6000);
+  } catch (error) {
+    toast(`新建失败：${error.message}`, "err", 6000);
+  } finally {
+    busy("", false);
+  }
+}
+
+async function startNewProject() {
+  if (["queued", "running"].includes(state.run?.status)) {
+    toast("任务运行中，请先停止任务再新建作品。", "warn", 5000);
+    return;
+  }
+  if (state.project) {
+    const ok = await confirmDialog(
+      "新建作品",
+      "会新建一个空白作品；当前作品保留在「历史作品」里，可随时打开。继续？",
+      "新建空白作品",
+    );
+    if (!ok) return;
+    // 清空旧作品内容，避免把上一部的名称/台词带进新作品
+    $("#project-name").value = "";
+    $("#script-input").value = "";
+    if ($("#note-input")) $("#note-input").value = "";
+  }
+  await createBlankProject();
+}
+
+async function handleAudioFile(file) {
+  if (!file) return;
+  if (isPackFile(file)) {
+    importPack(file);
+    return;
+  }
+  // 空白作品：把音频补到当前作品，而不是又新建一个
+  if (state.project && !projectHasAudio()) {
+    busy("正在解码音频…");
+    try {
+      const data = await api.uploadAudio(state.project.id, file);
+      setProject(data.project);
+      renderProject();
+      await loadProjects();
+      renderHistory();
+      busy("", false);
+      toast(`音频已附加：${file.name}`, "ok");
+      await analyzeProject();
+    } catch (error) {
+      toast(error.message, "err", 6000);
+      busy("", false);
+    }
+    return;
+  }
+  await createProject(file);
+}
+
 async function createProject(file) {
   if (!file) return;
   busy("正在解码音频…");
   try {
-    const name = file.name.replace(/\.[^.]+$/, "").slice(0, 60) || "未命名作品";
-    const created = await api.createProject(file, name);
+    const name = newProjectNameFor(file);
+    const created = await api.createProject(creationFields(file, name), file);
     setProject(created.project);
     $("#project-name").value = name;
     renderProject();
@@ -275,7 +375,14 @@ async function createProject(file) {
 }
 
 async function analyzeProject() {
-  if (!state.project) return;
+  if (!state.project) {
+    toast("请先新建或打开作品。", "warn");
+    return;
+  }
+  if (!projectHasAudio()) {
+    toast("请先拖入音频，再分析分段。", "warn");
+    return;
+  }
   const target = Number($("#target-range").value);
   const maximum = Number($("#max-range").value);
   if (target > maximum) {
@@ -1369,9 +1476,7 @@ async function testLlm() {
 // ------------------------------- 事件 -------------------------------
 function bindEvents() {
   $("#audio-input").addEventListener("change", (event) => {
-    const file = event.target.files?.[0];
-    if (isPackFile(file)) importPack(file);
-    else createProject(file);
+    handleAudioFile(event.target.files?.[0]);
     event.target.value = "";
   });
   $("#pack-input").addEventListener("change", (event) => {
@@ -1404,9 +1509,7 @@ function bindEvents() {
     dropzone.classList.remove("drag");
   }));
   dropzone.addEventListener("drop", (event) => {
-    const file = event.dataTransfer?.files?.[0];
-    if (isPackFile(file)) importPack(file);
-    else createProject(file);
+    handleAudioFile(event.dataTransfer?.files?.[0]);
   });
 
   $("#ref-groups").addEventListener("change", (event) => {
@@ -1478,6 +1581,12 @@ function bindEvents() {
     renderHistory();
     openModal("modal-history");
   });
+  $("#btn-new-project")?.addEventListener("click", startNewProject);
+  $("#btn-open-project")?.addEventListener("click", async () => {
+    await loadProjects();
+    renderHistory();
+    openModal("modal-history");
+  });
   $("#btn-settings").addEventListener("click", () => {
     renderSettingsForm();
     openModal("modal-settings");
@@ -1536,7 +1645,14 @@ function bindEvents() {
   $("#script-input").addEventListener("change", (event) => {
     persistProjectField({ script: event.target.value });
   });
-  $("#mode-select").addEventListener("change", () => analyzeProject());
+  $("#mode-select").addEventListener("change", () => {
+    // 空白作品还没有音轨：只保存模式，等上传音频后再分析
+    if (!projectHasAudio()) {
+      persistProjectField({ mode: $("#mode-select").value });
+      return;
+    }
+    analyzeProject();
+  });
 
   ["#llm-enable", "#llm-base", "#llm-model", "#llm-key", "#set-llm-vision"].forEach((selector) => {
     const element = $(selector);

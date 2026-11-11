@@ -62,11 +62,15 @@
   <aside class="rail rail-left">
     <section class="panel" id="project-panel">
       <div class="panel-head"><h2>作品设定</h2><span class="hint" id="project-id-label">未创建</span></div>
+      <div class="project-actions">
+        <button class="btn primary sm" id="btn-new-project" type="button"><svg><use href="#i-plus"/></svg>新建作品</button>
+        <button class="btn ghost sm" id="btn-open-project" type="button"><svg><use href="#i-film"/></svg>打开作品</button>
+      </div>
       <label class="dropzone" id="audio-drop">
         <input type="file" id="audio-input" accept="audio/*,video/*" hidden>
         <svg><use href="#i-wave"/></svg>
         <strong>拖入音频，或点击选择</strong>
-        <span>MP3 / WAV / M4A / FLAC · 视频自动提取音轨</span>
+        <span>MP3 / WAV / M4A / FLAC · 视频自动提取音轨<br>空白作品会补到当前作品；已有音轨时新建作品</span>
         <em id="audio-file-label"></em>
       </label>
       <label class="pack-dropzone" id="pack-drop" title="导入包含 manifest.json、音频和参考图的 MV 包">

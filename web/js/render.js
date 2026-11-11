@@ -215,10 +215,14 @@ export function renderProject() {
   }
   $("#stage-name").textContent = project?.name || "从一段声音开始";
   const segments = project?.segments || [];
+  const hasAudio = Number(project?.source?.samples || 0) > 0
+    || Number(project?.source?.duration || 0) > 0;
   $("#stage-sub").textContent = hasProject
-    ? `${formatDuration(project.source?.duration)} · ${segments.length} 段 · ${project.mode === "speaking" ? "口播" : "演唱"}模式`
+    ? (hasAudio
+      ? `${formatDuration(project.source?.duration)} · ${segments.length} 段 · ${project.mode === "speaking" ? "口播" : "演唱"}模式`
+      : `空白作品 · 拖入音频后开始分段 · ${project.mode === "speaking" ? "口播" : "演唱"}模式`)
     : "上传音频、锁定人物，剩下的交给导演编排";
-  $("#source-meta").innerHTML = hasProject ? `
+  $("#source-meta").innerHTML = hasProject && hasAudio ? `
     <div>时长<b>${formatTime(project.source?.duration)}</b></div>
     <div>分段<b>${segments.length} 段</b></div>
     <div>采样率<b>${(project.source?.sample_rate || 44100) / 1000} kHz</b></div>
@@ -243,7 +247,7 @@ export function renderProject() {
     }
   }
   const audio = $("#audio-el");
-  if (hasProject) {
+  if (hasProject && hasAudio) {
     const expected = `/api/projects/${project.id}/media/source.wav`;
     if (!audio.src.endsWith(expected)) {
       audio.src = expected;
@@ -265,8 +269,11 @@ export function renderProject() {
   const filterLabel = $("#filter-label");
   if (styleLabel) styleLabel.textContent = project?.style ? `风格：${project.style.slice(0,14)}` : "风格：未设置";
   if (filterLabel) filterLabel.textContent = project?.filter ? `滤镜：${project.filter.slice(0,14)}` : "滤镜：未设置";
-  $("#btn-analyze").disabled = !hasProject;
-  $("#btn-split").disabled = !hasProject || segments.length === 0;
+  $("#btn-analyze").disabled = !hasProject || !hasAudio;
+  $("#btn-analyze").title = !hasProject
+    ? "请先新建或打开作品"
+    : !hasAudio ? "请先拖入音频，再分析分段" : "重新分析音频并重建分段";
+  $("#btn-split").disabled = !hasProject || !hasAudio || segments.length === 0;
   $("#btn-generate").disabled = !hasProject || segments.length === 0;
   $("#btn-regenerate-all").disabled = !hasProject || segments.length === 0;
   $("#btn-write-all").disabled = !hasProject || segments.length === 0;
@@ -519,7 +526,7 @@ export function renderHistory() {
   if (!grid) return;
   const projects = state.projects || [];
   if (!projects.length) {
-    grid.innerHTML = `<div class="history-empty">还没有作品，先上传一段音频开始吧。</div>`;
+    grid.innerHTML = `<div class="history-empty">还没有作品，点左侧「新建作品」开始吧。</div>`;
     return;
   }
   grid.innerHTML = projects.map((item) => `

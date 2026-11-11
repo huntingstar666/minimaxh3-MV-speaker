@@ -100,11 +100,15 @@ async def _handle_invalid(request: Request, exc: ParamError) -> JSONResponse:
     return JSONResponse(status_code=400, content={"ok": False, "detail": detail})
 
 
+_NO_CACHE_PATHS = {"/", "/index.html", "/avatar", "/avatar/", "/avatar/index.html"}
+
+
 @app.middleware("http")
 async def static_no_cache(request: Request, call_next):
-    """静态脚本每次用 ETag 复验，避免浏览器继续用旧版 app.js。"""
+    """页面与静态脚本每次用 ETag 复验，避免浏览器继续用旧版 HTML/JS。"""
     response = await call_next(request)
-    if request.url.path.startswith("/static/"):
+    path = request.url.path
+    if path.startswith("/static/") or path in _NO_CACHE_PATHS:
         response.headers["Cache-Control"] = "no-cache"
     return response
 
@@ -242,14 +246,26 @@ def list_projects() -> dict[str, Any]:
     return {"ok": True, "projects": store.list_projects()}
 
 
-@app.post("/api/projects")
-def create_project(name: str = Form("未命名作品"),
-                   audio_file: UploadFile = File(..., alias="audio")) -> dict[str, Any]:
+def _audio_seconds(info: dict[str, Any]) -> float:
+    if info.get("samples"):
+        return round(float(info["samples"]) / 44100.0, 3)
+    return round(float(info["info"]["duration"]), 3)
+
+
+def _clamp_seconds(value: str | None, fallback: float) -> float:
+    try:
+        seconds = float(value) if str(value or "").strip() else fallback
+    except (TypeError, ValueError):
+        return fallback
+    return max(5.0, min(30.0, seconds))
+
+
+def _apply_audio_upload(project: dict[str, Any], audio_file: UploadFile) -> None:
+    """把上传音频解码成项目 source.wav，并回写 source 元信息。"""
     suffix = Path(audio_file.filename or "").suffix.lower()
     if suffix not in ALLOWED_AUDIO:
         raise HTTPException(400, f"不支持的音频格式：{suffix or '未知'}")
-    settings.ensure_dirs()
-    project = store.create(name, audio_file.filename or "audio", 0, 44100, 0)
+    _check_upload_size(audio_file, MAX_AUDIO_BYTES, "音频")
     directory = store.project_dir(project["id"])
     try:
         with tempfile.TemporaryDirectory() as temp:
@@ -258,11 +274,9 @@ def create_project(name: str = Form("未命名作品"),
                 shutil.copyfileobj(audio_file.file, handle)
             info = audio.decode_to_wav(temp_path, directory / "source.wav")
     except Exception as error:  # noqa: BLE001
-        store.delete(project["id"])
         detail = str(error).splitlines()[0][:200] if str(error) else ""
         raise HTTPException(400, f"音频解码失败，请确认文件是有效的音频。{detail}") from error
-    decoded_seconds = (round(float(info["samples"]) / 44100.0, 3)
-                       if info.get("samples") else round(float(info["info"]["duration"]), 3))
+    decoded_seconds = _audio_seconds(info)
     # 波形时间轴用 source.duration，必须取「解码后音频」的真实长度；
     # 之前用容器时长，带画面的 mp4/mov 会让波形与切点整体错位。
     project["source"] = {
@@ -272,7 +286,59 @@ def create_project(name: str = Form("未命名作品"),
         "sample_rate": 44100,
         "samples": info["samples"],
     }
+
+
+@app.post("/api/projects")
+def create_project(name: str = Form("未命名作品"),
+                   mode: str = Form("singing"),
+                   script: str = Form(""),
+                   target_seconds: str = Form(""),
+                   max_seconds: str = Form(""),
+                   audio_file: UploadFile | None = File(None, alias="audio")) -> dict[str, Any]:
+    """创建作品：音频可选，允许先建空白作品，之后再补音轨。"""
+    if mode not in {"singing", "speaking"}:
+        raise HTTPException(400, "模式必须是 singing 或 speaking。")
+    settings.ensure_dirs()
+    project = store.create(name, "", 0, 44100, 0)
+    project["mode"] = mode
+    project["script"] = str(script or "")
+    target = _clamp_seconds(target_seconds, 11.0)
+    maximum = _clamp_seconds(max_seconds, 15.0)
+    target = min(target, maximum)
+    project["target_seconds"] = round(target, 3)
+    project["target_frames"] = frames.to_frames(target)
+    project["max_seconds"] = round(maximum, 3)
+    project["max_frames"] = frames.to_frames(maximum)
+    try:
+        if audio_file is not None and (audio_file.filename or ""):
+            _apply_audio_upload(project, audio_file)
+    except Exception:
+        # 解码失败不要把空项目留在列表里
+        store.delete(project["id"])
+        raise
     store.save(project)
+    return {"ok": True, "project": project}
+
+
+@app.post("/api/projects/{project_id}/audio")
+def upload_project_audio(project_id: str,
+                         audio_file: UploadFile = File(..., alias="audio")) -> dict[str, Any]:
+    """给已有作品上传/替换驱动音频；旧切点、分段与成片一并失效。"""
+    with _structural_lock:
+        project = store.get(project_id)
+        jobs.runner.cancel(project_id)
+        jobs.runner.wait(project_id, 60)
+        _apply_audio_upload(project, audio_file)
+        project["segments"] = []
+        project["analysis"] = {}
+        project["warnings"] = []
+        project["final"] = None
+        project["run"] = {"status": "idle", "progress": 0, "message": "", "segment": -1}
+        try:
+            store.state_file(project_id, "transcript.json").unlink()
+        except OSError:
+            pass
+        store.save(project)
     return {"ok": True, "project": project}
 
 
