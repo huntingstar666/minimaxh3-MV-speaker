@@ -40,9 +40,17 @@ def take_signature(project: dict[str, Any]) -> str:
 
 
 def cuts_signature(project: dict[str, Any]) -> str:
-    """切点指纹：seam 成片没有单段 take，只能靠切点判断是否过期。"""
+    """切点 + 行级接续指纹：seam/mixed 成片没有单段 take，只能靠它判断是否过期。
+
+    只有出现过显式 ``row.stitch`` 时才把接续方式算进指纹；否则沿用纯切点算法，
+    避免旧项目的成片在升级后突然被判过期。
+    """
+    rows = project.get("segments") or []
     parts = [f"{int(row.get('start_frame') or 0)}-{int(row.get('end_frame') or 0)}"
-             for row in project.get("segments") or []]
+             for row in rows]
+    if any(str(row.get("stitch") or "").strip() for row in rows):
+        parts = [f"{part}:{str(row.get('stitch') or 'hard').strip().lower()}"
+                 for part, row in zip(parts, rows)]
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
@@ -487,10 +495,14 @@ class JobRunner:
             if only:
                 force |= {int(value) for value in only}
             stitch = str(generation.get("stitch") or "hard").strip().lower()
-            if stitch == "seam":
+            if stitch in {"seam", "mixed"}:
                 if only:
-                    raise ValueError("seam 模式一次生成整条，不支持单段重生成；请用「重新生成全部」。")
-                self._generate_seam(project_id, project, generation, refs)
+                    raise ValueError(
+                        f"{stitch} 模式一次生成整条，不支持单段重生成；请用「重新生成全部」。")
+                if stitch == "mixed":
+                    self._generate_mixed(project_id, project, generation, refs)
+                else:
+                    self._generate_seam(project_id, project, generation, refs)
                 return
             total = len(segments)
             results: dict[int, Path] = {}
@@ -847,6 +859,52 @@ class JobRunner:
             segment_images.append(ids)
         return list(pictures.values()), segment_images
 
+    def _seam_params(self, generation: dict[str, Any]) -> dict[str, Any]:
+        """只有部署了带这些输入的新版节点时才传；旧节点不接受未知字段。"""
+        if not (comfy.options().get("nodes") or {}).get("seam_params"):
+            return {}
+
+        def _number(key: str, fallback: float) -> float:
+            value = generation.get(key)
+            return fallback if value is None else float(value)
+
+        return {
+            "transition_step": int(generation.get("transition_step") or 0),
+            "lowres_scale": _number("lowres_scale", 0.0),
+            "rho": _number("rho", -1.0),
+            "w_min": _number("w_min", -1.0),
+            "w_max": _number("w_max", -1.0),
+            # seam 的续接 latent 带 noise_mask，与高分辨率分块不兼容。
+            "highres_tiling": False,
+        }
+
+    def _sample_seam(self, project_id: str, graph: dict[str, Any], raw: Path,
+                     low: float, high: float, label: str) -> None:
+        """提交一条 seam 图、等它跑完，把返回的视频写到 raw；进度落在 [low, high]。"""
+        prompt_id = comfy.queue(graph)
+        self._active_prompts[project_id] = prompt_id
+        self._update(project_id, stage="sampling",
+                     message=f"{label}：生成中（latent 接缝）", progress=round(low, 4))
+
+        def on_progress(message: dict[str, Any]) -> None:
+            if message.get("type") != "progress":
+                return
+            data = message.get("data") or {}
+            value, maximum = data.get("value") or 0, data.get("max") or 1
+            self._update(project_id, stage="sampling",
+                         progress=round(low + (high - low) * value / max(maximum, 1), 4),
+                         message=f"{label}：采样 {value}/{maximum}")
+
+        entry = comfy.wait(prompt_id, on_progress, self.cancel_events[project_id])
+        files = comfy.extract_outputs(entry)
+        video = next((item for item in files
+                      if item["filename"].lower().endswith((".mp4", ".webm", ".mov", ".mkv"))),
+                     None)
+        if not video:
+            raise comfy.ComfyError(f"{label} 没有返回视频。")
+        raw.parent.mkdir(parents=True, exist_ok=True)
+        raw.write_bytes(comfy.view(video["filename"], video["subfolder"], video["kind"]))
+
     def _generate_seam(self, project_id: str, project: dict, generation: dict,
                        ref_names: dict[int, str]) -> None:
         """seam 模式：整条片一次提交，节点内部按窗口 latent 续接。
@@ -893,48 +951,13 @@ class JobRunner:
             second_pass_model=str(generation.get("upscaler_model") or ""),
             second_pass_high_steps=2)
         prefix = f"h3seam/{project_id}_{int(time.time())}"
-        seam_params: dict[str, Any] = {}
-        if (comfy.options().get("nodes") or {}).get("seam_params"):
-            def _number(key: str, fallback: float) -> float:
-                value = generation.get(key)
-                return fallback if value is None else float(value)
-            seam_params = {
-                "transition_step": int(generation.get("transition_step") or 0),
-                "lowres_scale": _number("lowres_scale", 0.0),
-                "rho": _number("rho", -1.0),
-                "w_min": _number("w_min", -1.0),
-                "w_max": _number("w_max", -1.0),
-                # seam 的续接 latent 带 noise_mask，与高分辨率分块不兼容。
-                "highres_tiling": False,
-            }
         graph = workflow.build_seam(generation, timeline, total_seconds, fps, prefix,
-                                    params=seam_params, available=self._available)
+                                    params=self._seam_params(generation),
+                                    available=self._available)
         self._update(project_id, stage="queue", message="seam：提交整条生成", progress=0.06)
-        prompt_id = comfy.queue(graph)
-        self._active_prompts[project_id] = prompt_id
-        self._update(project_id, stage="sampling", message="seam：整条生成中（latent 接缝）",
-                     progress=0.08)
-
-        def on_progress(message: dict[str, Any]) -> None:
-            if message.get("type") != "progress":
-                return
-            data = message.get("data") or {}
-            value, maximum = data.get("value") or 0, data.get("max") or 1
-            self._update(project_id, stage="sampling",
-                         progress=round(0.08 + 0.8 * value / max(maximum, 1), 4),
-                         message=f"seam：采样 {value}/{maximum}")
-
-        entry = comfy.wait(prompt_id, on_progress, self.cancel_events[project_id])
-        files = comfy.extract_outputs(entry)
-        video = next((item for item in files
-                      if item["filename"].lower().endswith((".mp4", ".webm", ".mov", ".mkv"))),
-                     None)
-        if not video:
-            raise comfy.ComfyError("seam 生成没有返回视频。")
         work = directory / "takes" / "_seam"
-        work.mkdir(parents=True, exist_ok=True)
         raw = work / "raw.mp4"
-        raw.write_bytes(comfy.view(video["filename"], video["subfolder"], video["kind"]))
+        self._sample_seam(project_id, graph, raw, 0.08, 0.88, "seam")
         self._update(project_id, stage="assemble", message="seam：裁尾并混入原始音轨",
                      progress=0.9)
         clipped = work / "clip.mp4"
@@ -966,6 +989,149 @@ class JobRunner:
         self._update(project_id, status="completed", stage="done", progress=1.0,
                      message="成片已完成（seam）", finished=time.time())
 
+    @staticmethod
+    def _slice_chain_audio(samples: np.ndarray, sample_rate: int, target: Path,
+                           start_frame: int, frame_count: int, fps: int) -> None:
+        """按链的绝对帧区间切源音频，尾部补静音到刚好覆盖生成窗口。
+
+        直接用秒换算样本，不走 ``frames.sample_of_frame``：后者固定按 24fps
+        解释帧号，而 mixed 的链坐标是输出帧率制。
+        """
+        start = max(0, int(round(start_frame * sample_rate / fps)))
+        need = max(1, int(round(frame_count * sample_rate / fps)))
+        chunk = samples[start:start + need]
+        if len(chunk) < need:
+            pad = np.zeros((need - len(chunk), chunk.shape[1]), dtype=chunk.dtype)
+            chunk = np.concatenate([chunk, pad], axis=0)
+        audio.write_wav(target, chunk, sample_rate)
+
+    def _generate_mixed(self, project_id: str, project: dict, generation: dict,
+                        ref_names: dict[int, str]) -> None:
+        """混合模式：按行级 stitch 切链，逐链提交，链间硬切。
+
+        链内仍是 latent 续接（``MiniMaxH3FiniteSegmentVideoSampler``），但每条链
+        单独切源音频、单独提交，所以链边界天然是硬切，链内窗口坐标是链内 0 基，
+        装配时再加链的绝对 ``start``。
+        """
+        directory = store.project_dir(project_id)
+        segments = project.get("segments") or []
+        if not segments:
+            raise ValueError("没有可生成的分段。")
+        fps = int(generation.get("output_fps") or frames.FPS)
+        if fps not in (24, 25, 30):
+            fps = frames.FPS
+        overlap = int(generation.get("seam_overlap") or seam.DEFAULT_OVERLAP)
+        if overlap not in (22, 39):
+            raise ValueError("mixed 的 seam_overlap 只支持 22 或 39（5 仅供数字人模式 2）。")
+        if self.cancel_events[project_id].is_set():
+            raise comfy.ComfyError("任务已取消。")
+        self._update(project_id, stage="prepare", message="mixed：规划链与窗口",
+                     progress=0.03)
+        plans = seam.plan_chain_windows(segments, fps, overlap)
+        pictures, segment_images = self._seam_materials(project, ref_names)
+        source = directory / "source.wav"
+        samples, sample_rate = audio.read_wav(source)
+        work = directory / "takes" / "_mixed"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True, exist_ok=True)
+
+        chain_prompts: dict[int, list[str]] = {}
+        prompt_baselines: dict[int, str] = {}
+        for plan in plans:
+            texts: list[str] = []
+            for offset, row_index in enumerate(plan["rows"]):
+                row = segments[row_index]
+                window = plan["windows"][offset]
+                prompt_baselines[row_index] = str(row.get("final_prompt") or "")
+                row.update(generation_frames=int(window["length"]),
+                           generation_seconds=round(window["length"] / fps, 3), fps=fps)
+                body = self._ensure_prompt(project, row)
+                texts.append(prompts.effective_prompt(project, row, body))
+            chain_prompts[plan["id"]] = texts
+        self._commit(project_id, project, prompt_baselines)
+
+        clips: list[Path] = []
+        chain_manifest: list[dict[str, Any]] = []
+        for position, plan in enumerate(plans):
+            if self.cancel_events[project_id].is_set():
+                raise comfy.ComfyError("任务已取消。")
+            label = f"mixed 链 {position + 1}/{len(plans)}"
+            low = 0.05 + 0.8 * position / len(plans)
+            high = 0.05 + 0.8 * (position + 1) / len(plans)
+            chain_audio = work / f"chain_{position:02d}.wav"
+            self._slice_chain_audio(samples, sample_rate, chain_audio,
+                                    int(plan["start"]), int(plan["visible_end"]), fps)
+            audio_name = comfy.upload(
+                f"h3wb_{project_id}_mixed_c{position:02d}.wav", chain_audio.read_bytes())
+            chain_seconds = int(plan["visible_end"]) / fps
+            timeline = seam.build_timeline(
+                plan["windows"], pictures,
+                [segment_images[index] for index in plan["rows"]],
+                audio_name, fps, chain_seconds, chain_prompts[plan["id"]],
+                second_pass=bool(generation.get("seam_second_pass", True)),
+                second_pass_model=str(generation.get("upscaler_model") or ""),
+                second_pass_high_steps=2)
+            graph = workflow.build_seam(
+                generation, timeline, chain_seconds, fps,
+                f"h3seam/{project_id}_c{position:02d}_{int(time.time())}",
+                params=self._seam_params(generation), available=self._available)
+            self._update(project_id, stage="queue",
+                         message=f"{label}：提交（{len(plan['rows'])} 段）",
+                         progress=round(low, 4))
+            raw = work / f"chain_{position:02d}_raw.mp4"
+            self._sample_seam(project_id, graph, raw, low, high, label)
+            clip = work / f"chain_{position:02d}.mp4"
+            self._update(project_id, stage="assemble",
+                         message=f"{label}：裁到 {plan['target']} 帧",
+                         progress=round(high, 4))
+            media.normalize(raw, clip, int(plan["target"]), fps=fps)
+            clips.append(clip)
+            chain_manifest.append({
+                "index": position,
+                "rows": list(plan["rows"]),
+                "start": int(plan["start"]),
+                "end": int(plan["end"]),
+                "target": int(plan["target"]),
+                "visible_end": int(plan["visible_end"]),
+                "overshoot": int(plan["overshoot"]),
+                "overlap": int(overlap) if len(plan["rows"]) > 1 else 0,
+                "windows": [{"start": int(window["start"]), "end": int(window["end"]),
+                             "length": int(window["length"])}
+                            for window in plan["windows"]],
+            })
+
+        total_edit = sum(int(row.get("edit_frames") or 0) for row in segments)
+        total_target = sum(int(plan["target"]) for plan in plans)
+        self._update(project_id, stage="assemble",
+                     message=f"mixed：拼接 {len(clips)} 条链并混入原始音轨", progress=0.9)
+        final_path = directory / "final" / "final.mp4"
+        media.concat(clips, source, final_path, total_edit, work)
+        thumb = directory / "final" / "cover.jpg"
+        media.thumbnail(final_path, thumb,
+                        min(0.8, max(frames.to_seconds(total_edit) / 3, 0.2)))
+        for row in segments:
+            row.update(status="completed", error=None, output=None)
+        project["final"] = {
+            "path": "final/final.mp4",
+            "thumb": "final/cover.jpg",
+            "duration": round(media.duration(final_path) or frames.to_seconds(total_edit), 3),
+            "duration_frames": total_edit,
+            "fps": fps,
+            "output_frames": total_target,
+            "bytes": final_path.stat().st_size,
+            "created": time.time(),
+            "segments": len(segments),
+            "stitch": "mixed",
+            "chains": chain_manifest,
+            "segment_signature": cuts_signature({"segments": segments}),
+        }
+        self._commit(project_id, project)
+        shutil.rmtree(work, ignore_errors=True)
+        self._log(project_id, f"mixed 成片完成（{len(plans)} 条链、{len(segments)} 段、"
+                              f"overlap {overlap} 帧）")
+        self._update(project_id, status="completed", stage="done", progress=1.0,
+                     message="成片已完成（mixed）", finished=time.time())
+
     def assemble(self, project_id: str) -> dict[str, Any]:
         """只重新拼接成片（不跑 ComfyUI）；用于换选片段后快速重合成。"""
         with self.lock:
@@ -979,10 +1145,10 @@ class JobRunner:
             if not segments:
                 raise ValueError("没有可合成的分段。")
             final = project.get("final") or {}
-            if final.get("stitch") == "seam" and not any(
+            if final.get("stitch") in {"seam", "mixed"} and not any(
                     row.get("output") for row in segments):
-                raise ValueError("seam 模式是整条一次生成的，没有可单独重拼的分段片段；"
-                                 "请用「重新生成全部」出片。")
+                raise ValueError(f"{final['stitch']} 模式是整条生成的，没有可单独重拼的"
+                                 "分段片段；请用「重新生成全部」出片。")
             job = {
                 "job_id": hashlib.sha1(f"{project_id}assemble{time.time()}".encode()).hexdigest()[:12],
                 "project_id": project_id, "status": "running", "stage": "assemble",
