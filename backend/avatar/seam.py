@@ -8,12 +8,23 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from typing import Any
 
 import numpy as np
 
 from . import config
+
+# 影响画面的生成参数：窗口指纹只比较这些，后处理开关（crf/文件名）不算。
+FINGERPRINT_KEYS = (
+    "unet", "clip", "vae_video", "vae_audio", "lora", "lora_strength",
+    "aspect_ratio", "megapixels", "multiple", "steps", "cfg", "sampler", "scheduler",
+    "upscaler_model", "seed", "fps", "ref_image_size",
+    "transition_step", "lowres_scale", "rho", "w_min", "w_max", "highres_tiling",
+    "sigma_refiner", "refiner_extra_steps", "refiner_start_sigma", "refiner_end_sigma",
+)
 
 
 def legal_frames(length: int) -> int:
@@ -97,6 +108,54 @@ def units(windows: list[dict[str, Any]], overlap: int | None = None) -> list[dic
             "keep": length - guide,
         })
     return result
+
+
+def window_fingerprint(row: dict[str, Any], window: dict[str, Any],
+                       generation: dict[str, Any], mode: int,
+                       overlap: int) -> str:
+    """单个窗口的计划指纹：命中即可复用该窗的 latent 与成片。
+
+    窗口内的音频、台词、参考图与采样参数任何一项变化都会让指纹改变，
+    因此改第 i 段只影响第 i 窗，其余窗口继续复用。
+    """
+    payload = {
+        "version": 1,
+        "mode": int(mode),
+        "overlap": int(overlap),
+        "global": {key: generation.get(key) for key in FINGERPRINT_KEYS},
+        "row": {
+            "frames": int(row.get("frames") or 0),
+            "edit_frames": int(row.get("edit_frames") or 0),
+            "text": str(row.get("text") or ""),
+            "prompt": str(row.get("prompt") or ""),
+            "refs": row.get("ref_indices") if row.get("ref_indices") is not None
+            else row.get("ref_ids"),
+        },
+        "window": {
+            "start": int(window["start"]),
+            "end": int(window["end"]),
+            "length": int(window["length"]),
+        },
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def valid_windows(results: list[dict[str, Any] | None]) -> list[int]:
+    """续跑时可直接复用的窗口下标：从第 1 窗起连续有效，遇到缺口就停。
+
+    后续窗口依赖前窗 latent，所以只要中间缺一窗，它之后的都必须作废。
+    """
+    valid: list[int] = []
+    for index, item in enumerate(results):
+        if not isinstance(item, dict):
+            break
+        if item.get("status") != "completed":
+            break
+        if not str(item.get("file") or "").strip():
+            break
+        valid.append(index)
+    return valid
 
 
 def frames_to_samples(frames: int, sample_rate: int, fps: int | None = None) -> int:

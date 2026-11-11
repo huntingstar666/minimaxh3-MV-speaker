@@ -132,6 +132,33 @@ def test_audio_risk() -> None:
     require(noisy["rms_db"] > -40, f"dBFS 应高于阈值：{noisy['rms_db']}")
 
 
+def test_valid_windows() -> None:
+    ok = {"status": "completed", "file": "w.mp4"}
+    require(seam.valid_windows([ok, ok, ok]) == [0, 1, 2], "全完成应全部保留")
+    require(seam.valid_windows([ok, {"status": "failed", "file": ""}, ok]) == [0],
+            "中间失败应截断后续")
+    require(seam.valid_windows([ok, {"status": "completed", "file": ""}, ok]) == [0],
+            "文件缺失应截断")
+    require(seam.valid_windows([None, ok]) == [], "首窗缺失则全作废")
+    require(seam.valid_windows([]) == [], "空输入返回空")
+
+
+def test_window_fingerprint() -> None:
+    row = {"frames": 124, "text": "你好", "prompt": "P"}
+    window = {"start": 0, "end": 124, "length": 124}
+    gen = {"seed": 7, "steps": 6, "crf": 19}
+    base = seam.window_fingerprint(row, window, gen, 2, 5)
+    require(base == seam.window_fingerprint(dict(row), dict(window), dict(gen), 2, 5),
+            "同输入必须稳定")
+    require(seam.window_fingerprint({**row, "text": "你好啊"}, window, gen, 2, 5) != base,
+            "台词变必须变")
+    require(seam.window_fingerprint(row, window, {**gen, "seed": 8}, 2, 5) != base,
+            "seed 变必须变")
+    require(seam.window_fingerprint(row, window, {**gen, "crf": 25}, 2, 5) == base,
+            "后处理键不应影响指纹")
+    require(seam.window_fingerprint(row, window, gen, 2, 22) != base, "overlap 变必须变")
+
+
 def main() -> int:
     run("base 与默认 overlap", test_base_and_overlap)
     run("窗口几何", test_window_geometry)
@@ -140,6 +167,8 @@ def main() -> int:
     run("超长段报错", test_too_long_segment)
     run("帧转采样", test_frames_to_samples)
     run("段首音频风险", test_audio_risk)
+    run("续跑缺口检测", test_valid_windows)
+    run("窗口指纹", test_window_fingerprint)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))
