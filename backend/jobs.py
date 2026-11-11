@@ -939,11 +939,14 @@ class JobRunner:
         fps = int(generation.get("output_fps") or frames.FPS)
         if fps not in (24, 25, 30):
             fps = frames.FPS
+        overlap = int(generation.get("seam_overlap") or seam.DEFAULT_OVERLAP)
+        if overlap not in (22, 39):
+            raise ValueError("seam 的 seam_overlap 只支持 22 或 39（5 仅供数字人模式 2）。")
         total_edit = sum(int(row.get("edit_frames") or 0) for row in segments)
         total_target = int(round(total_edit * fps / frames.FPS))
         self._update(project_id, stage="prepare", message="seam：规划重叠窗口",
                      progress=0.03)
-        windows = seam.plan_windows(segments, fps, total_target)
+        windows = seam.plan_windows(segments, fps, total_target, overlap)
         pictures, segment_images = self._seam_materials(project, ref_names)
         prompts_text: list[str] = []
         prompt_baselines: dict[int, str] = {}
@@ -1006,7 +1009,7 @@ class JobRunner:
         self._commit(project_id, project)
         shutil.rmtree(work, ignore_errors=True)
         self._log(project_id, f"seam 成片完成（{len(segments)} 段，重叠 "
-                              f"{seam.DEFAULT_OVERLAP} 帧）")
+                              f"{overlap} 帧）")
         self._update(project_id, status="completed", stage="done", progress=1.0,
                      message="成片已完成（seam）", finished=time.time())
 

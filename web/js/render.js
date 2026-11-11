@@ -127,9 +127,9 @@ export function renderGeneration() {
   $("#stitch-select").value = stitch;
   $("#seam-secondpass-toggle").checked = generation.seam_second_pass !== false;
   $("#seam-secondpass-row").hidden = stitch === "hard";
-  // overlap 只对 mixed 生效：全局 seam 仍固定用 DEFAULT_OVERLAP
+  // overlap 对 seam / mixed 都生效；hard 没有重叠
   $("#seam-overlap-select").value = String(generation.seam_overlap) === "39" ? "39" : "22";
-  $("#seam-overlap-row").hidden = stitch !== "mixed";
+  $("#seam-overlap-row").hidden = stitch === "hard";
   $("#mp-range").value = generation.megapixels ?? 1;
   $("#mp-label").textContent = `${Number($("#mp-range").value).toFixed(1)}MP`;
   $("#steps-input").value = generation.steps ?? 6;

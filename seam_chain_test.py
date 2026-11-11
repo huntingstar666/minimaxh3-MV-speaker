@@ -391,6 +391,22 @@ def test_chain_fingerprint() -> None:
                                    plans[0], 24, 39) != base, "overlap 变必须变")
 
 
+def test_plan_windows_overlap_39() -> None:
+    """全局 seam 也能用 39 帧重叠：窗口长度仍要落在 5+17k 上。"""
+    rows = [{"edit_frames": 120}, {"edit_frames": 96}, {"edit_frames": 144}]
+    windows = seam.plan_windows(rows, 24, 0, 39)
+    for window in windows:
+        require(legal(window["length"]),
+                f"overlap=39 时窗口长度 {window['length']} 不是 5+17k")
+    require(windows[1]["overlap"] == 39, f"第 2 窗 overlap={windows[1]['overlap']}")
+    require(windows[1]["start"] == windows[0]["end"] - 39,
+            "第 2 窗起点应比上一窗终点提前 39 帧")
+    # 可见边界与 overlap 无关：换 overlap 不应改变每窗的 visible
+    base = seam.plan_windows(rows, 24, 0, 22)
+    require([w["visible"] for w in windows] == [w["visible"] for w in base],
+            "overlap 只影响 start / length，不改变 visible")
+
+
 def main() -> int:
     run("group_chains 空输入", test_group_chains_empty)
     run("group_chains 全 hard", test_group_chains_all_hard)
@@ -414,6 +430,7 @@ def main() -> int:
     run("split_long_chain 直接调用", test_split_long_chain_direct)
     run("拆链按输出帧率", test_split_respects_fps)
     run("链指纹", test_chain_fingerprint)
+    run("plan_windows overlap=39", test_plan_windows_overlap_39)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + ", ".join(failures))

@@ -1581,7 +1581,7 @@ function bindEvents() {
   $("#stitch-select").addEventListener("change", () => {
     const stitch = $("#stitch-select").value;
     $("#seam-secondpass-row").hidden = stitch === "hard";
-    $("#seam-overlap-row").hidden = stitch !== "mixed";
+    $("#seam-overlap-row").hidden = stitch === "hard";
   });
 
   $("#segment-list").addEventListener("click", (event) => {
