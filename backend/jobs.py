@@ -1245,10 +1245,14 @@ class JobRunner:
             if not segments:
                 raise ValueError("没有可合成的分段。")
             final = project.get("final") or {}
-            if final.get("stitch") in {"seam", "mixed"} and not any(
+            mixed = final.get("stitch") == "mixed"
+            if mixed:
+                # 链文件齐全就能只重拼，不用重跑 ComfyUI
+                self._mixed_chain_files(project_id, final)
+            elif final.get("stitch") == "seam" and not any(
                     row.get("output") for row in segments):
-                raise ValueError(f"{final['stitch']} 模式是整条生成的，没有可单独重拼的"
-                                 "分段片段；请用「重新生成全部」出片。")
+                raise ValueError("seam 模式是整条生成的，没有可单独重拼的分段片段；"
+                                 "请用「重新生成全部」出片。")
             job = {
                 "job_id": hashlib.sha1(f"{project_id}assemble{time.time()}".encode()).hexdigest()[:12],
                 "project_id": project_id, "status": "running", "stage": "assemble",
@@ -1260,9 +1264,67 @@ class JobRunner:
             self.cancel_events[project_id] = threading.Event()
         self._update(project_id, status="running", stage="assemble", segment=-1,
                      message="准备重新合成")
-        threading.Thread(target=self._run_assemble, args=(project_id,),
+        worker = self._run_assemble_mixed if mixed else self._run_assemble
+        threading.Thread(target=worker, args=(project_id,),
                          name=f"assemble-{project_id[:8]}", daemon=True).start()
         return self.snapshot(project_id)
+
+    @staticmethod
+    def _mixed_chain_files(project_id: str, final: dict[str, Any]) -> list[Path]:
+        """mixed 成片的链文件清单；缺任何一条都要求重新生成，不能静默拼出短片。"""
+        chains = final.get("chains") or []
+        if not chains:
+            raise ValueError("mixed 成片缺少链记录，请用「重新生成全部」重出。")
+        directory = store.project_dir(project_id) / "takes" / "_mixed" / "chains"
+        clips: list[Path] = []
+        for chain in chains:
+            index = int(chain.get("index") or 0)
+            path = directory / f"chain_{index:02d}.mp4"
+            if not path.is_file() or path.stat().st_size <= 0:
+                raise ValueError(
+                    f"第 {index + 1} 条链的文件缺失，请用「重新生成全部」重出。")
+            clips.append(path)
+        return clips
+
+    def _run_assemble_mixed(self, project_id: str) -> None:
+        """mixed 只重拼：复用已生成的链，不提交 ComfyUI。"""
+        try:
+            project = store.get(project_id)
+            final = project.get("final") or {}
+            clips = self._mixed_chain_files(project_id, final)
+            segments = project.get("segments") or []
+            total_edit = sum(int(row.get("edit_frames") or 0) for row in segments)
+            directory = store.project_dir(project_id)
+            work = directory / "takes" / "_mixed"
+            self._update(project_id, stage="assemble", message="mixed：重新拼接链",
+                         progress=0.3)
+            target = directory / "final" / "final.mp4"
+            media.concat(clips, directory / "source.wav", target, total_edit, work)
+            thumb = directory / "final" / "cover.jpg"
+            media.thumbnail(target, thumb,
+                            min(0.8, max(frames.to_seconds(total_edit) / 3, 0.2)))
+
+            def apply(latest: dict[str, Any]) -> None:
+                meta = dict(latest.get("final") or {})
+                meta.update({
+                    "path": "final/final.mp4",
+                    "thumb": "final/cover.jpg",
+                    "duration": round(media.duration(target)
+                                      or frames.to_seconds(total_edit), 3),
+                    "bytes": target.stat().st_size if target.is_file() else 0,
+                    "created": time.time(),
+                    "segment_signature": cuts_signature(latest),
+                    "stale": False,
+                })
+                meta.pop("stale_reason", None)
+                latest["final"] = meta
+
+            store.mutate(project_id, apply)
+            self._update(project_id, status="completed", stage="done", progress=1.0,
+                         message="成片已重新拼接（mixed）", finished=time.time())
+        except Exception as error:  # noqa: BLE001
+            self._update(project_id, status="failed", stage="error", error=str(error),
+                         finished=time.time(), message=str(error)[:300])
 
     def _run_assemble(self, project_id: str) -> None:
         try:

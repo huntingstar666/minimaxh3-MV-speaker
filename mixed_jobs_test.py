@@ -512,6 +512,45 @@ def test_missing_chain_file_regenerates() -> None:
             f"链文件缺失时只该重跑链 1，实际 {len(second['graphs'])}")
 
 
+def new_observed() -> dict:
+    return {"graphs": [], "timelines": [], "seconds": [], "prefixes": [],
+            "normalize": [], "concat": None, "uploaded": {}}
+
+
+def test_mixed_assemble_reuses_chains() -> None:
+    out = run_mixed(ROWS)
+    runner = make_runner(out["id"])
+    observed = new_observed()
+    with fake_comfy(observed):
+        runner._run_assemble_mixed(out["id"])
+    require(not observed["graphs"], "重新拼装不应提交 ComfyUI")
+    concat = observed["concat"]
+    require(concat is not None, "必须调用 concat")
+    require(concat["clips"] == ["chain_00.mp4", "chain_01.mp4"],
+            f"应按顺序拼接两条链：{concat['clips']}")
+    require(concat["audio"] == "source.wav", "成片应混整条源音频")
+    latest = store.get(out["id"])
+    require(latest["final"].get("stale") is False, "重拼后应清除过期标记")
+    require(latest["final"].get("segment_signature") == jobs.cuts_signature(latest),
+            "重拼后签名应更新为最新切点")
+    require(runner.jobs[out["id"]]["status"] == "completed",
+            f"任务应完成：{runner.jobs[out['id']]['status']}")
+
+
+def test_mixed_assemble_rejects_missing_chain() -> None:
+    out = run_mixed(ROWS)
+    runner = make_runner(out["id"])
+    (out["directory"] / "takes" / "_mixed" / "chains" / "chain_01.mp4").unlink()
+    observed = new_observed()
+    with fake_comfy(observed):
+        runner._run_assemble_mixed(out["id"])
+    require(observed["concat"] is None, "缺链时不能拼出短片")
+    job = runner.jobs[out["id"]]
+    require(job["status"] == "failed", f"应标记失败：{job['status']}")
+    require("链" in str(job.get("error") or ""),
+            f"错误信息应指出链缺失：{job.get('error')}")
+
+
 def test_final_stale_reason() -> None:
     """成片过期判断：hard 看 take，seam/mixed 看切点 + 接续方式。"""
     require(jobs.final_stale_reason({}) == "", "没有 final 时不应判过期")
@@ -578,6 +617,8 @@ def main() -> int:
     run("只重跑改动所在的链", test_cache_invalidates_only_changed_chain)
     run("force 全量重跑", test_force_regenerates_all)
     run("链文件缺失重跑", test_missing_chain_file_regenerates)
+    run("mixed 只重拼复用链", test_mixed_assemble_reuses_chains)
+    run("mixed 缺链拒绝重拼", test_mixed_assemble_rejects_missing_chain)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))
