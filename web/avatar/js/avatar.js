@@ -216,6 +216,12 @@ const state = {
   auditionEnd: 0,
   assetAudioPlaying: false,
   assetAudioObjectUrl: "",
+  // Ref2VA（硬切/尾帧接力）双采开关；锚定模式用它自己的 anchor_sampler
+  refSecondPass: true,
+  // 用户是否手动改过模型三件套 / LoRA（true 时后端不再强制覆盖推荐栈）
+  customModels: false,
+  // 当前界面已经应用的模型栈：hard / plain / selflift
+  anchorStack: "",
 };
 
 /* ---------------- 基础工具 ---------------- */
@@ -742,18 +748,26 @@ function readGeneration() {
     if (gen.anchor_sampler === "selflift") gen.anchor_mid = "none";
     gen.anchor_upscale = $("#f-anchor-upscale")?.value || "lanczos";
     gen.anchor_pin_frames = ($("#f-anchor-pin")?.value || "false") === "true";
-    gen.lowres_scale = Number($("#f-anchor-lowres")?.value || 0.5);
-    gen.transition_step = Math.max(1, Number($("#f-anchor-transition")?.value || 4));
-    gen.upscaler_model = $("#f-anchor-upscaler")?.value || defaults.upscaler_model;
-    gen.rho = Number($("#f-anchor-rho")?.value || 0);
-    gen.w_min = Number($("#f-anchor-wmin")?.value || 0.5);
-    gen.w_max = Number($("#f-anchor-wmax")?.value || 1);
-    gen.tiling_axis = $("#f-anchor-tiling-axis")?.value || "auto";
-    const tiling = $("#f-anchor-tiling")?.value || "auto";
-    gen.highres_tiling = tiling !== "off";
-    gen.tiling_mode = tiling === "auto" ? "auto" : "manual";
-    gen.tiling_tiles = (tiling === "auto" || tiling === "off") ? 2 : Number(tiling);
   }
+  // 二采参数不分模式：硬切/Ref 的 SelfLift 与锚定双采共用同一组输入
+  gen.lowres_scale = Number($("#f-anchor-lowres")?.value || 0.5);
+  gen.transition_step = Math.max(1, Number($("#f-anchor-transition")?.value || 4));
+  gen.upscaler_model = $("#f-anchor-upscaler")?.value || defaults.upscaler_model;
+  gen.rho = Number($("#f-anchor-rho")?.value || 0);
+  gen.w_min = Number($("#f-anchor-wmin")?.value || 0.5);
+  gen.w_max = Number($("#f-anchor-wmax")?.value || 1);
+  gen.tiling_axis = $("#f-anchor-tiling-axis")?.value || "auto";
+  const tiling = $("#f-anchor-tiling")?.value || "auto";
+  gen.highres_tiling = tiling !== "off";
+  gen.tiling_mode = tiling === "auto" ? "auto" : "manual";
+  gen.tiling_tiles = (tiling === "auto" || tiling === "off") ? 2 : Number(tiling);
+  // 硬切 / 尾帧接力用 ref_second_pass；其余模式保留原值
+  if (gen.stitch === "hard" || gen.stitch === "relay") {
+    gen.ref_second_pass = state.refSecondPass !== false;
+  } else if (gen.ref_second_pass === undefined) {
+    gen.ref_second_pass = defaults.ref_second_pass !== false;
+  }
+  gen.custom_models = !!state.customModels;
   return gen;
 }
 
@@ -811,6 +825,14 @@ function fillGeneration(gen) {
   if ($("#f-anchor-mid-frames")) {
     $("#f-anchor-mid-frames").value = (g.anchor_mid_frames || []).join(",");
   }
+  // 先同步状态，避免 syncAnchorUI 把项目里保存的自定义模型栈覆盖掉
+  state.refSecondPass = g.ref_second_pass === undefined ? true : !!g.ref_second_pass;
+  state.customModels = !!g.custom_models;
+  state.anchorStack = stitch === "anchor"
+    ? ((g.anchor_sampler || "plain") === "selflift" ? "selflift" : "plain")
+    : "hard";
+  // 锚定未自定义模型时，加载即套用推荐栈（与旧行为一致）
+  if (stitch === "anchor" && !state.customModels) state.anchorStack = "";
   syncAnchorUI();
 }
 
@@ -831,6 +853,8 @@ function setChoice(segId, hiddenId, value) {
 }
 
 function applyAnchorModelStack(stack) {
+  // 只在模型栈真正切换时套用推荐值；同一栈内保留用户手动改过的模型
+  if (state.anchorStack === stack) return;
   const savedRaw = state.project?.generation || {};
   // 旧项目可能保存过单采/双采栈；切回硬切时不能把它当成 Ref2VA 模型。
   const savedDirty = /cobijada/i.test(String(savedRaw.unet || ""))
@@ -856,16 +880,8 @@ function applyAnchorModelStack(stack) {
     $("#a-lora-strength").value = strength;
   }
   setSelectValue($("#f-anchor-preprocess"), pick("anchor_preprocess") || "center_crop");
-}
-
-function lockAnchorModelFields(locked) {
-  ["#a-unet", "#a-clip", "#a-vae", "#a-lora", "#a-lora-strength", "#f-anchor-preprocess"]
-    .forEach((selector) => {
-      const el = $(selector);
-      if (!el) return;
-      el.disabled = locked;
-      el.title = locked ? "首尾帧单采/双采使用参考工作流的固定模型栈" : "";
-    });
+  state.anchorStack = stack;
+  state.customModels = false;
 }
 
 function updateAnchorStepSplit() {
@@ -887,20 +903,54 @@ function updateAnchorStepSplit() {
   updateSecondpassSummary();
 }
 
+function secondPassInfo() {
+  const stitch = $("#f-stitch")?.value || "hard";
+  const anchor = stitch === "anchor" && Number(state.mode) === 1;
+  if (anchor) {
+    return {
+      kind: "anchor",
+      on: ($("#f-anchor-sampler")?.value || "plain") === "selflift",
+    };
+  }
+  if (stitch === "seam" || stitch === "mixed") {
+    return { kind: "single", on: false };
+  }
+  return { kind: "ref", on: state.refSecondPass !== false };
+}
+
 function updateSecondpassSummary() {
   const summary = $("#secondpass-summary");
-  if (!summary) return;
-  const on = $("#f-stitch")?.value === "anchor" && Number(state.mode) === 1;
-  const selflift = ($("#f-anchor-sampler")?.value || "plain") === "selflift";
-  const toggle = $("#f-secondpass");
-  if (toggle) toggle.checked = on && selflift;
   const row = $("#secondpass-row");
-  if (row) row.hidden = !on;
-  if (!on) {
-    summary.textContent = "仅首尾帧锚定可用";
+  const toggle = $("#f-secondpass");
+  const info = secondPassInfo();
+  if (row) row.hidden = false;
+  if (toggle) {
+    toggle.checked = info.on;
+    toggle.disabled = info.kind === "single";
+    toggle.title = info.kind === "single"
+      ? "接缝接续 / 混合为单采，不能开启双采"
+      : info.kind === "anchor"
+        ? "开启 / 关闭首尾帧 SelfLift 双采"
+        : "开启 / 关闭 Ref2VA 双采";
+  }
+  const groupHint = $("#secondpass-group-hint");
+  if (groupHint) {
+    groupHint.textContent = info.kind === "ref"
+      ? "Ref2VA 默认双采；低清先铺结构，再高清二采，总步数不变"
+      : "低清先铺结构，再高清二采；总步数不变";
+  }
+  // 二采参数组：Ref2VA 开启双采时可见；锚定双采时可见；单采/关闭时隐藏
+  const showParams = info.on && info.kind !== "single";
+  ["#anchor-selflift-wrap", "#anchor-selflift-hint", "#anchor-step-hint"].forEach((selector) => {
+    const el = $(selector);
+    if (el) el.hidden = !showParams;
+  });
+  if (!summary) return;
+  if (info.kind === "single") {
+    summary.textContent = "接缝 / 混合 · 固定单采";
     return;
   }
-  if (!selflift) {
+  if (!info.on) {
     summary.textContent = "关闭 · 单采";
     return;
   }
@@ -1032,7 +1082,6 @@ function syncAnchorUI() {
   const selflift = sampler === "selflift";
   const stack = on ? (selflift ? "selflift" : "plain") : "hard";
   applyAnchorModelStack(stack);
-  lockAnchorModelFields(on);
   const stackNote = $("#anchor-stack-note");
   if (stackNote) {
     stackNote.hidden = !on;
@@ -1065,12 +1114,6 @@ function syncAnchorUI() {
   const mid = $("#f-anchor-mid")?.value || "center";
   const customWrap = $("#anchor-custom-wrap");
   if (customWrap) customWrap.hidden = selflift || mid !== "custom";
-  const liftWrap = $("#anchor-selflift-wrap");
-  if (liftWrap) liftWrap.hidden = !(on && selflift);
-  const liftHint = $("#anchor-selflift-hint");
-  if (liftHint) liftHint.hidden = !(on && selflift);
-  const stepHint = $("#anchor-step-hint");
-  if (stepHint) stepHint.hidden = !(on && selflift);
   updateAnchorStepSplit();
   const card = $(".av-anchor-card");
   if (card) card.classList.toggle("is-compact", !on);
@@ -1583,21 +1626,32 @@ function initAnchorControls() {
   bindMegapixelControl();
   $("#f-anchor-sampler")?.addEventListener("change", syncAnchorUI);
   $("#f-secondpass")?.addEventListener("change", (event) => {
-    const on = $("#f-stitch")?.value === "anchor" && Number(state.mode) === 1;
-    if (!on) {
+    const info = secondPassInfo();
+    if (info.kind === "single") {
       event.target.checked = false;
-      toast("二次采样只在模式 1 的「首尾帧锚定」下可用", "warn", 5000);
+      toast("接缝接续 / 混合是单采，不能开启二次采样", "warn", 5000);
       return;
     }
-    const sampler = $("#f-anchor-sampler");
-    if (sampler) {
-      sampler.value = event.target.checked ? "selflift" : "plain";
-      sampler.dispatchEvent(new Event("change", { bubbles: true }));
+    if (info.kind === "anchor") {
+      const sampler = $("#f-anchor-sampler");
+      if (sampler) {
+        sampler.value = event.target.checked ? "selflift" : "plain";
+        sampler.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      syncAnchorUI();
+      return;
     }
+    state.refSecondPass = event.target.checked;
     syncAnchorUI();
   });
   $("#a-steps")?.addEventListener("input", updateAnchorStepSplit);
   $("#f-anchor-transition")?.addEventListener("input", updateAnchorStepSplit);
+  // 手动改模型三件套 / LoRA：标记为自定义，后端不再强制套推荐栈
+  ["#a-unet", "#a-clip", "#a-vae", "#a-lora", "#a-lora-strength"].forEach((selector) => {
+    $(selector)?.addEventListener("change", () => {
+      state.customModels = true;
+    });
+  });
   $("#f-aspect-cards")?.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-aspect]");
     if (!btn) return;
@@ -3454,15 +3508,16 @@ async function loadHealth() {
 
 function fillAdvancedOptions() {
   const g = state.generationDefaults || {};
+  const saved = state.project?.generation || {};
   const current = (selector, fallback) => $(selector)?.value || fallback;
-  fillSelect($("#a-unet"), itemList("unet"), current("#a-unet", g.unet), "默认");
-  fillSelect($("#a-clip"), itemList("clip"), current("#a-clip", g.clip), "默认");
-  fillSelect($("#a-vae"), itemList("vae"), current("#a-vae", g.vae_video), "默认");
-  fillSelect($("#a-lora"), itemList("lora"), current("#a-lora", g.lora), "默认");
-  fillSelect($("#a-sampler"), itemList("samplers"), current("#a-sampler", g.sampler), "默认");
-  fillSelect($("#a-scheduler"), itemList("schedulers"), current("#a-scheduler", g.scheduler), "默认");
+  fillSelect($("#a-unet"), itemList("unet"), current("#a-unet", saved.unet || g.unet), "默认");
+  fillSelect($("#a-clip"), itemList("clip"), current("#a-clip", saved.clip || g.clip), "默认");
+  fillSelect($("#a-vae"), itemList("vae"), current("#a-vae", saved.vae_video || g.vae_video), "默认");
+  fillSelect($("#a-lora"), itemList("lora"), current("#a-lora", saved.lora || g.lora), "默认");
+  fillSelect($("#a-sampler"), itemList("samplers"), current("#a-sampler", saved.sampler || g.sampler), "默认");
+  fillSelect($("#a-scheduler"), itemList("schedulers"), current("#a-scheduler", saved.scheduler || g.scheduler), "默认");
   fillSelect($("#f-anchor-upscaler"), itemList("upscaler"),
-    current("#f-anchor-upscaler", g.upscaler_model), "默认");
+    current("#f-anchor-upscaler", saved.upscaler_model || g.upscaler_model), "默认");
 }
 
 function fillAspectOptions() {

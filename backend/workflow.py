@@ -52,7 +52,14 @@ def _model_chain(nodes: dict, generation: dict[str, Any], available: dict[str, b
 
 def build(generation: dict[str, Any], prompt: str, refs: list[str], audio_file: str,
           frames: int, fps: int = FPS,
-          available: dict[str, bool] | None = None) -> dict[str, Any]:
+          available: dict[str, bool] | None = None,
+          second_pass: bool = True) -> dict[str, Any]:
+    """单段 Ref2VA 图。
+
+    ``second_pass``：True 走 SelfLift 双采（默认，MV 与数字人硬切的历史行为）；
+    False 走一次性 ``SamplerCustom`` 单采，只用于用户显式关闭双采的场景。
+    """
+
     # available 来自 ComfyUI 的节点检测；为 None 时按全部可用处理（兼容旧调用）
     available = available if available is not None else {
         "sigma_shift": True, "sigma_refiner": True}
@@ -182,36 +189,61 @@ def build(generation: dict[str, Any], prompt: str, refs: list[str], audio_file: 
     seed = int(generation.get("seed") or 0)
     if seed <= 0:
         seed = random.randint(1, 2 ** 31 - 1)
-    nodes["selflift"] = {
-        "class_type": "SelfLiftAvatarH3Sampler",
-        "inputs": {
-            "seed": seed,
-            "cfg": float(generation.get("cfg", 1.0)),
-            "transition_step": int(generation.get("transition_step", 4)),
-            "lowres_scale": float(generation.get("lowres_scale", 0.5)),
-            "rho": float(generation.get("rho", 0)),
-            "w_min": float(generation.get("w_min", 0.5)),
-            "w_max": float(generation.get("w_max", 1.0)),
-            "upscaler_model": generation.get("upscaler_model", ""),
-            "highres_tiling": bool(generation.get("highres_tiling", True)),
-            "tiling_mode": generation.get("tiling_mode", "auto"),
-            "tiling_tiles": int(generation.get("tiling_tiles", 2)),
-            "tiling_axis": generation.get("tiling_axis", "auto"),
-            "low_res_model": [model_ref, 0],
-            "positive": ["refvideo", 0],
-            "negative": ["zero", 0],
-            "vae": ["vae_video", 0],
-            "latent_image": ["concat", 0],
-            "sampler": ["sampler_select", 0],
-            "sigmas": sigmas_ref,
-        },
-        "_meta": {"title": "SelfLift 双采"},
-    }
-    nodes["split_out"] = {
-        "class_type": "LTXVSeparateAVLatent",
-        "inputs": {"av_latent": ["selflift", 0]},
-        "_meta": {"title": "分离输出潜空间"},
-    }
+    if second_pass:
+        if not str(generation.get("upscaler_model") or "").strip():
+            raise ValueError("开启双采需要潜空间放大器（upscaler_model）；"
+                             "请选择放大模型或关闭双采。")
+        nodes["selflift"] = {
+            "class_type": "SelfLiftAvatarH3Sampler",
+            "inputs": {
+                "seed": seed,
+                "cfg": float(generation.get("cfg", 1.0)),
+                "transition_step": int(generation.get("transition_step", 4)),
+                "lowres_scale": float(generation.get("lowres_scale", 0.5)),
+                "rho": float(generation.get("rho", 0)),
+                "w_min": float(generation.get("w_min", 0.5)),
+                "w_max": float(generation.get("w_max", 1.0)),
+                "upscaler_model": generation.get("upscaler_model", ""),
+                "highres_tiling": bool(generation.get("highres_tiling", True)),
+                "tiling_mode": generation.get("tiling_mode", "auto"),
+                "tiling_tiles": int(generation.get("tiling_tiles", 2)),
+                "tiling_axis": generation.get("tiling_axis", "auto"),
+                "low_res_model": [model_ref, 0],
+                "positive": ["refvideo", 0],
+                "negative": ["zero", 0],
+                "vae": ["vae_video", 0],
+                "latent_image": ["concat", 0],
+                "sampler": ["sampler_select", 0],
+                "sigmas": sigmas_ref,
+            },
+            "_meta": {"title": "SelfLift 双采"},
+        }
+        nodes["split_out"] = {
+            "class_type": "LTXVSeparateAVLatent",
+            "inputs": {"av_latent": ["selflift", 0]},
+            "_meta": {"title": "分离输出潜空间"},
+        }
+    else:
+        nodes["sampler"] = {
+            "class_type": "SamplerCustom",
+            "inputs": {
+                "model": [model_ref, 0],
+                "add_noise": True,
+                "noise_seed": seed,
+                "cfg": float(generation.get("cfg", 1.0)),
+                "positive": ["refvideo", 0],
+                "negative": ["zero", 0],
+                "sampler": ["sampler_select", 0],
+                "sigmas": sigmas_ref,
+                "latent_image": ["concat", 0],
+            },
+            "_meta": {"title": "单采（SamplerCustom）"},
+        }
+        nodes["split_out"] = {
+            "class_type": "LTXVSeparateAVLatent",
+            "inputs": {"av_latent": ["sampler", 0]},
+            "_meta": {"title": "分离输出潜空间"},
+        }
     nodes["decode"] = {
         "class_type": "VAEDecode",
         "inputs": {"samples": ["split_out", 0], "vae": ["vae_video", 0]},
@@ -583,6 +615,8 @@ def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
 def missing_fields(generation: dict[str, Any]) -> list[str]:
     required = {
         "unet": "UNET 模型", "clip": "CLIP 模型", "vae_video": "视频 VAE",
-        "vae_audio": "音频 VAE", "upscaler_model": "潜空间放大器",
+        "vae_audio": "音频 VAE",
     }
+    if bool(generation.get("ref_second_pass", True)):
+        required["upscaler_model"] = "潜空间放大器"
     return [label for key, label in required.items() if not str(generation.get(key) or "").strip()]

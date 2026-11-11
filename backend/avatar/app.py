@@ -206,6 +206,30 @@ def _merged_generation(project: dict[str, Any], payload: dict[str, Any]) -> dict
     return generation
 
 
+def _validate_selflift(generation: dict[str, Any]) -> None:
+    """双采参数校验：硬切/Ref 与锚定双采共用。"""
+    try:
+        steps = int(generation.get("steps") or 6)
+        transition = int(generation.get("transition_step") or 4)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "steps / transition_step 必须是整数。") from None
+    if transition < 1 or transition >= steps:
+        raise HTTPException(400, "SelfLift：低清步数必须 ≥1 且小于总步数。")
+    try:
+        rho = float(generation.get("rho", 0))
+        w_min = float(generation.get("w_min", 0.5))
+        w_max = float(generation.get("w_max", 1))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "rho / w_min / w_max 必须是数字。") from None
+    if not (0 <= rho <= 1 and 0 <= w_min <= 1 and 0 <= w_max <= 1 and w_min <= w_max):
+        raise HTTPException(400, "rho / w_min / w_max 必须在 0–1 内，且 w_min ≤ w_max。")
+    axis = str(generation.get("tiling_axis") or "auto").strip().lower()
+    if axis not in {"auto", "width", "height"}:
+        raise HTTPException(400, "tiling_axis 必须是 auto/width/height。")
+    if not str(generation.get("upscaler_model") or "").strip():
+        raise HTTPException(400, "SelfLift 二采需要选择高清放大模型。")
+
+
 def _validate_anchor(project: dict[str, Any], generation: dict[str, Any],
                      check_nodes: bool = False) -> None:
     stitch = str(generation.get("stitch") or "hard").strip().lower()
@@ -232,6 +256,9 @@ def _validate_anchor(project: dict[str, Any], generation: dict[str, Any],
             raise HTTPException(400, "seam_overlap 必须是 5+17k（5 / 22 / 39）。")
         return
     if stitch != "anchor":
+        # 硬切 / 尾帧接力走 Ref2VA：默认双采，允许用户关闭。
+        if bool(generation.get("ref_second_pass", True)):
+            _validate_selflift(generation)
         return
     if int(project.get("mode") or 0) != config.MODE_AUDIO_DRIVE:
         raise HTTPException(400, "首尾帧模式当前仅支持模式 1（音频驱动）。")
@@ -239,26 +266,7 @@ def _validate_anchor(project: dict[str, Any], generation: dict[str, Any],
     if sampler not in {"selflift", "plain"}:
         raise HTTPException(400, "anchor_sampler 必须是 selflift 或 plain。")
     if sampler == "selflift":
-        try:
-            steps = int(generation.get("steps") or 6)
-            transition = int(generation.get("transition_step") or 4)
-        except (TypeError, ValueError):
-            raise HTTPException(400, "steps / transition_step 必须是整数。") from None
-        if transition < 1 or transition >= steps:
-            raise HTTPException(400, "SelfLift：低清步数必须 ≥1 且小于总步数。")
-        try:
-            rho = float(generation.get("rho", 0))
-            w_min = float(generation.get("w_min", 0.5))
-            w_max = float(generation.get("w_max", 1))
-        except (TypeError, ValueError):
-            raise HTTPException(400, "rho / w_min / w_max 必须是数字。") from None
-        if not (0 <= rho <= 1 and 0 <= w_min <= 1 and 0 <= w_max <= 1 and w_min <= w_max):
-            raise HTTPException(400, "rho / w_min / w_max 必须在 0–1 内，且 w_min ≤ w_max。")
-        axis = str(generation.get("tiling_axis") or "auto").strip().lower()
-        if axis not in {"auto", "width", "height"}:
-            raise HTTPException(400, "tiling_axis 必须是 auto/width/height。")
-        if not str(generation.get("upscaler_model") or "").strip():
-            raise HTTPException(400, "SelfLift 二采需要选择高清放大模型。")
+        _validate_selflift(generation)
     mid = str(generation.get("anchor_mid") or "center").strip().lower()
     if mid not in {"none", "center", "thirds", "custom"}:
         raise HTTPException(400, "anchor_mid 必须是 none/center/thirds/custom。")

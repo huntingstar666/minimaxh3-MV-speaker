@@ -502,7 +502,14 @@ AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py`
 
 **清晰度**：生成参数弹窗提供 8 种画幅卡片、0.75 / 1.0 / 1.5 MP 预设和「自定义」任意 0.1–4.0 MP；自定义值会写回 `generation.megapixels`，右栏摘要同步显示。
 
-**二次采样（SelfLift）**：模式 1 选择「首尾帧锚定」后，右栏出现「二次采样（SelfLift）」开关；开启后 `anchor_sampler=selflift`，右侧「参数」按钮打开高级生成参数里的二采分组（低清步数、高清二采步数、低清比例、放大模型、rho、分块）；总步数保持不变。
+**二次采样（SelfLift）**：右栏常驻「二次采样（SelfLift）」开关，按段间模式生效：
+- 硬切 / 尾帧接力（Ref2VA）：默认开启双采，可关闭；关闭后写 `generation.ref_second_pass=false`，后端改走一次性 `SamplerCustom` 单采，不再要求放大模型；
+- 首尾帧锚定：开关等价于 `anchor_sampler` 的 `selflift` / `plain`；
+- 接缝接续 / 混合：固定单采，开关置灰并显示原因。
+
+开启时点「参数」打开高级生成参数里的二采分组（低清步数、高清二采步数、低清比例、放大模型、rho、分块）；总步数保持不变。
+
+**模型三件套与 LoRA**：高级生成参数里的 UNET / CLIP / 视频 VAE / LoRA 在任何模式下都可修改；切换单/双采会自动填入推荐栈，手动修改后写 `generation.custom_models=true`，锚定生成时不再强制覆盖。
 
 **系统提示词**：独立 880px 卡片弹窗，三份提示词各一张卡片 + 全宽等宽文本域，纵向滚动，不再出现窄栏、截断和横向滚动条。
 
@@ -512,7 +519,7 @@ AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py`
 2. **创建**：`POST /avatar/api/projects`（multipart）→ `store.create()` 写 `data/avatar/projects/<id>/project.json`。**mode 只在这里写入**。
 3. **保存**：`PATCH /avatar/api/projects/{id}`。`generation` 深合并；参数真的变了才把 `final.stale=true`；`mode` 与当前不同直接 400。
 4. **启动生成**：`POST /api/projects/{id}/generate`（可带 `only` / `force`）→ `AvatarRunner.start()` → 抢 `backend/jobs.py::GPU_LOCK`（与 MV 共用，保证单卡串行）→ `_run()`。
-5. **合并参数**：`workflow.resolve_generation(project.generation)` = 默认参数 + 项目值 + ComfyUI `object_info` 实际可用模型（`_choose()` 按关键词回退：`fl2va` / `qwen3vl` / `video_vae` / `DMAD_4step` / `latent_upscaler_3d`）；锚定再套 `anchor_plain_generation()`（Cobijada + dmad@0.8 + int8）或 `anchor_selflift_generation()`（fl2va int8 + nvfp4 + DMAD@0.65），项目里存的旧模型栈不生效。
+5. **合并参数**：`workflow.resolve_generation(project.generation)` = 默认参数 + 项目值 + ComfyUI `object_info` 实际可用模型（`_choose()` 按关键词回退：`fl2va` / `qwen3vl` / `video_vae` / `DMAD_4step` / `latent_upscaler_3d`）；锚定在 `custom_models=false` 时套 `anchor_plain_generation()`（Cobijada + dmad@0.8 + int8）或 `anchor_selflift_generation()`（fl2va int8 + nvfp4 + DMAD@0.65），用户手动改过模型（`custom_models=true`）则保留项目值。
 6. **上传素材**：参考图 → `comfy.upload()`；模式 2 的 `voices/*.wav` 按序上传；模式 1 每段用 `audio_pipeline.slice_audio()` 切出本段 wav 再上传。
 7. **构图与提交**：调用对应 workflow builder 生成 ComfyUI API 节点图（纯 dict）→ `comfy.queue()`（POST `/prompt`）→ `comfy.wait()`（轮询 `/history`，带进度回调与取消）。
 8. **取片与落盘**：`comfy.extract_outputs()` → `comfy.view()` 拉 mp4 → （overlay 模式）ffmpeg 叠加 → `_store_take()` 写 `takes/seg_xxxx/t_000N.mp4` + `.jpg` + 元数据（seed / frames / `segment_signature`）→ 回写 `project.segments[].selected_take`。

@@ -130,6 +130,10 @@ DEFAULT_GENERATION: dict = {
     "cfg": 1.0,
     "sampler": "euler",
     "scheduler": "simple",
+    # 硬切 / 尾帧接力（Ref2VA）：默认双采；关闭后走一次性 SamplerCustom 单采
+    "ref_second_pass": True,
+    # 用户手动改过 UNET/CLIP/VAE/LoRA 后置 true，后端不再强制覆盖为首尾帧推荐栈
+    "custom_models": False,
     "transition_step": 4,
     "lowres_scale": 0.5,
     "rho": 0.0,

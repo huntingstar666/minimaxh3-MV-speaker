@@ -296,22 +296,25 @@ function initSettingSummary() {
 
   const steps = document.getElementById("a-steps");
   const cfg = document.getElementById("a-cfg");
+  const secondPass = document.getElementById("f-secondpass");
   const advancedOut = document.getElementById("sum-advanced");
   const syncAdvanced = () => {
     if (!advancedOut) return;
     const parts = [];
     if (steps && steps.value.trim()) parts.push(`采样 ${steps.value.trim()} 步`);
     if (cfg && cfg.value.trim()) parts.push(`CFG ${cfg.value.trim()}`);
+    if (secondPass) parts.push(secondPass.checked ? "双采" : "单采");
     advancedOut.textContent = parts.length ? parts.join(" · ") : "采样 / 模型 / 二次采样";
   };
   if (advancedOut) {
-    [steps, cfg].forEach((el) => {
+    [steps, cfg, secondPass].forEach((el) => {
       if (!el) return;
       el.addEventListener("input", syncAdvanced);
       el.addEventListener("change", syncAdvanced);
     });
     syncAdvanced();
     document.querySelector('[data-sheet="advanced"]')?.addEventListener("click", syncAdvanced);
+    document.addEventListener("avatar:stitch", syncAdvanced);
   }
 
   const promptSummary = document.getElementById("prompt-summary");

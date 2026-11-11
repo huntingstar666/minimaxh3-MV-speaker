@@ -400,6 +400,9 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
                 if "anchor_pin_frames" in generation:
                     project["generation"]["anchor_pin_frames"] = bool(
                         generation["anchor_pin_frames"])
+                for key in ("ref_second_pass", "custom_models"):
+                    if key in generation:
+                        project["generation"][key] = bool(generation[key])
                 if generation.get("anchor_seed") is not None:
                     try:
                         project["generation"]["anchor_seed"] = max(
@@ -673,6 +676,10 @@ def export_pack(project_id: str) -> Path:
             "anchor_seed": int((project.get("generation") or {}).get("anchor_seed") or 0),
             "anchor_pin_frames": bool((project.get("generation") or {}).get(
                 "anchor_pin_frames", False)),
+            "ref_second_pass": bool((project.get("generation") or {}).get(
+                "ref_second_pass", True)),
+            "custom_models": bool((project.get("generation") or {}).get(
+                "custom_models", False)),
         },
         "segments": manifest_segments,
         "notes": "由数字人工作台导出；导入前可再跑 avatar 包校验器。",

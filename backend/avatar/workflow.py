@@ -174,7 +174,8 @@ def anchor_selflift_generation(generation: dict[str, Any],
 def build(generation: dict[str, Any], prompt: str, refs: list[str],
           audio_file: str | list[str] | None, frames: int, fps: int = config.FPS,
           available: dict[str, bool] | None = None,
-          tail_image: str | None = None) -> dict[str, Any]:
+          tail_image: str | None = None,
+          second_pass: bool | None = None) -> dict[str, Any]:
     """构建单段数字人生成图（模式 2 可传多个音色素材，模式 3 传 None）。
 
     `audio_file` 编号顺序必须与提示词里的 <Audio 1..n> 一致：
@@ -357,42 +358,74 @@ def build(generation: dict[str, Any], prompt: str, refs: list[str],
     if seed <= 0:
         import random
         seed = random.randint(1, 2 ** 31 - 1)
-    nodes["selflift"] = {
-        "class_type": "SelfLiftAvatarH3Sampler",
-        "inputs": {
-            "seed": seed,
-            "cfg": float(generation.get("cfg", 1.0)),
-            "transition_step": int(generation.get("transition_step", 4)),
-            "lowres_scale": float(generation.get("lowres_scale", 0.5)),
-            "rho": float(generation.get("rho", 0)),
-            "w_min": float(generation.get("w_min", 0.5)),
-            "w_max": float(generation.get("w_max", 1.0)),
-            "upscaler_model": generation.get("upscaler_model", ""),
-            "highres_tiling": bool(generation.get("highres_tiling", True)),
-            "tiling_mode": generation.get("tiling_mode", "auto"),
-            "tiling_tiles": int(generation.get("tiling_tiles", 2)),
-            "tiling_axis": generation.get("tiling_axis", "auto"),
-            "low_res_model": [model_ref, 0],
-            "positive": positive_ref,
-            "negative": ["zero", 0],
-            "vae": ["vae_video", 0],
-            # 关键差异：latent 直接来自 Ref2VA，不经过 LTXVConcatAVLatent
-            "latent_image": ["refvideo", 1],
-            "sampler": ["sampler_select", 0],
-            "sigmas": sigmas_ref,
-        },
-        "_meta": {"title": "SelfLift 双采"},
-    }
-    nodes["decode"] = {
-        "class_type": "VAEDecode",
-        "inputs": {"samples": ["selflift", 0], "vae": ["vae_video", 0]},
-        "_meta": {"title": "视频解码"},
-    }
-    nodes["decode_audio"] = {
-        "class_type": "VAEDecodeAudio",
-        "inputs": {"samples": ["selflift", 0], "vae": ["vae_audio", 0]},
-        "_meta": {"title": "音频解码（H3 生成音轨）"},
-    }
+    if second_pass is None:
+        second_pass = bool(generation.get("ref_second_pass", True))
+    if second_pass:
+        if not str(generation.get("upscaler_model") or "").strip():
+            raise ValueError("开启双采需要潜空间放大器（upscaler_model）；"
+                             "请选择放大模型或关闭双采。")
+        nodes["selflift"] = {
+            "class_type": "SelfLiftAvatarH3Sampler",
+            "inputs": {
+                "seed": seed,
+                "cfg": float(generation.get("cfg", 1.0)),
+                "transition_step": int(generation.get("transition_step", 4)),
+                "lowres_scale": float(generation.get("lowres_scale", 0.5)),
+                "rho": float(generation.get("rho", 0)),
+                "w_min": float(generation.get("w_min", 0.5)),
+                "w_max": float(generation.get("w_max", 1.0)),
+                "upscaler_model": generation.get("upscaler_model", ""),
+                "highres_tiling": bool(generation.get("highres_tiling", True)),
+                "tiling_mode": generation.get("tiling_mode", "auto"),
+                "tiling_tiles": int(generation.get("tiling_tiles", 2)),
+                "tiling_axis": generation.get("tiling_axis", "auto"),
+                "low_res_model": [model_ref, 0],
+                "positive": positive_ref,
+                "negative": ["zero", 0],
+                "vae": ["vae_video", 0],
+                # 关键差异：latent 直接来自 Ref2VA，不经过 LTXVConcatAVLatent
+                "latent_image": ["refvideo", 1],
+                "sampler": ["sampler_select", 0],
+                "sigmas": sigmas_ref,
+            },
+            "_meta": {"title": "SelfLift 双采"},
+        }
+        nodes["decode"] = {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["selflift", 0], "vae": ["vae_video", 0]},
+            "_meta": {"title": "视频解码"},
+        }
+        nodes["decode_audio"] = {
+            "class_type": "VAEDecodeAudio",
+            "inputs": {"samples": ["selflift", 0], "vae": ["vae_audio", 0]},
+            "_meta": {"title": "音频解码（H3 生成音轨）"},
+        }
+    else:
+        nodes["sampler"] = {
+            "class_type": "SamplerCustom",
+            "inputs": {
+                "model": [model_ref, 0],
+                "add_noise": True,
+                "noise_seed": seed,
+                "cfg": float(generation.get("cfg", 1.0)),
+                "positive": positive_ref,
+                "negative": ["zero", 0],
+                "sampler": ["sampler_select", 0],
+                "sigmas": sigmas_ref,
+                "latent_image": ["refvideo", 1],
+            },
+            "_meta": {"title": "单采（SamplerCustom）"},
+        }
+        nodes["decode"] = {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["sampler", 0], "vae": ["vae_video", 0]},
+            "_meta": {"title": "视频解码"},
+        }
+        nodes["decode_audio"] = {
+            "class_type": "VAEDecodeAudio",
+            "inputs": {"samples": ["sampler", 0], "vae": ["vae_audio", 0]},
+            "_meta": {"title": "音频解码（H3 生成音轨）"},
+        }
     nodes[OUTPUT_NODE] = {
         "class_type": "VHS_VideoCombine",
         "inputs": {
@@ -1111,15 +1144,20 @@ def build_anchor(generation: dict[str, Any], prompt: str, ref: str, audio_file: 
 def missing_fields(generation: dict[str, Any]) -> list[str]:
     required = {
         "unet": "UNET 模型", "clip": "CLIP 模型", "vae_video": "视频 VAE",
-        "vae_audio": "音频 VAE", "upscaler_model": "潜空间放大器",
+        "vae_audio": "音频 VAE",
     }
+    # 只有开启双采才需要潜空间放大器；单采时不强制。
+    if bool(generation.get("ref_second_pass", True)):
+        required["upscaler_model"] = "潜空间放大器"
     return [label for key, label in required.items()
             if not str(generation.get(key) or "").strip()]
 
 
 def missing_fields_anchor(generation: dict[str, Any]) -> list[str]:
-    """首尾帧模式不需要放大器；只要 I2V 必需的模型与两个 VAE。"""
+    """首尾帧模式：单采不需要放大器；双采需要。"""
     required = {"unet": "UNET 模型", "clip": "CLIP 模型",
                 "vae_video": "视频 VAE", "vae_audio": "音频 VAE"}
+    if str(generation.get("anchor_sampler") or "plain").strip().lower() == "selflift":
+        required["upscaler_model"] = "潜空间放大器"
     return [label for key, label in required.items()
             if not str(generation.get(key) or "").strip()]

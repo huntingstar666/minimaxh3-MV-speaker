@@ -626,12 +626,13 @@ class AvatarRunner:
             return
         anchor = anchor_enabled(project, generation)
         if anchor:
-            # 单采/双采各自强制使用参考工作流的模型栈；项目里存的旧值在这里不生效。
+            # 单采/双采各自有推荐模型栈；用户手动改过模型（custom_models）时保留用户选择。
             sampler_mode = str(generation.get("anchor_sampler") or "plain").strip().lower()
-            if sampler_mode == "selflift":
-                generation = workflow.anchor_selflift_generation(generation)
-            else:
-                generation = workflow.anchor_plain_generation(generation)
+            if not generation.get("custom_models"):
+                if sampler_mode == "selflift":
+                    generation = workflow.anchor_selflift_generation(generation)
+                else:
+                    generation = workflow.anchor_plain_generation(generation)
             generation["anchor_seed"] = anchor_seed(project_id, generation)
             missing = workflow.missing_fields_anchor(generation)
             store.mutate(project_id, lambda latest: latest.__setitem__(
@@ -776,7 +777,8 @@ class AvatarRunner:
             generation = dict(generation)
             generation["seed"] = int(generation.get("seed") or 0) or random.randint(1, 2 ** 31 - 1)
             graph = mv_workflow.build(generation, prompt_text, segment_refs, audio_name,
-                                      generation_frames, config.FPS, available=available)
+                                      generation_frames, config.FPS, available=available,
+                                      second_pass=bool(generation.get("ref_second_pass", True)))
             output_node = mv_workflow.OUTPUT_NODE
         self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",
                      progress=round(base + span * 0.06, 4))
@@ -1318,7 +1320,8 @@ class AvatarRunner:
             graph = workflow.build(generation, prompt_text, segment_refs, use_audio,
                                    frames, int(generation.get("fps") or config.FPS),
                                    available=self._available,
-                                   tail_image=tail_name or None)
+                                   tail_image=tail_name or None,
+                                   second_pass=bool(generation.get("ref_second_pass", True)))
         self._update(project_id, persist=True, stage="queue", message=f"{label}：提交 ComfyUI",
                      progress=round(base + span * 0.06, 4))
         if (self.cancel_events.get(project_id) or threading.Event()).is_set():
