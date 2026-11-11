@@ -544,6 +544,21 @@ async function mergeSegment(index, reason = "merge") {
     deleting ? `已删除第 ${index + 1} 段后的分割线` : `已合并第 ${index + 1}、${index + 2} 段`);
 }
 
+// ------------------------------- 接续方式 -------------------------------
+async function setSegmentStitch(index, value) {
+  if (!state.project) return;
+  const label = `第 ${index + 1} 段`;
+  try {
+    const data = await api.patchSegment(state.project.id, index, { stitch: value });
+    setProject(data.project);
+    renderProject();
+    toast(value === "seam" ? `${label}将续接上一段` : `${label}改回硬切`, "ok");
+  } catch (error) {
+    toast(error.message || "接续方式保存失败", "err");
+    renderProject();  // 失败时把下拉恢复成项目里的值
+  }
+}
+
 // ------------------------------- 参考图 -------------------------------
 async function uploadRef(file, role) {
   if (!file || !state.project) return;
@@ -1539,7 +1554,7 @@ function bindEvents() {
   $("#btn-split").addEventListener("click", splitAtPlayhead);
   $("#btn-undo").addEventListener("click", undoCut);
   $("#stitch-select").addEventListener("change", () => {
-    $("#seam-secondpass-row").hidden = $("#stitch-select").value !== "seam";
+    $("#seam-secondpass-row").hidden = $("#stitch-select").value === "hard";
   });
 
   $("#segment-list").addEventListener("click", (event) => {
@@ -1553,6 +1568,12 @@ function bindEvents() {
     if (target.dataset.act === "audition") toggleAudition(index);
     if (target.dataset.act === "refs") openSegRefs(index);
     if (target.dataset.act === "merge") mergeSegment(index);
+  });
+
+  $("#segment-list").addEventListener("change", (event) => {
+    const select = event.target.closest("[data-act='stitch']");
+    if (!select) return;
+    setSegmentStitch(Number(select.dataset.index), select.value);
   });
 
   $("#btn-assemble").addEventListener("click", assembleProject);

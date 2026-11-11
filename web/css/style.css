@@ -643,6 +643,14 @@ input[type=range]:active::-webkit-slider-thumb{transform:scale(1.02)}
 .pill.energy-high{color:#ffab9c;border-color:rgba(255,171,156,.28);background:rgba(255,171,156,.08)}
 .pill.vocal{color:var(--mint);border-color:rgba(87,224,192,.26);background:rgba(87,224,192,.07)}
 .pill.instrumental{color:var(--violet);border-color:rgba(167,139,250,.26);background:rgba(167,139,250,.07)}
+.seg-stitch{display:inline-flex;align-items:center}
+.seg-stitch-select{
+  font-family:inherit;font-size:9px;padding:1px 5px;border-radius:99px;
+  border:1px solid var(--line);color:var(--dim);background:rgba(255,255,255,.028);
+  line-height:1.5;cursor:pointer;appearance:none;
+}
+.seg-stitch-select:hover{color:var(--text);border-color:rgba(255,255,255,.22)}
+.seg-stitch-select:disabled{opacity:.45;cursor:not-allowed}
 .pill.ref-override{color:#d9c6ff;border-color:rgba(167,139,250,.45);background:rgba(167,139,250,.13)}
 .pill.status-completed{color:var(--ok);border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.08)}
 .pill.status-running{color:var(--amber);border-color:rgba(247,185,85,.35);background:rgba(247,185,85,.1)}

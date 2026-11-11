@@ -122,9 +122,11 @@ export function renderGeneration() {
   renderOptions();
   if (generation.aspect_ratio) $("#aspect-select").value = generation.aspect_ratio;
   $("#outfps-select").value = String(generation.output_fps ?? 24);
-  $("#stitch-select").value = generation.stitch === "seam" ? "seam" : "hard";
+  const stitch = generation.stitch === "mixed" ? "mixed"
+    : generation.stitch === "seam" ? "seam" : "hard";
+  $("#stitch-select").value = stitch;
   $("#seam-secondpass-toggle").checked = generation.seam_second_pass !== false;
-  $("#seam-secondpass-row").hidden = generation.stitch !== "seam";
+  $("#seam-secondpass-row").hidden = stitch === "hard";
   $("#mp-range").value = generation.megapixels ?? 1;
   $("#mp-label").textContent = `${Number($("#mp-range").value).toFixed(1)}MP`;
   $("#steps-input").value = generation.steps ?? 6;
@@ -334,8 +336,11 @@ export function renderSegments() {
   const project = state.project;
   const segments = project?.segments || [];
   const list = $("#segment-list");
-  const isSeam = { ...(state.settings?.generation || {}), ...(project?.generation || {}) }
-    .stitch === "seam";
+  const stitchMode = { ...(state.settings?.generation || {}), ...(project?.generation || {}) }
+    .stitch || "hard";
+  const isMixed = stitchMode === "mixed";
+  // seam / mixed 都是一次提交整条，没有单段 take
+  const isSeam = stitchMode === "seam" || isMixed;
   if (!segments.length) {
     list.innerHTML = "";
     return;
@@ -365,6 +370,7 @@ export function renderSegments() {
             <span class="pill ${refOverride ? "ref-override" : ""}">参考图 ${refsUsed.length}${refOverride ? " · 本段" : " · 全局"}</span>
             <span class="pill status-${status}">${STATUS_LABELS[status] || status}</span>
             <span class="pill">${Number(row.duration || 0).toFixed(1)}s · ${row.edit_frames || 0}/${row.generation_frames || 0} 帧</span>
+            ${isMixed ? stitchSelect(row, index) : ""}
           </div>
           <div class="seg-line">${escapeHtml(row.brief ? row.brief.split("\n")[0].replace(/^画面任务：/, "") : "等待导演简报")} · ${escapeHtml(row.camera_start || "")} ${escapeHtml(row.camera_start_angle || "")} → ${escapeHtml(row.camera_end || "")}</div>
           ${(row.text || "").trim() ? `<div class="seg-script" title="${escapeHtml(row.text)}">台词 / 歌词：${escapeHtml(row.text.slice(0, 60))}${row.text.length > 60 ? "…" : ""}</div>` : ""}
@@ -396,12 +402,24 @@ export function renderSegments() {
             <button class="btn ghost ${refOverride ? "active" : ""}" data-act="refs" data-index="${index}"><svg><use href="#i-layers"/></svg>参考图</button>
             <button class="btn ghost ${state.auditionSegment === index ? "active" : ""}" data-act="audition" data-index="${index}"><svg><use href="#${state.auditionSegment === index ? "i-stop" : "i-play"}"/></svg>${state.auditionSegment === index ? "停止" : "试听"}</button>
             <button class="btn ghost" data-act="merge" data-index="${index}" ${index === segments.length - 1 ? "disabled" : ""}><svg><use href="#i-merge"/></svg>合并下段</button>
-            <button class="btn ghost" data-act="regen" data-index="${index}" ${isSeam ? 'disabled title="seam 模式一次生成整条，不能单段重生成"' : ""}><svg><use href="#i-refresh"/></svg>重生成</button>
+            <button class="btn ghost" data-act="regen" data-index="${index}" ${isSeam ? 'disabled title="整条生成模式不能单段重生成"' : ""}><svg><use href="#i-refresh"/></svg>重生成</button>
           </div>
         </aside>
       </article>
     `;
   }).join("");
+}
+
+function stitchSelect(row, index) {
+  const value = row.stitch === "seam" ? "seam" : "hard";
+  const locked = index === 0;
+  const title = locked ? "第 1 段没有上一段，只能是硬切" : "本段与上一段的接续方式";
+  return `<label class="seg-stitch" title="${title}">
+    <select class="seg-stitch-select" data-act="stitch" data-index="${index}" ${locked ? "disabled" : ""}>
+      <option value="hard" ${value === "hard" ? "selected" : ""}>硬切</option>
+      <option value="seam" ${value === "seam" ? "selected" : ""}>续接上段</option>
+    </select>
+  </label>`;
 }
 
 function segmentSignature(row) {
@@ -420,7 +438,7 @@ function takeMedia(project, path) {
 
 function takeRail(project, row, index, isSeam, status) {
   if (isSeam) {
-    return `<div class="take-rail take-disabled"><span>seam 模式整条生成，不支持单段选片</span></div>`;
+    return `<div class="take-rail take-disabled"><span>整条生成模式，不支持单段选片</span></div>`;
   }
   const takes = visibleTakes(project, row);
   const selected = takes.find((take) => take.take_id === row.selected_take)
