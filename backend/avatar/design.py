@@ -102,18 +102,30 @@ def normalize_design(patch: dict[str, Any] | None,
     return value
 
 
+def _apply_mode_fields(value: dict[str, Any], mode: int) -> dict[str, Any]:
+    """路由与音频腔由创作模式决定，读/写都按模式纠正。"""
+    if mode:
+        value["audio_mode"] = config.AUDIO_MODE_BY_MODE.get(mode, value.get("audio_mode"))
+        value["route"] = config.ROUTE_BY_MODE.get(mode, "Ref2VA")
+    return value
+
+
 def ensure_design(project: dict[str, Any]) -> dict[str, Any]:
     """保证项目有完整 design；旧项目按 mode 补默认值。"""
+    mode = int(project.get("mode") or 0)
     if not isinstance(project.get("design"), dict):
-        project["design"] = config.design_for_mode(int(project.get("mode") or 3))
+        project["design"] = config.design_for_mode(mode or 3)
     else:
         project["design"] = normalize_design(project["design"])
-    return project["design"]
+    return _apply_mode_fields(project["design"], mode)
 
 
 def update_design(project: dict[str, Any], patch: dict[str, Any] | None) -> dict[str, Any]:
     current = ensure_design(project)
-    project["design"] = normalize_design(patch or {}, current)
+    value = normalize_design(patch or {}, current)
+    # 设计层写入了与模式不一致的 audio_mode/route 时，按模式纠正；
+    # 否则提示词腔调会和工作流不一致，导出的 .h3avatar.zip 也会校验失败。
+    project["design"] = _apply_mode_fields(value, int(project.get("mode") or 0))
     return project["design"]
 
 

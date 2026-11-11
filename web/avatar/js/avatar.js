@@ -1653,7 +1653,6 @@ function initAnchorControls() {
   bindSegmented("f-anchor-pin-seg", "f-anchor-pin");
   bindSegmented("seam-overlap-seg", "f-seam-overlap");
   bindSegmented("design-platform-seg", "design-platform");
-  bindSegmented("design-audio-mode-seg", "design-audio-mode");
   bindSegmented("asset-role-seg", "asset-role");
   bindMegapixelControl();
   $("#f-anchor-sampler")?.addEventListener("change", syncAnchorUI);
@@ -2362,12 +2361,23 @@ function fillDesign(design) {
   $("#design-visual-style").value = d.style_system?.visual_style || "";
   $("#design-motion-grammar").value = d.style_system?.motion_grammar || "";
   $("#design-icon-family").value = d.style_system?.icon_family || "";
-  $("#design-route").value = d.route || "Ref2VA";
-  setSelectValue($("#design-audio-mode"), d.audio_mode || "");
+  // 路由固定 Ref2VA；音频腔由创作模式决定（旧项目里存歪了也按模式显示）。
+  const route = "Ref2VA";
+  const audioMode = AUDIO_MODE_BY_MODE[state.mode] || d.audio_mode || "";
+  $("#design-route").value = route;
+  $("#design-audio-mode").value = audioMode;
+  const audioLabel = {
+    runtime: "运行时驱动音频",
+    reference: "参考音色",
+    generated: "原生生成语音",
+  }[audioMode] || "按创作模式推导";
+  const routeStatic = $("#design-route-static");
+  if (routeStatic) routeStatic.textContent = route;
+  const audioStatic = $("#design-audio-mode-static");
+  if (audioStatic) audioStatic.textContent = audioMode ? `${audioLabel} · ${audioMode}` : audioLabel;
   fillVoiceCard(d.voice_card);
   state.designDirty = false;
   setSegmented("design-platform-seg", $("#design-platform").value);
-  setSegmented("design-audio-mode-seg", $("#design-audio-mode").value);
   updateDesignChrome();
 }
 

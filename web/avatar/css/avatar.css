@@ -465,6 +465,13 @@
 .av-effect-thumb{width:46px;height:28px;flex:none;border-radius:5px;border:1px solid var(--line);object-fit:cover}
 .av-effect-empty{font-size:10px;color:var(--faint);padding:4px 3px;line-height:1.5}
 .av-design-note{font-size:10px;line-height:1.55;color:var(--amber);margin:6px 0 0;border:1px solid color-mix(in srgb,var(--amber-2) 20%,transparent);background:color-mix(in srgb,var(--amber-2) 7%,transparent);border-radius:8px;padding:6px 8px}
+.av-design-static{
+  display:flex;align-items:center;min-height:32px;padding:6px 10px;
+  border:1px dashed color-mix(in srgb,var(--text) 16%,transparent);
+  border-radius:var(--av-sm);background:color-mix(in srgb,var(--text) 3%,transparent);
+  font-size:11px;color:var(--dim);user-select:text;
+}
+.av-design-static.mono{font-family:var(--mono);color:var(--text);letter-spacing:.02em}
 .av-design-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:7px 0 2px}
 .av-design-actions .btn{width:100%;justify-content:center;font-size:10.5px;padding:6px 8px}
 .av-design-actions .btn svg{width:12px;height:12px}

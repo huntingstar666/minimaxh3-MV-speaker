@@ -731,23 +731,13 @@
               <div class="field"><label>动效语法</label><input id="design-motion-grammar" class="input" placeholder="例如：先入后出、从左下 35° 滑入，落定缓停"></div>
               <div class="field"><label>图标体系</label><input id="design-icon-family" class="input" placeholder="例如：细描边线性图标，2px 圆头"></div>
               <div class="field-row">
-                <div class="field"><label>生成路由</label><input id="design-route" class="input mono" placeholder="Ref2VA"></div>
-                <div class="field"><label>音频模式</label>
-                  <select id="design-audio-mode" hidden>
-                    <option value="">按模式推导</option>
-                    <option value="runtime">runtime</option>
-                    <option value="reference">reference</option>
-                    <option value="generated">generated</option>
-                  </select>
-                  <div class="av-seg-control sm" id="design-audio-mode-seg" role="tablist" aria-label="音频模式">
-                    <button type="button" class="av-seg-control-item active" data-value="">按模式</button>
-                    <button type="button" class="av-seg-control-item" data-value="runtime">runtime</button>
-                    <button type="button" class="av-seg-control-item" data-value="reference">reference</button>
-                    <button type="button" class="av-seg-control-item" data-value="generated">generated</button>
-                  </div>
-                </div>
+                <div class="field"><label>生成路由（固定）</label><div class="av-design-static mono" id="design-route-static">Ref2VA</div></div>
+                <div class="field"><label>音频腔（按创作模式）</label><div class="av-design-static" id="design-audio-mode-static">运行时驱动音频</div></div>
               </div>
-            </div>
+              <p class="panel-note tiny" id="design-route-hint">这两项由创作模式决定，只影响提示词腔调与包校验，不会改变生成工作流；无需手动修改。</p>
+              <input type="hidden" id="design-route" value="Ref2VA">
+              <input type="hidden" id="design-audio-mode" value="">
+              </div>
           </details>
 
           <div class="av-voicecard" id="voice-card" hidden>

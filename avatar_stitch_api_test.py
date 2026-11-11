@@ -184,6 +184,34 @@ def test_default_stitch_by_mode() -> None:
     require(actual == "hard", f"显式值应保留，实际 {actual}")
 
 
+def test_design_fields_follow_mode() -> None:
+    """生成路由与音频腔由创作模式决定，设计层写入必须被纠正。"""
+    for mode, expected in ((1, "runtime"), (2, "reference"), (3, "generated")):
+        pid = create(mode)
+        wrong = "generated" if mode != 3 else "runtime"
+        response = client.patch(f"/api/projects/{pid}/design",
+                                json={"audio_mode": wrong, "route": "LegacyRoute"})
+        require(response.status_code == 200,
+                f"模式 {mode} 保存设计失败：{response.status_code} {response.text}")
+        design = response.json()["design"]
+        require(design.get("audio_mode") == expected,
+                f"模式 {mode} 音频腔应为 {expected}：{design.get('audio_mode')}")
+        require(design.get("route") == "Ref2VA",
+                f"模式 {mode} 路由应固定 Ref2VA：{design.get('route')}")
+        # 旧项目里直接存了不一致的值：读取时也必须按模式纠正。
+        legacy = store.get(pid)
+        legacy["design"]["audio_mode"] = wrong
+        legacy["design"]["route"] = "LegacyRoute"
+        store.save(legacy)
+        response = client.get(f"/api/projects/{pid}/design")
+        require(response.status_code == 200, f"模式 {mode} 读取设计失败：{response.status_code}")
+        design = response.json()["design"]
+        require(design.get("audio_mode") == expected,
+                f"模式 {mode} 旧数据读取音频腔应为 {expected}：{design.get('audio_mode')}")
+        require(design.get("route") == "Ref2VA",
+                f"模式 {mode} 旧数据读取路由应为 Ref2VA：{design.get('route')}")
+
+
 def main() -> int:
     run("seam_overlap 合法性", test_seam_overlap_values)
     run("模式 2 可选模式", test_mode2_modes)
@@ -195,6 +223,7 @@ def main() -> int:
     run("模式 3 行级续接拒绝", test_row_stitch_mode3_rejected)
     run("默认 overlap", test_default_overlap_recorded)
     run("按模式默认 stitch", test_default_stitch_by_mode)
+    run("设计层路由/音频腔跟随模式", test_design_fields_follow_mode)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))
