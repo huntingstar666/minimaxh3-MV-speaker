@@ -477,6 +477,25 @@ def test_legacy_fallback_when_nodes_missing() -> None:
             f"legacy seam 拼接应使用输出帧率 30，实际 {observed['concat']['fps']}")
 
 
+def test_missing_fields_by_stitch() -> None:
+    base = dict(GENERATION, upscaler_model="")
+    require(workflow.missing_fields(dict(base, stitch="seam", seam_second_pass=False)) == [],
+            "seam 单采不应要求潜空间放大器")
+    require("潜空间放大器" in workflow.missing_fields(
+        dict(base, stitch="seam", seam_second_pass=True)),
+        "seam 二采应要求潜空间放大器")
+    require(workflow.missing_fields(
+        dict(base, stitch="seam", seam_second_pass=True),
+        available={"seam_selflift": False}) == [],
+        "缺 SelfLift 节点时应允许降级单采")
+    require("潜空间放大器" in workflow.missing_fields(
+        dict(base, stitch="hard", ref_second_pass=True)),
+        "硬切双采应要求潜空间放大器")
+    require(workflow.missing_fields(
+        dict(base, stitch="hard", ref_second_pass=False)) == [],
+        "硬切单采不应要求潜空间放大器")
+
+
 def test_manifest_archive_keeps_two() -> None:
     work = Path(tempfile.mkdtemp(prefix="h3wb-manifest-"))
     for index in range(4):
@@ -503,6 +522,7 @@ def main() -> int:
     run("非 24fps 交付重定时", test_output_fps_retimes_at_delivery)
     run("缺 SelfLift 降级单采", test_second_pass_disabled_without_node)
     run("缺节点回退一次提交", test_legacy_fallback_when_nodes_missing)
+    run("按 stitch 判断放大器依赖", test_missing_fields_by_stitch)
     run("manifest 归档上限", test_manifest_archive_keeps_two)
 
     if failures:

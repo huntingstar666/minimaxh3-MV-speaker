@@ -233,6 +233,21 @@ def test_anchor_template_transition() -> None:
             "进入锚定由 _fill_anchor_templates 负责，这里不应清空")
 
 
+def test_avatar_missing_fields_seam() -> None:
+    base = {"unet": "u", "clip": "c", "vae_video": "v", "vae_audio": "a",
+            "upscaler_model": ""}
+    require(workflow.missing_fields(dict(base, stitch="seam")) == [],
+            "数字人 seam 单采不应要求潜空间放大器")
+    require(workflow.missing_fields(dict(base, stitch="mixed")) == [],
+            "数字人 mixed 单采不应要求潜空间放大器")
+    require("潜空间放大器" in workflow.missing_fields(
+        dict(base, stitch="hard", ref_second_pass=True)),
+        "数字人硬切双采应要求潜空间放大器")
+    require(workflow.missing_fields(
+        dict(base, stitch="hard", ref_second_pass=False)) == [],
+        "数字人硬切单采不应要求潜空间放大器")
+
+
 def main() -> int:
     run("relay 开关识别", test_relay_flag)
     run("默认图不含 guide", test_graph_without_tail)
@@ -243,6 +258,7 @@ def main() -> int:
     run("重跑上游作废下游", test_relay_invalidates_downstream)
     run("全部重新生成 force 语义", test_pending_targets_force)
     run("离开锚定清理自动模板", test_anchor_template_transition)
+    run("seam/mixed 不要求放大器", test_avatar_missing_fields_seam)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + "、".join(failures))

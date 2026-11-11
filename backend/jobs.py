@@ -502,7 +502,6 @@ class JobRunner:
                 int(row_index): {str(take.get("take_id")) for take in (row.get("takes") or [])
                                  if isinstance(take, dict)}
                 for row_index, row in enumerate(project.get("segments") or [])}
-            generation = self._resolve_generation(project_id, project, options)
             nodes_info = (comfy.options() or {}).get("nodes") or {}
             self._available = {key: bool(nodes_info.get(key))
                                for key in ("sigma_shift", "sigma_refiner")}
@@ -511,6 +510,7 @@ class JobRunner:
             for key in ("seam_window", "seam_selflift"):
                 if key in nodes_info:
                     self._available[key] = bool(nodes_info[key])
+            generation = self._resolve_generation(project_id, project, options)
             refs = self._prepare_refs(project_id, project)
             if not refs:
                 raise ValueError("至少需要一张人物参考图。")
@@ -612,7 +612,7 @@ class JobRunner:
         generation["_signature"] = hashlib.sha1(
             json.dumps(generation, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12] + \
             hashlib.sha1(segment_key.encode()).hexdigest()[:12]
-        missing = workflow.missing_fields(generation)
+        missing = workflow.missing_fields(generation, available=self._available)
         if missing:
             raise ValueError("模型未配置完整：" + "、".join(missing) + "。请在设置里选择。")
         project["generation"] = {key: value for key, value in generation.items() if not key.startswith("_")}

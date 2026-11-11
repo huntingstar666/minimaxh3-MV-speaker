@@ -1146,8 +1146,9 @@ def missing_fields(generation: dict[str, Any]) -> list[str]:
         "unet": "UNET 模型", "clip": "CLIP 模型", "vae_video": "视频 VAE",
         "vae_audio": "音频 VAE",
     }
-    # 只有开启双采才需要潜空间放大器；单采时不强制。
-    if bool(generation.get("ref_second_pass", True)):
+    # seam/mixed 固定 SamplerCustomAdvanced 单采，不需要潜空间放大器。
+    stitch = str(generation.get("stitch") or "hard").strip().lower()
+    if stitch not in {"seam", "mixed"} and bool(generation.get("ref_second_pass", True)):
         required["upscaler_model"] = "潜空间放大器"
     return [label for key, label in required.items()
             if not str(generation.get(key) or "").strip()]

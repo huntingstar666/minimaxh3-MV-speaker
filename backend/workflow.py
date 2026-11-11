@@ -612,11 +612,20 @@ def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
     return nodes
 
 
-def missing_fields(generation: dict[str, Any]) -> list[str]:
+def missing_fields(generation: dict[str, Any],
+                   available: dict[str, bool] | None = None) -> list[str]:
     required = {
         "unet": "UNET 模型", "clip": "CLIP 模型", "vae_video": "视频 VAE",
         "vae_audio": "音频 VAE",
     }
-    if bool(generation.get("ref_second_pass", True)):
+    stitch = str(generation.get("stitch") or "hard").strip().lower()
+    if stitch in {"seam", "mixed"}:
+        # seam/mixed 的二采由 seam_second_pass 控制；节点缺失时会自动降级单采。
+        needs_upscaler = bool(generation.get("seam_second_pass", True))
+        if available is not None and available.get("seam_selflift") is False:
+            needs_upscaler = False
+    else:
+        needs_upscaler = bool(generation.get("ref_second_pass", True))
+    if needs_upscaler:
         required["upscaler_model"] = "潜空间放大器"
     return [label for key, label in required.items() if not str(generation.get(key) or "").strip()]

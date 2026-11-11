@@ -691,7 +691,7 @@ class AvatarRunner:
             for key in ("unet", "clip", "vae_video", "lora"):
                 generation[key] = hard[key]
             generation["lora_strength"] = hard.get("lora_strength", 1.0)
-        missing = mv_workflow.missing_fields(generation)
+        missing = workflow.missing_fields(generation)
         if missing:
             raise ValueError("缺少生成参数：" + "、".join(missing) + "（请在右侧参数里选择模型）")
         self._available = workflow.available_nodes()
