@@ -451,7 +451,8 @@ def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
                       prompt: str, window: dict[str, Any], previous_latent: str,
                       cache_dir: str, seed: int,
                       available: dict[str, bool] | None = None,
-                      locked_audio: bool = False) -> dict[str, Any]:
+                      locked_audio: bool = False,
+                      second_pass: bool | None = None) -> dict[str, Any]:
     """seam 的单窗图（逐窗提交 + latent 续接 + prev-owned 裁头）。
 
     `timeline` 只含当前窗一个 segment（startFrame=0，endFrame=length）；
@@ -461,12 +462,28 @@ def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
     `locked_audio=True` 时走模式 1：音频不进 H3 生成，而是按时间线绝对区间
     切出源音频、编码成音频 latent 后替换目标音轨（LockAudioLatent，mask=0），
     所以段首不会吞字，成片音轨也用 source.wav。
+
+    `second_pass=True` 时复用 MV 的逐窗 SelfLift 接线
+    （`MiniMaxH3TimelineSelfLiftSampler`）：低清先铺结构，再用潜空间放大器高清二采；
+    当前只允许模式 1 的锁定音轨路径。
     """
     available = available if available is not None else available_nodes()
     fps = int(generation.get("fps") or config.FPS)
     length = int(window["length"])
     overlap = int(window.get("overlap") or 0)
     index = int(window["index"])
+    use_second_pass = (bool(generation.get("seam_second_pass", False))
+                       if second_pass is None else bool(second_pass))
+    if use_second_pass:
+        if not locked_audio:
+            raise ValueError("seam 二采当前仅支持模式 1（音频驱动）")
+        if not str(generation.get("upscaler_model") or "").strip():
+            raise ValueError("seam 二采需要潜空间放大器（upscaler_model）；"
+                             "请选择放大模型或关闭二采。")
+        steps = int(generation.get("steps") or 6)
+        transition = int(generation.get("transition_step") or 4)
+        if steps < 2 or not 1 <= transition < steps:
+            raise ValueError("seam 二采：低清步数必须 ≥1 且小于总步数。")
     nodes: dict[str, Any] = {
         "unet": {
             "class_type": "UNETLoader",
@@ -593,16 +610,6 @@ def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
     }
     if int(seed) <= 0:
         seed = random.randint(1, 2 ** 31 - 1)
-    nodes["noise"] = {
-        "class_type": "RandomNoise",
-        "inputs": {"noise_seed": int(seed)},
-        "_meta": {"title": "噪声"},
-    }
-    nodes["guider"] = {
-        "class_type": "BasicGuider",
-        "inputs": {"model": ["continue", 3], "conditioning": ["continue", 0]},
-        "_meta": {"title": "引导"},
-    }
     sampling_latent: list[Any] = ["continue", 1]
     if locked_audio:
         nodes["lock_audio"] = {
@@ -611,17 +618,52 @@ def build_seam_window(generation: dict[str, Any], timeline: dict[str, Any],
             "_meta": {"title": "锁定源音轨"},
         }
         sampling_latent = ["lock_audio", 0]
-    nodes["sample"] = {
-        "class_type": "SamplerCustomAdvanced",
-        "inputs": {
-            "noise": ["noise", 0],
-            "guider": ["guider", 0],
-            "sampler": ["sampler_select", 0],
-            "sigmas": ["scheduler", 0],
-            "latent_image": sampling_latent,
-        },
-        "_meta": {"title": "采样"},
-    }
+    if use_second_pass:
+        nodes["sample"] = {
+            "class_type": "MiniMaxH3TimelineSelfLiftSampler",
+            "inputs": {
+                "model": ["continue", 3],
+                "positive": ["continue", 0],
+                "negative": ["continue", 0],
+                "vae": ["vae_video", 0],
+                "latent_image": sampling_latent,
+                "sampler": ["sampler_select", 0],
+                "sigmas": ["scheduler", 0],
+                "seed": int(seed),
+                "cfg": float(generation.get("cfg", 1.0)),
+                "transition_step": int(generation.get("transition_step") or 4),
+                "lowres_scale": float(generation.get("lowres_scale") or 0.5),
+                "rho": float(generation.get("rho") or 0.0),
+                "w_min": float(generation.get("w_min") if generation.get("w_min") is not None else 0.5),
+                "w_max": float(generation.get("w_max") if generation.get("w_max") is not None else 1.0),
+                "upscaler_model": str(generation.get("upscaler_model") or ""),
+                # 续接 latent 带 noise_mask，与高分辨率分块不兼容
+                "highres_tiling": False,
+            },
+            "_meta": {"title": "SelfLift 双采（seam 单窗）"},
+        }
+    else:
+        nodes["noise"] = {
+            "class_type": "RandomNoise",
+            "inputs": {"noise_seed": int(seed)},
+            "_meta": {"title": "噪声"},
+        }
+        nodes["guider"] = {
+            "class_type": "BasicGuider",
+            "inputs": {"model": ["continue", 3], "conditioning": ["continue", 0]},
+            "_meta": {"title": "引导"},
+        }
+        nodes["sample"] = {
+            "class_type": "SamplerCustomAdvanced",
+            "inputs": {
+                "noise": ["noise", 0],
+                "guider": ["guider", 0],
+                "sampler": ["sampler_select", 0],
+                "sigmas": ["scheduler", 0],
+                "latent_image": sampling_latent,
+            },
+            "_meta": {"title": "采样"},
+        }
     nodes["decode_video"] = {
         "class_type": "VAEDecode",
         "inputs": {"samples": ["sample", 0], "vae": ["vae_video", 0]},
@@ -1146,9 +1188,15 @@ def missing_fields(generation: dict[str, Any]) -> list[str]:
         "unet": "UNET 模型", "clip": "CLIP 模型", "vae_video": "视频 VAE",
         "vae_audio": "音频 VAE",
     }
-    # seam/mixed 固定 SamplerCustomAdvanced 单采，不需要潜空间放大器。
+    # seam/mixed 默认单采；seam 只有显式打开 seam_second_pass 才需要放大器。
     stitch = str(generation.get("stitch") or "hard").strip().lower()
-    if stitch not in {"seam", "mixed"} and bool(generation.get("ref_second_pass", True)):
+    if stitch == "seam":
+        needs_upscaler = bool(generation.get("seam_second_pass", False))
+    elif stitch == "mixed":
+        needs_upscaler = False
+    else:
+        needs_upscaler = bool(generation.get("ref_second_pass", True))
+    if needs_upscaler:
         required["upscaler_model"] = "潜空间放大器"
     return [label for key, label in required.items()
             if not str(generation.get(key) or "").strip()]

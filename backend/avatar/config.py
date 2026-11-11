@@ -166,6 +166,8 @@ DEFAULT_GENERATION: dict = {
     "stitch": "hard",
     # seam：相邻窗重叠帧数，必须是 5+17k（5 / 22 / 39）。5 = 上一窗只拥有 5 帧
     "seam_overlap": 5,
+    # seam 二采：当前仅模式 1（锁定源音轨）可用，复用 MV 的逐窗 SelfLift 接线
+    "seam_second_pass": False,
     "anchor_ref": "first",
     "anchor_seed": 0,
     # 中间锚点：none | center | thirds | custom

@@ -218,6 +218,8 @@ const state = {
   assetAudioObjectUrl: "",
   // Ref2VA（硬切/尾帧接力）双采开关；锚定模式用它自己的 anchor_sampler
   refSecondPass: true,
+  // 模式 1 seam 二采开关（复用 MV 的逐窗 SelfLift 接线）
+  seamSecondPass: false,
   // 用户是否手动改过模型三件套 / LoRA（true 时后端不再强制覆盖推荐栈）
   customModels: false,
   // 当前界面已经应用的模型栈：hard / plain / selflift
@@ -761,11 +763,17 @@ function readGeneration() {
   gen.highres_tiling = tiling !== "off";
   gen.tiling_mode = tiling === "auto" ? "auto" : "manual";
   gen.tiling_tiles = (tiling === "auto" || tiling === "off") ? 2 : Number(tiling);
-  // 硬切 / 尾帧接力用 ref_second_pass；其余模式保留原值
+  // 硬切 / 尾帧接力用 ref_second_pass；seam 用 seam_second_pass；其余模式保留原值
   if (gen.stitch === "hard" || gen.stitch === "relay") {
     gen.ref_second_pass = state.refSecondPass !== false;
   } else if (gen.ref_second_pass === undefined) {
     gen.ref_second_pass = defaults.ref_second_pass !== false;
+  }
+  if (gen.stitch === "seam") {
+    // 接缝二采仅模式 1 可用；切到模式 2/3 时按单采提交，避免后端 400
+    gen.seam_second_pass = Number(state.mode) === 1 && !!state.seamSecondPass;
+  } else if (gen.seam_second_pass === undefined) {
+    gen.seam_second_pass = defaults.seam_second_pass === true;
   }
   gen.custom_models = !!state.customModels;
   return gen;
@@ -827,6 +835,7 @@ function fillGeneration(gen) {
   }
   // 先同步状态，避免 syncAnchorUI 把项目里保存的自定义模型栈覆盖掉
   state.refSecondPass = g.ref_second_pass === undefined ? true : !!g.ref_second_pass;
+  state.seamSecondPass = g.seam_second_pass === true;
   state.customModels = !!g.custom_models;
   state.anchorStack = stitch === "anchor"
     ? ((g.anchor_sampler || "plain") === "selflift" ? "selflift" : "plain")
@@ -912,6 +921,9 @@ function secondPassInfo() {
       on: ($("#f-anchor-sampler")?.value || "plain") === "selflift",
     };
   }
+  if (stitch === "seam" && Number(state.mode) === 1) {
+    return { kind: "seam", on: state.seamSecondPass === true };
+  }
   if (stitch === "seam" || stitch === "mixed") {
     return { kind: "single", on: false };
   }
@@ -931,13 +943,17 @@ function updateSecondpassSummary() {
       ? "接缝接续 / 混合为单采，不能开启双采"
       : info.kind === "anchor"
         ? "开启 / 关闭首尾帧 SelfLift 双采"
-        : "开启 / 关闭 Ref2VA 双采";
+        : info.kind === "seam"
+          ? "开启 / 关闭模式 1 接缝 SelfLift 二采"
+          : "开启 / 关闭 Ref2VA 双采";
   }
   const groupHint = $("#secondpass-group-hint");
   if (groupHint) {
     groupHint.textContent = info.kind === "ref"
       ? "Ref2VA 默认双采；低清先铺结构，再高清二采，总步数不变"
-      : "低清先铺结构，再高清二采；总步数不变";
+      : info.kind === "seam"
+        ? "接缝二采：低清先铺结构，再用潜空间放大器高清二采，总步数不变"
+        : "低清先铺结构，再高清二采；总步数不变";
   }
   // 二采参数组：Ref2VA 开启双采时可见；锚定双采时可见；单采/关闭时隐藏
   const showParams = info.on && info.kind !== "single";
@@ -1645,6 +1661,11 @@ function initAnchorControls() {
         sampler.value = event.target.checked ? "selflift" : "plain";
         sampler.dispatchEvent(new Event("change", { bubbles: true }));
       }
+      syncAnchorUI();
+      return;
+    }
+    if (info.kind === "seam") {
+      state.seamSecondPass = event.target.checked;
       syncAnchorUI();
       return;
     }

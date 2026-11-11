@@ -263,6 +263,12 @@ def _validate_anchor(project: dict[str, Any], generation: dict[str, Any],
             raise HTTPException(400, "seam_overlap 必须是整数。") from None
         if overlap < 5 or (overlap - 5) % 17:
             raise HTTPException(400, "seam_overlap 必须是 5+17k（5 / 22 / 39）。")
+        if bool(generation.get("seam_second_pass", False)):
+            if stitch == "mixed":
+                raise HTTPException(400, "混合接续固定单采，不能开启 seam 二采。")
+            if mode != config.MODE_AUDIO_DRIVE:
+                raise HTTPException(400, "接缝二采当前仅支持模式 1（音频驱动）。")
+            _validate_selflift(generation)
         return
     if stitch != "anchor":
         # 硬切 / 尾帧接力走 Ref2VA：默认双采，允许用户关闭。

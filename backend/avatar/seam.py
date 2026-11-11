@@ -24,6 +24,7 @@ FINGERPRINT_KEYS = (
     "aspect_ratio", "megapixels", "multiple", "steps", "cfg", "sampler", "scheduler",
     "upscaler_model", "seed", "fps", "ref_image_size",
     "transition_step", "lowres_scale", "rho", "w_min", "w_max", "highres_tiling",
+    "seam_second_pass",
     "sigma_refiner", "refiner_extra_steps", "refiner_start_sigma", "refiner_end_sigma",
 )
 

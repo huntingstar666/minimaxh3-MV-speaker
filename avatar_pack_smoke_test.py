@@ -181,9 +181,11 @@ def main() -> int:
         # ------------------------------------------------------------------
         # 导出前写入非默认接缝重叠，验证包 roundtrip 不丢生成参数
         patched_overlap = client.patch(
-            f"/api/projects/{project_id}", json={"generation": {"seam_overlap": 39}})
+            f"/api/projects/{project_id}",
+            json={"generation": {"seam_overlap": 39, "seam_second_pass": True}})
         check("项目可设置接缝重叠 39", patched_overlap.status_code == 200
-              and patched_overlap.json()["project"]["generation"]["seam_overlap"] == 39,
+              and patched_overlap.json()["project"]["generation"]["seam_overlap"] == 39
+              and patched_overlap.json()["project"]["generation"]["seam_second_pass"] is True,
               str(patched_overlap.status_code))
         exported = client.get(f"/api/projects/{project_id}/export")
         check("导出 .h3avatar.zip", exported.status_code == 200
@@ -201,7 +203,8 @@ def main() -> int:
               and exported_manifest.get("mode") == 1
               and exported_manifest.get("workflow") == "locked_audio")
         check("导出保留 seam_overlap",
-              exported_manifest.get("generation", {}).get("seam_overlap") == 39,
+              exported_manifest.get("generation", {}).get("seam_overlap") == 39
+              and exported_manifest.get("generation", {}).get("seam_second_pass") is True,
               str(exported_manifest.get("generation")))
         check("导出分段 H3 合法帧数/连续",
               all(legal_frames(int(item["frames"])) for item in exported_manifest["segments"])
@@ -225,7 +228,8 @@ def main() -> int:
                   and len(again["segments"][0].get("beats") or []) >= 1
                   and again["segments"][0].get("prompt") == row.get("prompt"))
             check("roundtrip 保留 seam_overlap",
-                  again.get("generation", {}).get("seam_overlap") == 39,
+                  again.get("generation", {}).get("seam_overlap") == 39
+                  and again.get("generation", {}).get("seam_second_pass") is True,
                   str(again.get("generation", {}).get("seam_overlap")))
 
         # ------------------------------------------------------------------

@@ -410,6 +410,9 @@ def import_pack(zip_path: Path, name: str | None = None) -> dict[str, Any]:
                         overlap = 0
                     if overlap in (5, 22, 39):
                         project["generation"]["seam_overlap"] = overlap
+                if "seam_second_pass" in generation:
+                    project["generation"]["seam_second_pass"] = bool(
+                        generation["seam_second_pass"])
                 if generation.get("anchor_seed") is not None:
                     try:
                         project["generation"]["anchor_seed"] = max(
@@ -689,6 +692,8 @@ def export_pack(project_id: str) -> Path:
                 "custom_models", False)),
             "seam_overlap": int((project.get("generation") or {}).get(
                 "seam_overlap") or config.DEFAULT_GENERATION.get("seam_overlap") or 5),
+            "seam_second_pass": bool((project.get("generation") or {}).get(
+                "seam_second_pass", False)),
         },
         "segments": manifest_segments,
         "notes": "由数字人工作台导出；导入前可再跑 avatar 包校验器。",

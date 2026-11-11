@@ -1319,7 +1319,8 @@ class AvatarRunner:
                 generation, timeline, window_prompt, window, previous_latent,
                 cache_dir or f"h3wb/avatarseam/{_safe_id(project_id)}",
                 int(generation.get("seed") or 0), available=self._available,
-                locked_audio=bool(source_audio))
+                locked_audio=bool(source_audio),
+                second_pass=bool(generation.get("seam_second_pass", False)))
         else:
             graph = workflow.build(generation, prompt_text, segment_refs, use_audio,
                                    frames, int(generation.get("fps") or config.FPS),

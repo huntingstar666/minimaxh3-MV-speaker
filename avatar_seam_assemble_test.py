@@ -125,6 +125,48 @@ def test_build_seam_window() -> None:
     require(second["save_latent"]["inputs"]["segment_index"] == 2, "latent 序号应从 1 开始")
 
 
+def test_seam_second_pass_graph() -> None:
+    gen = sample_generation()
+    gen.update({"seam_second_pass": True, "upscaler_model": "up.safetensors",
+                "steps": 6, "transition_step": 4, "lowres_scale": 0.5,
+                "rho": 0.0, "w_min": 0.5, "w_max": 1.0})
+    timeline = workflow.seam_locked_timeline(
+        {"index": 0, "length": 124, "start": 0, "overlap": 0},
+        [{"id": "ref0", "file": "a.png"}], ["ref0"], "source.wav", 20.0, "P")
+    graph = workflow.build_seam_window(
+        gen, timeline, "P", {"index": 0, "length": 124, "overlap": 0},
+        "", "h3wb/test", 123, available={"save_audio": False},
+        locked_audio=True, second_pass=True)
+    sample = graph["sample"]
+    require(sample["class_type"] == "MiniMaxH3TimelineSelfLiftSampler",
+            f"seam 二采应使用 TimelineSelfLiftSampler：{sample['class_type']}")
+    inputs = sample["inputs"]
+    require(inputs["latent_image"] == ["lock_audio", 0],
+            "二采必须接锁定源音轨后的 AV latent")
+    require(inputs["model"] == ["continue", 3], "二采 model 应取 continuation 输出")
+    require(inputs["highres_tiling"] is False, "续接 latent 不应开高分辨率分块")
+    require(inputs["upscaler_model"] == "up.safetensors", "放大模型应透传")
+    require(inputs["transition_step"] == 4 and inputs["lowres_scale"] == 0.5,
+            "低清步数 / 比例应透传")
+
+    single = workflow.build_seam_window(
+        gen, timeline, "P", {"index": 0, "length": 124, "overlap": 0},
+        "", "h3wb/test", 123, available={"save_audio": False},
+        locked_audio=True, second_pass=False)
+    require(single["sample"]["class_type"] == "SamplerCustomAdvanced",
+            "关闭二采仍是 SamplerCustomAdvanced")
+
+    try:
+        workflow.build_seam_window(
+            gen, timeline, "P", {"index": 0, "length": 124, "overlap": 0},
+            "", "h3wb/test", 123, available={"save_audio": False},
+            locked_audio=False, second_pass=True)
+    except ValueError as exc:
+        require("模式 1" in str(exc), f"模式 2/3 开二采应拒绝：{exc}")
+    else:
+        raise AssertionError("模式 2/3 开 seam 二采必须报错")
+
+
 def build_project() -> tuple[str, dict]:
     project = store.create("seam 合成验收", 3,
                            generation={"stitch": "seam", "seam_overlap": 5})
@@ -460,6 +502,7 @@ def main() -> int:
     run("重叠帧取值", test_overlap_value)
     run("模式 1 单窗时间线", test_seam_locked_timeline)
     run("模式 1 单窗图结构", test_build_seam_window_locked)
+    run("seam 二采图结构", test_seam_second_pass_graph)
     run("原始音轨裁窗", test_slice_window_audio)
     run("窗口生成落库", test_generate_segment_seam)
     run("接缝合成成片", test_assemble_seam)
