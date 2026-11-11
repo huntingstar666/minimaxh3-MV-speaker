@@ -1188,12 +1188,10 @@ def missing_fields(generation: dict[str, Any]) -> list[str]:
         "unet": "UNET 模型", "clip": "CLIP 模型", "vae_video": "视频 VAE",
         "vae_audio": "音频 VAE",
     }
-    # seam/mixed 默认单采；seam 只有显式打开 seam_second_pass 才需要放大器。
+    # seam/mixed 默认单采；显式打开 seam_second_pass（仅模式 1）才需要放大器。
     stitch = str(generation.get("stitch") or "hard").strip().lower()
-    if stitch == "seam":
+    if stitch in {"seam", "mixed"}:
         needs_upscaler = bool(generation.get("seam_second_pass", False))
-    elif stitch == "mixed":
-        needs_upscaler = False
     else:
         needs_upscaler = bool(generation.get("ref_second_pass", True))
     if needs_upscaler:

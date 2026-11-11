@@ -244,6 +244,9 @@ def test_avatar_missing_fields_seam() -> None:
     require(workflow.missing_fields(dict(base, stitch="mixed")) == [],
             "数字人 mixed 单采不应要求潜空间放大器")
     require("潜空间放大器" in workflow.missing_fields(
+        dict(base, stitch="mixed", seam_second_pass=True)),
+        "数字人 mixed 二采应要求潜空间放大器")
+    require("潜空间放大器" in workflow.missing_fields(
         dict(base, stitch="hard", ref_second_pass=True)),
         "数字人硬切双采应要求潜空间放大器")
     require(workflow.missing_fields(

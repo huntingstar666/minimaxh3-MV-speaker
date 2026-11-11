@@ -149,6 +149,15 @@ def test_seam_second_pass_graph() -> None:
     require(inputs["transition_step"] == 4 and inputs["lowres_scale"] == 0.5,
             "低清步数 / 比例应透传")
 
+    # mixed 的硬切段/接缝链共用同一张单窗图，开启二采时同样走 SelfLift
+    mixed = workflow.build_seam_window(
+        dict(gen, stitch="mixed"), timeline, "P",
+        {"index": 0, "length": 124, "overlap": 0},
+        "", "h3wb/test", 123, available={"save_audio": False},
+        locked_audio=True, second_pass=True)
+    require(mixed["sample"]["class_type"] == "MiniMaxH3TimelineSelfLiftSampler",
+            "mixed 二采应复用同一张 SelfLift 单窗图")
+
     single = workflow.build_seam_window(
         gen, timeline, "P", {"index": 0, "length": 124, "overlap": 0},
         "", "h3wb/test", 123, available={"save_audio": False},
@@ -494,6 +503,85 @@ def test_run_mode1_seam_end_to_end() -> None:
     require((base / "final" / "final.mp4").is_file(), "成片文件应落盘")
 
 
+def test_run_mode1_mixed_second_pass() -> None:
+    """模式 1 mixed 二采：硬切窗与接缝窗都走 SelfLift 单窗图，成片标 mixed。"""
+    import numpy as np  # noqa: PLC0415
+
+    project = store.create("模式 1 混合二采", 1,
+                           generation={"stitch": "mixed", "seam_overlap": 22,
+                                       "seam_second_pass": True,
+                                       "upscaler_model": "up.safetensors",
+                                       "steps": 6, "transition_step": 4})
+    pid = project["id"]
+    base = store.project_dir(pid)
+    rows = []
+    for index in range(3):
+        rows.append({"index": index, "text": f"第 {index + 1} 段台词", "chars": 5,
+                     "seconds": 124 / FPS, "frames": 124, "edit_frames": 124,
+                     "start_frame": index * 124, "end_frame": (index + 1) * 124,
+                     "prompt": "P", "prompt_source": "manual", "status": "idle",
+                     "takes": [], "selected_take": "", "output": "",
+                     "stitch": "seam" if index == 1 else "hard"})
+    project["segments"] = rows
+    store.save(project)
+    seconds = 20
+    wave_data = (0.2 * np.sin(np.arange(RATE * seconds) / 20.0)).astype(np.float32)
+    audio.write_wav(base / "source.wav", np.stack([wave_data, wave_data], axis=1), RATE)
+
+    video = Path(tempfile.mkdtemp(prefix="h3wb-mixed2gen-")) / "take.mp4"
+    make_take(video, 300)
+    data = video.read_bytes()
+    entry = {
+        "outputs": {
+            "video": {"gifs": [{"filename": "take.mp4", "subfolder": "",
+                                "type": "output"}]},
+            "latent_path": {"text": ["/comfy/output/h3wb/x/seg_0001.pt"]},
+        }
+    }
+    calls: list[dict] = []
+    originals = (avatar_job.workflow.available_nodes,
+                 avatar_job.workflow.build_seam_window,
+                 avatar_job.comfy.queue, avatar_job.comfy.wait, avatar_job.comfy.view,
+                 avatar_job.comfy.upload)
+    try:
+        avatar_job.workflow.available_nodes = lambda: {
+            "seam_window": True, "seam_plan": True, "seam_encoder": True,
+            "seam_finalize": True, "seam_latent": True, "preview_any": True,
+            "seam_audio_slice": True, "seam_audio_lock": True, "audio_encode": True,
+        }
+
+        def fake_build(*args, **kwargs):
+            calls.append(kwargs)
+            return {"stub": True}
+
+        avatar_job.workflow.build_seam_window = fake_build
+        avatar_job.comfy.queue = lambda graph: "fake-prompt"
+        avatar_job.comfy.wait = lambda prompt_id, on_progress, cancel: entry
+        avatar_job.comfy.view = lambda *args, **kwargs: data
+        avatar_job.comfy.upload = lambda name, blob: name
+        generation = {**config.generation_defaults(1),
+                      "stitch": "mixed", "seam_overlap": 22, "seed": 7,
+                      "seam_second_pass": True,
+                      "upscaler_model": "up.safetensors",
+                      "steps": 6, "transition_step": 4}
+        avatar_job.AvatarRunner()._run_mode1_seam(pid, store.get(pid), generation, {})
+    finally:
+        (avatar_job.workflow.available_nodes, avatar_job.workflow.build_seam_window,
+         avatar_job.comfy.queue, avatar_job.comfy.wait, avatar_job.comfy.view,
+         avatar_job.comfy.upload) = originals
+
+    require(len(calls) == 3, f"mixed 应逐窗提交 3 次，实际 {len(calls)}")
+    require(all(call.get("locked_audio") is True for call in calls),
+            f"模式 1 每窗都必须锁定音轨：{calls}")
+    require(all(call.get("second_pass") is True for call in calls),
+            f"开启二采后每窗都应走 SelfLift：{calls}")
+    latest = store.get(pid)
+    final = latest.get("final") or {}
+    require(final.get("stitch") == "mixed", f"成片应标 mixed：{final}")
+    require((final.get("seam") or {}).get("windows") == 3, f"窗口数不对：{final.get('seam')}")
+    require((base / "final" / "final.mp4").is_file(), "成片文件应落盘")
+
+
 def main() -> int:
     run("单窗时间线", test_seam_window_timeline)
     run("单窗图结构", test_build_seam_window)
@@ -508,6 +596,7 @@ def main() -> int:
     run("接缝合成成片", test_assemble_seam)
     run("模式 1 接缝合成", test_assemble_seam_mode1)
     run("模式 1 接缝调度", test_run_mode1_seam_end_to_end)
+    run("模式 1 混合二采调度", test_run_mode1_mixed_second_pass)
     run("缺片段必须报错", test_requires_all_takes)
 
     if failures:

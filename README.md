@@ -511,7 +511,7 @@ AI 辅助改动后的固定流程：`git diff` 核对 → `python smoke_test.py`
 **二次采样（SelfLift）**：右栏常驻「二次采样（SelfLift）」开关，按段间模式生效：
 - 硬切 / 尾帧接力（Ref2VA）：默认开启双采，可关闭；关闭后写 `generation.ref_second_pass=false`，后端改走一次性 `SamplerCustom` 单采，不再要求放大模型；
 - 首尾帧锚定：开关等价于 `anchor_sampler` 的 `selflift` / `plain`；
-- 接缝接续：模式 1（音频驱动）可开启二采，写 `generation.seam_second_pass=true`，单窗图改走 `MiniMaxH3TimelineSelfLiftSampler`（锁定源音轨，`highres_tiling=false`），需要放大模型且 `1 ≤ 低清步数 < 总步数`；模式 2/3 的接缝与所有混合接续仍固定单采，开关置灰并显示原因。
+- 接缝 / 混合：模式 1（音频驱动）可开启二采，写 `generation.seam_second_pass=true`，单窗图改走 `MiniMaxH3TimelineSelfLiftSampler`（锁定源音轨，`highres_tiling=false`），需要放大模型且 `1 ≤ 低清步数 < 总步数`；混合下硬切窗（链首）与接缝链内窗都走双采。模式 2/3 的接缝与混合仍固定单采，开关置灰并显示原因。
 
 开启时点「参数」打开高级生成参数里的二采分组（低清步数、高清二采步数、低清比例、放大模型、rho、分块）；总步数保持不变。
 

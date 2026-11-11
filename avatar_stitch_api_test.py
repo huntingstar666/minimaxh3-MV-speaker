@@ -105,6 +105,27 @@ def test_mixed_modes() -> None:
             "模式 3 mixed 应拒绝")
 
 
+def test_mixed_second_pass() -> None:
+    """模式 1 的 mixed 可开二采；模式 2 的 mixed 仍固定单采。"""
+    selflift = {"upscaler_model": "up.safetensors", "steps": 6, "transition_step": 4}
+    pid = create(1)
+    require(patch(pid, {"stitch": "mixed", "seam_overlap": 22,
+                        "seam_second_pass": True, **selflift}) == 200,
+            "模式 1 mixed 应允许二采")
+    require(patch(create(1), {"stitch": "mixed", "seam_overlap": 22,
+                              "seam_second_pass": True, "upscaler_model": ""}) == 400,
+            "mixed 二采缺放大器应拒绝")
+    require(patch(create(2), {"stitch": "mixed", "seam_overlap": 5,
+                              "seam_second_pass": True, **selflift}) == 400,
+            "模式 2 mixed 二采应拒绝")
+    require(patch(create(1), {"stitch": "seam", "seam_overlap": 22,
+                              "seam_second_pass": True, **selflift}) == 200,
+            "模式 1 seam 应允许二采")
+    require(patch(create(2), {"stitch": "seam", "seam_overlap": 5,
+                              "seam_second_pass": True, **selflift}) == 400,
+            "模式 2 seam 二采应拒绝")
+
+
 def patch_segment(project_id: str, index: int, payload: dict) -> int:
     return client.patch(f"/api/projects/{project_id}/segments/{index}",
                         json=payload).status_code
@@ -169,6 +190,7 @@ def main() -> int:
     run("模式 3 可选模式", test_mode3_modes)
     run("模式 1 允许 seam、拒绝 relay", test_mode1_stitch_choices)
     run("模式 1/2 允许 mixed", test_mixed_modes)
+    run("mixed 二采仅模式 1", test_mixed_second_pass)
     run("行级接续", test_row_stitch_patch)
     run("模式 3 行级续接拒绝", test_row_stitch_mode3_rejected)
     run("默认 overlap", test_default_overlap_recorded)

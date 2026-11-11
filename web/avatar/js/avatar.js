@@ -769,8 +769,8 @@ function readGeneration() {
   } else if (gen.ref_second_pass === undefined) {
     gen.ref_second_pass = defaults.ref_second_pass !== false;
   }
-  if (gen.stitch === "seam") {
-    // 接缝二采仅模式 1 可用；切到模式 2/3 时按单采提交，避免后端 400
+  if (gen.stitch === "seam" || gen.stitch === "mixed") {
+    // 接缝 / 混合二采仅模式 1 可用；切到模式 2/3 时按单采提交，避免后端 400
     gen.seam_second_pass = Number(state.mode) === 1 && !!state.seamSecondPass;
   } else if (gen.seam_second_pass === undefined) {
     gen.seam_second_pass = defaults.seam_second_pass === true;
@@ -921,8 +921,8 @@ function secondPassInfo() {
       on: ($("#f-anchor-sampler")?.value || "plain") === "selflift",
     };
   }
-  if (stitch === "seam" && Number(state.mode) === 1) {
-    return { kind: "seam", on: state.seamSecondPass === true };
+  if ((stitch === "seam" || stitch === "mixed") && Number(state.mode) === 1) {
+    return { kind: stitch, on: state.seamSecondPass === true };
   }
   if (stitch === "seam" || stitch === "mixed") {
     return { kind: "single", on: false };
@@ -940,12 +940,14 @@ function updateSecondpassSummary() {
     toggle.checked = info.on;
     toggle.disabled = info.kind === "single";
     toggle.title = info.kind === "single"
-      ? "接缝接续 / 混合为单采，不能开启双采"
+      ? "模式 2/3 的接缝 / 混合为单采，不能开启双采"
       : info.kind === "anchor"
         ? "开启 / 关闭首尾帧 SelfLift 双采"
         : info.kind === "seam"
           ? "开启 / 关闭模式 1 接缝 SelfLift 二采"
-          : "开启 / 关闭 Ref2VA 双采";
+          : info.kind === "mixed"
+            ? "开启 / 关闭模式 1 混合接续二采（硬切段与接缝链都走双采）"
+            : "开启 / 关闭 Ref2VA 双采";
   }
   const groupHint = $("#secondpass-group-hint");
   if (groupHint) {
@@ -953,7 +955,9 @@ function updateSecondpassSummary() {
       ? "Ref2VA 默认双采；低清先铺结构，再高清二采，总步数不变"
       : info.kind === "seam"
         ? "接缝二采：低清先铺结构，再用潜空间放大器高清二采，总步数不变"
-        : "低清先铺结构，再高清二采；总步数不变";
+        : info.kind === "mixed"
+          ? "混合二采：硬切段与接缝链都先低清铺结构，再用潜空间放大器高清二采"
+          : "低清先铺结构，再高清二采；总步数不变";
   }
   // 二采参数组：Ref2VA 开启双采时可见；锚定双采时可见；单采/关闭时隐藏
   const showParams = info.on && info.kind !== "single";
@@ -963,7 +967,7 @@ function updateSecondpassSummary() {
   });
   if (!summary) return;
   if (info.kind === "single") {
-    summary.textContent = "接缝 / 混合 · 固定单采";
+    summary.textContent = "模式 2/3 · 固定单采";
     return;
   }
   if (!info.on) {
@@ -1652,7 +1656,7 @@ function initAnchorControls() {
     const info = secondPassInfo();
     if (info.kind === "single") {
       event.target.checked = false;
-      toast("接缝接续 / 混合是单采，不能开启二次采样", "warn", 5000);
+      toast("模式 2/3 的接缝 / 混合是单采，不能开启二次采样", "warn", 5000);
       return;
     }
     if (info.kind === "anchor") {
@@ -1664,7 +1668,7 @@ function initAnchorControls() {
       syncAnchorUI();
       return;
     }
-    if (info.kind === "seam") {
+    if (info.kind === "seam" || info.kind === "mixed") {
       state.seamSecondPass = event.target.checked;
       syncAnchorUI();
       return;
