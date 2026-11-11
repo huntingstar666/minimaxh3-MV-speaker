@@ -475,6 +475,8 @@ def test_chain_cache_reuse() -> None:
             f"应复用 2 条：{second['project']['final']['chains_reused']}")
     require(all(entry["reused"] for entry in second["project"]["final"]["chains"]),
             "账本里每条链都应标记 reused")
+    require(all(row.get("status") == "completed" for row in second["project"]["segments"]),
+            f"复用链的段也要标 completed：{[r.get('status') for r in second['project']['segments']]}")
 
 
 def test_cache_invalidates_only_changed_chain() -> None:

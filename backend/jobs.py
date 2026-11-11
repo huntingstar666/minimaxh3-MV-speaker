@@ -1144,8 +1144,15 @@ class JobRunner:
                 clips.append(clip)
                 chain_manifest.append(self._chain_entry(
                     plan, position, overlap, fingerprint, reused=True))
+                for index in plan["rows"]:
+                    segments[index]["status"] = "completed"
+                self._commit(project_id, project)
                 self._log(project_id, f"{label}：计划未变，复用已有输出")
                 continue
+            # 让前端能看出哪条链正在生成；失败时由 _reset_running_segments 兜底
+            for index in plan["rows"]:
+                segments[index]["status"] = "running"
+            self._commit(project_id, project)
             chain_audio = work / f"chain_{position:02d}.wav"
             self._slice_chain_audio(samples, sample_rate, chain_audio,
                                     int(plan["start"]), int(plan["visible_end"]), fps)
@@ -1172,6 +1179,9 @@ class JobRunner:
                          message=f"{label}：裁到 {plan['target']} 帧",
                          progress=round(high, 4))
             media.normalize(raw, clip, int(plan["target"]), fps=fps)
+            for index in plan["rows"]:
+                segments[index]["status"] = "completed"
+            self._commit(project_id, project)
             cache[str(position)] = {
                 "fingerprint": fingerprint,
                 "target": int(plan["target"]),
