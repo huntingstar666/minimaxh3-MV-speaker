@@ -804,7 +804,13 @@
 
 <div class="modal av-settings-modal" id="modal-advanced" hidden>
   <div class="modal-card av-settings-card av-sheet-card av-sheet-card-wide">
-    <div class="modal-head"><h2>高级生成参数</h2><button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-head">
+      <h2>高级生成参数</h2>
+      <div class="av-modal-actions">
+        <button class="btn ghost sm" type="button" id="btn-advanced-reset" title="把采样 / 模型 / 二次采样参数恢复为默认值"><svg><use href="#i-refresh"/></svg>恢复默认</button>
+        <button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button>
+      </div>
+    </div>
     <div class="modal-body av-settings-body">
       <section class="panel av-adv-panel">
           <div class="adv-body">

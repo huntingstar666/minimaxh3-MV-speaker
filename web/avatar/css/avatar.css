@@ -1028,6 +1028,8 @@
   animation:av-modal-pop .22s var(--av-ease) both;
 }
 .av-body .modal-head{border-bottom-color:var(--line)}
+.av-modal-actions{display:flex;align-items:center;gap:8px}
+.av-modal-actions .btn{white-space:nowrap}
 .av-body .modal-foot{border-top-color:var(--line)}
 #modal-confirm .modal-body p{margin:0;font-size:12.5px;line-height:1.8;color:var(--dim)}
 #modal-take-preview .modal-card{max-width:860px;width:min(860px,94vw)}

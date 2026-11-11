@@ -845,6 +845,62 @@ function fillGeneration(gen) {
   syncAnchorUI();
 }
 
+function resetAdvancedGeneration() {
+  const defaults = state.generationDefaults || {};
+  if (!Object.keys(defaults).length) {
+    toast("默认生成参数还没加载好，请稍后重试", "warn");
+    return;
+  }
+  const mode = Number(state.mode) || 1;
+  const stitch = $("#f-stitch")?.value || "hard";
+  const anchor = stitch === "anchor" && mode === 1;
+  const anchorSampler = defaults.anchor_sampler || "plain";
+  // 锚定用该采样方式的推荐栈；其它模式用后端默认栈
+  const stack = anchor
+    ? (anchorSampler === "selflift" ? state.anchorSelflift : state.anchorPlain)
+    : null;
+  const pick = (key) => {
+    const preset = stack && stack[key] !== undefined && stack[key] !== null
+      ? stack[key]
+      : undefined;
+    return preset !== undefined ? preset : defaults[key];
+  };
+
+  // 单 / 双采回到各链路默认：Ref 默认双采，seam/mixed 默认单采，锚定跟随采样器
+  state.refSecondPass = defaults.ref_second_pass !== false;
+  state.seamSecondPass = defaults.seam_second_pass === true;
+  state.customModels = false;
+  setSelectValue($("#f-anchor-sampler"), anchorSampler);
+  // 与推荐栈一致时 syncAnchorUI 不会再用“项目里保存的模型”覆盖默认值
+  state.anchorStack = anchor ? (anchorSampler === "selflift" ? "selflift" : "plain") : "hard";
+
+  setSelectValue($("#a-sampler"), pick("sampler"));
+  setSelectValue($("#a-scheduler"), pick("scheduler"));
+  setSelectValue($("#a-unet"), pick("unet"));
+  setSelectValue($("#a-clip"), pick("clip"));
+  setSelectValue($("#a-vae"), pick("vae_video"));
+  setSelectValue($("#a-lora"), pick("lora"));
+  const strength = pick("lora_strength");
+  $("#a-lora-strength").value = strength === undefined || strength === null ? "" : String(strength);
+  $("#a-steps").value = defaults.steps === undefined || defaults.steps === null ? "" : String(defaults.steps);
+  $("#a-cfg").value = defaults.cfg === undefined || defaults.cfg === null ? "" : String(defaults.cfg);
+  setSelectValue($("#f-anchor-lowres"), String(defaults.lowres_scale ?? 0.5));
+  $("#f-anchor-transition").value = String(defaults.transition_step ?? 4);
+  setSelectValue($("#f-anchor-upscaler"), defaults.upscaler_model || "");
+  $("#f-anchor-rho").value = String(defaults.rho ?? 0);
+  $("#f-anchor-wmin").value = String(defaults.w_min ?? 0.5);
+  $("#f-anchor-wmax").value = String(defaults.w_max ?? 1);
+  setSelectValue($("#f-anchor-tiling-axis"), defaults.tiling_axis || "auto");
+  setSelectValue($("#f-anchor-tiling"),
+    defaults.highres_tiling === false
+      ? "off"
+      : (defaults.tiling_mode === "manual" ? String(defaults.tiling_tiles || 2) : "auto"));
+
+  syncAnchorUI();
+  markFormDirty();
+  toast(state.project ? "高级参数已恢复默认，点「保存设定」后生效" : "高级参数已恢复默认", "ok", 4200);
+}
+
 function setSegmented(id, value) {
   const root = document.getElementById(id);
   if (!root) return;
@@ -6251,6 +6307,7 @@ function bindEvents() {
   }));
   $("#btn-new-work")?.addEventListener("click", startNewProject);
   $("#btn-save-sys-settings")?.addEventListener("click", saveSysSettings);
+  $("#btn-advanced-reset")?.addEventListener("click", resetAdvancedGeneration);
   $("#btn-history")?.addEventListener("click", async () => {
     await loadProjects();
     $("#modal-history").hidden = false;
