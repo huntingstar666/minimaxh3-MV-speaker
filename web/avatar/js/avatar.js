@@ -731,7 +731,7 @@ function readGeneration() {
   pickText("#a-scheduler", "scheduler");
 
   gen.stitch = $("#f-stitch")?.value || defaults.stitch || "hard";
-  if (gen.stitch === "seam") {
+  if (gen.stitch === "seam" || gen.stitch === "mixed") {
     const seamOverlap = Number($("#f-seam-overlap")?.value);
     if (Number.isFinite(seamOverlap) && seamOverlap > 0) gen.seam_overlap = seamOverlap;
   }
@@ -1022,6 +1022,13 @@ function syncAnchorUI() {
       const first = overlap.querySelector('option[value="5"]');
       if (first) first.hidden = anchorAvailable;
     }
+    // 模式 1 不提供 5 帧（后端会把 5 解释为默认 22），隐藏值变化后同步 chip 高亮
+    const five = document.querySelector('#seam-overlap-seg [data-value="5"]');
+    if (five) {
+      five.disabled = anchorAvailable;
+      five.classList.toggle("is-disabled", anchorAvailable);
+    }
+    setSegmented("seam-overlap-seg", $("#f-seam-overlap")?.value || "5");
   }
   const note = $("#anchor-mode-note");
   if (note) {
