@@ -158,8 +158,9 @@ def concat(clips: list[Path], audio_source: Path | None, out: Path, total_frames
     args = [audio.ffmpeg(), "-y", "-v", "error", "-f", "concat", "-safe", "0",
             "-i", str(listing)]
     if audio_source and Path(audio_source).is_file():
+        # MV 是音乐成片，AAC 用 256k（Apple Music 档）保留瞬态，减少预回声/发闷。
         args += ["-i", str(audio_source), "-map", "0:v:0", "-map", "1:a:0",
-                 "-c:a", "aac", "-b:a", "192k"]
+                 "-c:a", "aac", "-b:a", "256k"]
     else:
         args += ["-map", "0:v:0", "-an"]
     out_frames = output_frame_count(total_frames, fps)

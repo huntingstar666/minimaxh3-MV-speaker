@@ -1215,11 +1215,92 @@ function openTakeModal(index, takeId = null) {
   openModal("modal-take");
 }
 
+let takePreviewBound = false;
+let takePreviewHasSource = false;
+
+function stopTakePreview() {
+  const video = $("#take-video");
+  const audio = $("#take-audio");
+  if (video) video.pause();
+  if (audio) {
+    audio.pause();
+    audio.currentTime = 0;
+  }
+}
+
+function syncTakeAudio(play) {
+  const video = $("#take-video");
+  const audio = $("#take-audio");
+  const row = state.project?.segments?.[takeModalState.index];
+  if (!video || !audio || !row || !audio.getAttribute("src")) return;
+  const sourceDuration = Number(state.project?.source?.duration || 0);
+  let target = Number(row.start || 0) + Number(video.currentTime || 0);
+  if (sourceDuration > 0) target = Math.min(target, sourceDuration - 0.02);
+  if (Number.isFinite(target)) {
+    try { audio.currentTime = Math.max(0, target); } catch { /* 元数据未就绪 */ }
+  }
+  audio.playbackRate = video.playbackRate || 1;
+  if (play && !video.paused) audio.play().catch(() => { /* 浏览器拦截时静默 */ });
+}
+
+function applyTakeAudioMode() {
+  const video = $("#take-video");
+  const audio = $("#take-audio");
+  const toggle = $("#take-audio-toggle");
+  const note = $("#take-audio-note");
+  if (!video || !audio || !toggle) return;
+  const useSource = Boolean(toggle.checked) && takePreviewHasSource;
+  video.muted = useSource;
+  const row = state.project?.segments?.[takeModalState.index];
+  const range = row ? `${formatTime(row.start)}–${formatTime(row.end)}` : "";
+  if (useSource) {
+    if (!video.paused) syncTakeAudio(true);
+    if (note) note.textContent = `预览音轨：原曲 ${range}（与成片一致）`;
+  } else {
+    audio.pause();
+    if (note) {
+      note.textContent = takePreviewHasSource
+        ? `预览音轨：片段自带音频（模型试听，成片仍用原曲）`
+        : "没有原曲音轨：预览使用片段自带音频";
+    }
+  }
+}
+
+function bindTakePreviewAudio() {
+  if (takePreviewBound) return;
+  const video = $("#take-video");
+  const audio = $("#take-audio");
+  const toggle = $("#take-audio-toggle");
+  if (!video || !audio || !toggle) return;
+  takePreviewBound = true;
+  video.addEventListener("play", () => {
+    if (takePreviewHasSource && toggle.checked) syncTakeAudio(true);
+  });
+  video.addEventListener("pause", () => audio.pause());
+  video.addEventListener("ended", () => audio.pause());
+  video.addEventListener("seeking", () => {
+    if (takePreviewHasSource && toggle.checked) syncTakeAudio(!video.paused);
+  });
+  video.addEventListener("timeupdate", () => {
+    if (!takePreviewHasSource || !toggle.checked || audio.paused) return;
+    const row = state.project?.segments?.[takeModalState.index];
+    if (!row) return;
+    const target = Number(row.start || 0) + Number(video.currentTime || 0);
+    if (Math.abs(audio.currentTime - target) > 0.2) audio.currentTime = Math.max(0, target);
+  });
+  video.addEventListener("ratechange", () => { audio.playbackRate = video.playbackRate || 1; });
+  video.addEventListener("volumechange", () => {
+    if (takePreviewHasSource && toggle.checked && !video.muted) video.muted = true;
+  });
+  toggle.addEventListener("change", applyTakeAudioMode);
+}
+
 function renderTakeModal() {
   const { index, takeId } = takeModalState;
   const project = state.project;
   const row = project?.segments?.[index];
   if (!row) return;
+  stopTakePreview();
   const takes = visibleTakes(row);
   const take = takes.find((item) => item.take_id === takeId) || takes[takes.length - 1];
   if (!take) return;
@@ -1233,6 +1314,25 @@ function renderTakeModal() {
   video.src = source;
   video.poster = take.thumb ? takeMedia(project, take.thumb) : "";
   video.load();
+  const takeAudio = $("#take-audio");
+  const takeToggle = $("#take-audio-toggle");
+  takePreviewHasSource = Number(project.source?.samples || 0) > 0
+    || Number(project.source?.duration || 0) > 0;
+  if (takeAudio && takeToggle) {
+    takeToggle.disabled = !takePreviewHasSource;
+    takeToggle.checked = takePreviewHasSource;
+    if (takePreviewHasSource) {
+      takeAudio.src = `/api/projects/${project.id}/media/source.wav`;
+      takeAudio.load();
+      video.muted = true;
+    } else {
+      takeAudio.removeAttribute("src");
+      takeAudio.load();
+      video.muted = false;
+    }
+  }
+  bindTakePreviewAudio();
+  applyTakeAudioMode();
   const bytes = Number(take.bytes || 0);
   const sizeText = bytes >= 1024 * 1024
     ? `${(bytes / 1024 / 1024).toFixed(1)}MB`
@@ -1274,6 +1374,7 @@ async function selectTakeFromModal() {
     setProject(data.project);
     renderProject();
     renderFinal();
+    stopTakePreview();
     closeModal("modal-take");
     toast("已选用该片段，成片需要重新合成", "ok", 5000);
   } catch (error) {
@@ -1293,7 +1394,7 @@ async function deleteTakeFromModal() {
     renderProject();
     renderFinal();
     if (visibleTakes(row).length) renderTakeModal();
-    else closeModal("modal-take");
+    else { stopTakePreview(); closeModal("modal-take"); }
     toast("片段已删除", "ok");
   } catch (error) {
     toast(error.message, "err", 6000);
@@ -2010,6 +2111,7 @@ function bindEvents() {
       const modal = closer.closest(".modal");
       if (modal) {
         if (modal.id === "modal-confirm") settleConfirm(false);
+        else if (modal.id === "modal-take") { stopTakePreview(); closeModal(modal.id); }
         else if (modal.id === "modal-prompt") { autoSavePromptFieldsOnClose(); closeModal(modal.id); }
         else if (modal.id === "modal-creative") { saveCreativeCustomOnClose(); closeModal(modal.id); }
         else closeModal(modal.id);
@@ -2018,6 +2120,7 @@ function bindEvents() {
     }
     if (event.target.classList?.contains("modal")) {
       if (event.target.id === "modal-confirm") settleConfirm(false);
+      else if (event.target.id === "modal-take") { stopTakePreview(); closeModal(event.target.id); }
       else if (event.target.id === "modal-prompt") { autoSavePromptFieldsOnClose(); closeModal(event.target.id); }
       else if (event.target.id === "modal-creative") { saveCreativeCustomOnClose(); closeModal(event.target.id); }
       else closeModal(event.target.id);
@@ -2029,6 +2132,7 @@ function bindEvents() {
       $$(".modal").forEach((modal) => {
         if (modal.hidden) return;
         if (modal.id === "modal-confirm") settleConfirm(false);
+        else if (modal.id === "modal-take") { stopTakePreview(); closeModal(modal.id); }
         else if (modal.id === "modal-prompt") { autoSavePromptFieldsOnClose(); closeModal(modal.id); }
         else if (modal.id === "modal-creative") { saveCreativeCustomOnClose(); closeModal(modal.id); }
         else closeModal(modal.id);
