@@ -722,6 +722,14 @@ def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[
             row["motion"] = new_motion
             changed.append("本段运镜")
             motion_changed = True
+    if "stitch" in payload:
+        value = str(payload["stitch"] or "hard").strip().lower()
+        if value not in {"hard", "seam"}:
+            raise HTTPException(400, "stitch 只能是 hard 或 seam。")
+        if index == 0 and value == "seam":
+            raise HTTPException(400, "第 1 段没有上一段，接续方式只能是 hard。")
+        # 接续方式不影响提示词内容，不进 changed，避免把正文误标过期
+        row["stitch"] = value
     if changed:
         # 只把本段提示词标记为过期，不清空；手写内容也不会再被无声删掉
         _invalidate_row_prompt(row, "、".join(changed) + "已修改", motion_changed)
