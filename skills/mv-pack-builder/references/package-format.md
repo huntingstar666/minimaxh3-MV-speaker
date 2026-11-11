@@ -6,7 +6,7 @@
 
 - 文件后缀：`.h3pack.zip`（也接受普通 `.zip`）
 - 当前 schema：`h3-mv-pack`，`version: 1`
-- 导入入口：工作台左栏「导入 MV 包」区域，或直接拖到上方音频区域（会自动识别 zip）
+- 导入入口：顶部「导入 MV 包」，或直接拖到上方音频区域（会自动识别 zip）
 - 导出入口：顶部「导出 MV 包」（导出当前项目，便于分享或交给别人继续做）
 
 ## 1. 目录结构
@@ -54,7 +54,14 @@
     "prompt_rule": "",
     "style": "视觉风格：暖阳赛璐璐CG。……",
     "filter": "影像处理：柔和肤色，低对比人像胶片。……",
-    "generation": {"output_fps": 24, "aspect_ratio": "9:16 (Portrait Widescreen)", "stitch": "hard"}
+    "generation": {
+      "aspect_ratio": "9:16 (Portrait Widescreen)",
+      "output_fps": 24,
+      "stitch": "hard",
+      "seam_overlap": 22,
+      "ref_second_pass": true,
+      "seam_second_pass": false
+    }
   },
 
   "timeline": {
@@ -74,7 +81,8 @@
       "motion": "本段运镜（可空）",
       "final_prompt": "subject_definitions:\n……",
       "prompt_overlays": {"style": "……", "filter": "……", "motion": ""},
-      "ref_ids": null
+      "ref_ids": null,
+      "stitch": "hard"
     }
   ]
 }
@@ -97,6 +105,23 @@
 | `timeline.cuts_seconds` | 否 | 内部切点（秒，严格递增）。**省略则导入后自动分析分段** |
 | `timeline.use_asr` | 否 | 自动分析时是否启用语音识别，默认 false |
 | `segments[]` | 否 | 按 `index` 或 `start/end` 匹配已生成的段，写入简报/提示词/运镜等 |
+
+### 生成参数（project.generation）
+
+| 字段 | 取值 | 说明 |
+| --- | --- | --- |
+| `aspect_ratio` | 工作台画幅字符串 | 与参考图实际比例一致 |
+| `output_fps` | `24` / `25` / `30` | 成片输出帧率 |
+| `stitch` | `hard` / `seam` / `mixed` | 段间模式 |
+| `seam_overlap` | `22` / `39` | 仅 seam/mixed；MV 不支持 5 |
+| `ref_second_pass` | 布尔 | 硬切 / 尾帧接力的双采开关 |
+| `seam_second_pass` | 布尔 | seam/mixed 逐窗二采开关 |
+| `segments[].stitch` | `hard` / `seam` | 仅 `generation.stitch=mixed` 时生效；第 1 段必须 hard |
+
+- `generation.stitch=mixed`：每段卡片的接续方式写进 `segments[].stitch`；连续 `seam` 的段
+  组成一条 latent 续接链，链首为 `hard`，链间硬切。
+- 其他未知键会被忽略；包只保证上面这些影响段间生成方式的字段。
+- 非 seam/mixed 时写 `seam_overlap` 不生效；`seam_second_pass` 只在 seam/mixed 下有作用。
 
 ### refs.role
 
@@ -126,12 +151,13 @@ detailed_description → overall_soundscape → non_diegetic_music`），并按�
 | C 无音频参考 | 无音频，H3 原生生成语音 | 禁止 `<Audio N>`；先写 10 维 voice card（女/男/中性、年龄、音高、共鸣质感、咬字、节奏停顿、重音句尾、情绪、麦克风、房间底噪、anti-style） |
 
 - 导演通常固定机位 + 中近景，全片构图一致；口播稿放 `project.script` 或逐段 `lyrics`；
-- 推荐 `target_seconds` 8–12、`max_seconds` ≤ 15；长口播分段生成，段间硬切但构图一致；
+- 推荐 `target_seconds` 8–12、`max_seconds` ≤ 15；长口播分段生成，段间可选硬切 / seam / 混合，
+  同机位连续段用 seam 或 mixed；构图跨段保持一致；
 - 语速按 **5 书面字/秒**（含标点）预算，15 秒约 75 字；
 - 支持口播**动态图形**（信息卡/图标/图表/数据可视化）：每个图形写
   `触发词 → 入场 → 重音落定 → 可读停留 → 退场 → 干净恢复`，同时只留一组主信息；
-- 纯背景空镜用 `visual_type=environment`；数字人的图形/腔位实际渲染支持由项目侧决定，
-  未接入的腔或图形层不要当作可出片能力。
+- 纯背景空镜用 `visual_type=environment`；三腔与动态图形均已接入数字人工作台，
+  按选定腔与设计写即可；仍受模式、画幅与单段时长约束。
 
 数字人段覆盖示例：
 
@@ -158,6 +184,8 @@ detailed_description → overall_soundscape → non_diegetic_music`），并按�
   - 导入包由工作台导出、或提示词已经包含风格/滤镜/运镜时，带上它可避免再追加前缀；
   - 不写则导入后仍按当前 `style`/`filter`/`motion` 在生成时追加前缀。
 - `ref_ids` 是参考图下标数组（按 `refs[]` 顺序，0 开始），`null` 表示继承全局。
+- `stitch` 是行级接续方式，只在 `generation.stitch=mixed` 时生效：`hard`（硬切）或
+  `seam`（与上一段 latent 续接）；第 1 段没有上一段，写 `seam` 会被归一成 `hard`。
 
 > 提示词建议使用 H3 六段结构（`subject_definitions` → `summary` →
 > `retention_analysis` → `detailed_description` → `overall_soundscape` →

@@ -89,6 +89,25 @@ python scripts/env_check.py --project <h3-workbench 目录>
 
 ## 1. 收集输入并确认方向
 
+### 1.0 素材事实表（先做，禁止凭空补设定）
+
+在写任何设计或提示词之前，先按用户**实际提供的文件**做一张事实表。后续每个分镜、节拍、提示词都必须能指回「哪份素材 / 哪条明确要求 / 哪次用户确认」。
+
+| 项 | 必须记录 |
+| --- | --- |
+| 实际参考图 | 文件名、尺寸/比例、人物身份/服装/场景事实、可用范围 |
+| 实际音频 | 文件名、时长、采样率、是否单人、有无噪声/静音、是否已分段 |
+| 实际文本 | 口播稿/歌词、字数、是否与音频一致、用户指定必须出现的句子 |
+| 用户硬要求 | 画幅、时长、风格、禁出现元素、平台、是否出片 |
+| 素材缺口 | 没有素材支撑的创意，列入补图/替代方案，不得写成已存在 |
+
+规则：
+
+- 不使用“通用模板画面”替代用户素材；人物/场景/道具事实必须来自实际素材或用户确认的补充；
+- 数字、名称、品牌词逐字来自用户文本，不擅自改写；
+- 用户没给的信息（人物年龄、品牌色、场景地点等）先问或留空，不编造；
+- 设计文档里的关键决定标注来源：`素材` / `用户要求` / `补图确认` / `设计推断`。
+
 先确认项目类型（MV / 数字人口播），再收集：
 
 1. **参考图**：人物 1 张（必须）、场景、服装造型、道具/配角；最多 9 张；
@@ -102,7 +121,9 @@ python scripts/env_check.py --project <h3-workbench 目录>
 4. **模式/名称/参数**：MV 无子模式；数字人 `mode 1/2/3`（A/B/C）。
    MV 目标/最长段长 5–30s（推荐 8/12，单段一般 ≤15s）；数字人按契约单段
    124–719 帧（5+17k，约 5.17–29.96s；15s 是推荐上限，30s 档可用），
-   目标/最长推荐 8/12、上限 30；画幅、帧率（24/25/30）、拼接（hard/seam）。
+   目标/最长推荐 8/12、上限 30；画幅、帧率（24/25/30）；
+   段间模式按项目类型收窄：MV `hard/seam/mixed`；数字人 mode1 `hard/anchor/seam/mixed`、
+   mode2 `hard/relay/seam/mixed`、mode3 `hard/relay/seam`；`seam_second_pass` 仅数字人 mode1 的 seam/mixed。
 5. **风格/滤镜/创作要求**：可从 `/api/creative-catalog` 选预设 prompt，也可自定义。
 6. **是否允许直接导入/出片**（出片占 GPU，必须单独确认）。
 7. **数字人必须选音频腔（三选一）**：A 音频驱动 / B 参考音色 / C 无音频参考。
@@ -164,15 +185,18 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - 三腔提示词完整规则、示例、20 条自检见 `digital-human/voices/*.md`。
 - **导演化字段（新）**：项目 `material_note`、每段 `note` 支持 `@图N`/`@音频N`；
   `segments[].ref_ids` 控制本段用图，提示词 `<Picture n>` 按本段启用顺序从 1 编号；
-  mode 2 可用 `voices[]`（最多 6 个音色素材，不与人物绑定），提示词用 `<Audio N>`。
+  mode 2 可用 `voices[]`（最多 3 个参与生成，不与人物绑定；旧包超过 3 个只有前 3 个生效），提示词用 `<Audio N>`。
   这些字段写进 `.h3avatar.zip`；服务端 pack import/export 已原样携带
   （含 voices），页面按钮与脚本导入等价，不需要导入后再补写。
 - **数字人包额外要产出结构化字段**（`.h3avatar.zip`）：
-  `mode: 1|2|3`、`workflow: locked_audio|ref_native`、`design`（audio_mode、效果密度、
-  安全区、style_system 六个“一”、voice_card、graphics_budget、graphics_mode、brand）、
-  每段 `beats[]`（触发词/职能/主辅效果/锚点/层级/可见文案/lifecycle/注意目标/手势/风险）、
-  每段 `prompt/prompt_meta`。格式见
-  [references/avatar-package-format.md](references/avatar-package-format.md)。
+  `mode: 1|2|3`、`workflow: locked_audio|ref_native`、`design`（`route` 固定 `Ref2VA`、
+  `audio_mode` 由 mode 派生、效果密度、安全区、style_system 六个“一”、voice_card、
+  graphics_budget、graphics_mode、brand）、每段 `beats[]`
+  （触发词/职能/主辅效果/锚点/层级/可见文案/lifecycle/注意目标/手势/风险）、
+  每段 `prompt/prompt_meta`；`generation` 至少写 `aspect_ratio`、`output_fps`、`stitch`
+  （seam/mixed 带 `seam_overlap`，mode1 需要二采时写 `seam_second_pass`），
+  `stitch=mixed` 时逐段写 `segments[].stitch=hard|seam`（第 1 段必须 hard）。
+  格式与字段白名单见 [references/avatar-package-format.md](references/avatar-package-format.md)。
 
 **没有经过 A/B/C 三次确认、没有写完全部提示词，不允许进入打包交付。**
 
@@ -252,6 +276,9 @@ python scripts/env_check.py --project <h3-workbench 目录>
 3. 审阅通过后，按设计结果直接写 `manifest.json`：`timeline.cuts_seconds` +
    `segments[]`（每段 design_intent 记进 design.md，brief/final_prompt/visual_type/
    motion/lyrics 全填好；`<Picture N>` 按最终参考图顺序核对）。
+   `project.generation` 至少写 `aspect_ratio` / `output_fps` / `stitch`；`stitch=seam|mixed`
+   写 `seam_overlap`（MV 只支持 22 / 39）；`stitch=mixed` 时逐段写
+   `segments[].stitch=hard|seam`（第 1 段必须 hard，连续 seam 组成续接链）。
    - MV 的 `final_prompt` 按 [references/mv-prompt-format.md](references/mv-prompt-format.md) 逐段写；
    - 数字人的 `segments[].prompt` 按选定 `digital-human/voices/*.md` 的 Ref2VA 六段规则写，
      并用 `validate_digital_human_prompt.py --audio-mode …` 自检。
@@ -292,7 +319,7 @@ python scripts/env_check.py --project <h3-workbench 目录>
        --zip my-avatar.h3avatar.zip
    ```
 
-5. 数字人工作台已支持 import/export，可直接导入（页面「最近作品」也有导入/导出按钮；
+5. 数字人工作台已支持 import/export，可直接导入（页面顶栏「导入 .h3avatar 包 / 导出创作包」；
    脚本/HTTP 更稳）：
 
    ```bash
@@ -315,7 +342,7 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - mode1 包内 frames 会按累计帧比例映射到真实音频长度，总帧与音频时长差 >24 帧会 warning；
   成片时长 = 音频实际时长；
 - `graphics_mode=overlay` 会保留 beats，生成时由后端 overlay 叠加；
-- 数字人页面「最近作品」面板已有「导入 .h3avatar 包 / 导出当前包」按钮，
+- 数字人页面顶栏已有「导入 .h3avatar 包 / 导出创作包」按钮，
   也可以直接用 `import_avatar_pack.py` 或 curl；两种方式等价；
 - 旧版数字人 `.h3pack.zip`（`mode: speaking`）仅作兼容；用户明确要 MV 导入时才用，
   且不能再混入 avatar 的 `design/beats/mode:1` 字段。
@@ -336,17 +363,25 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - `refs[]` 是最终参考图集合；设计阶段可以增补，不要求最初就齐全。
 - `segments[]` 至少：`index`/`start`/`end`、`visual_type`、`brief`、`lyrics`、`motion`、
   `final_prompt`；有已合并风格/滤镜/运镜时带 `prompt_overlays`。
+- `project.generation`：`aspect_ratio`、`output_fps`（24/25/30）、`stitch`（`hard`/`seam`/`mixed`）；
+  seam/mixed 写 `seam_overlap`（22/39）；需要二采时写 `ref_second_pass` / `seam_second_pass`（布尔）。
+  `stitch=mixed` 时逐段写 `segments[].stitch=hard|seam`，第 1 段必须 hard。
 - 每段 3–30 秒；一般单段 ≤15 秒最稳，特殊段落可到 30 秒但必须用户确认。
   切点严格递增且符合音乐/语义。
 
 ### 数字人：`.h3avatar.zip`
 
-- `manifest.json`：`h3-avatar-pack`，含 `mode/workflow/design/refs/segments`；
+- `manifest.json`：`h3-avatar-pack`，含 `mode/workflow/design/refs/segments/generation`；
 - 每个 segment 含 `text/chars/seconds/frames/start_frame/end_frame/beats/prompt/prompt_meta`，
   建议带 `note`/`ref_ids`；项目建议带 `material_note`（创作要求）；
-- mode2 可带 `voices[]`（最多 6 个音色素材）或旧的 `voice.file`；音色不与人物绑定；
-- `design` 含 audio_mode、效果密度、安全区、style_system、voice_card、graphics_budget、
-  graphics_mode、brand；
+- mode2 可带 `voices[]`（最多 3 个参与生成；旧包超过 3 个只有前 3 个生效）或旧的 `voice.file`；音色不与人物绑定；
+- `design`：`route` 固定 `Ref2VA`，`audio_mode` 必须与 mode 一致（1 runtime / 2 reference / 3 generated）；
+  另含效果密度、安全区、style_system、voice_card、graphics_budget、graphics_mode、brand；
+- `generation`：`aspect_ratio`、`output_fps`（24/25/30）、`stitch`；`stitch` 按 mode 取
+  `hard/anchor/seam/mixed`（mode1）、`hard/relay/seam/mixed`（mode2）、`hard/relay/seam`（mode3）；
+  seam/mixed 写 `seam_overlap`（5/22/39；mode1 建议 22/39），mode1 二采写 `seam_second_pass=true`
+  （同时建议写 `upscaler_model`）；锚定写 `anchor_sampler/anchor_mid/anchor_preprocess/anchor_upscale/anchor_seed/anchor_pin_frames`；
+  `stitch=mixed` 时逐段写 `segments[].stitch=hard|seam`，第 1 段必须 hard；
 - 帧数必须是契约的 H3 合法帧数（5+17k，124–719，约 5.17–29.96s；
   15s 是推荐值，30s 档用 719 帧），
   `seconds ≈ frames/24`，`chars ≈ seconds × chars_per_second`；
@@ -354,6 +389,7 @@ python scripts/env_check.py --project <h3-workbench 目录>
   mode3 无音频；
 - `design.md` 记录音频腔、节拍表、创作要求/@素材、审阅/创意决策；
 - 严格校验：`validate_avatar_pack.py <目录> --require-prompts --zip <name>.h3avatar.zip`。
+  包只保留上面列出的 generation 字段；步数 / CFG / LoRA / rho / 分块等仍由工作台默认值或用户导入后调整。
 
 ## 6. 硬性规则
 
@@ -365,7 +401,7 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - 数字人必须做语速预算（5 书面字/秒）与图形生命周期检查；图形无退场、图层累积、
   遮挡脸/口/眼/手/产品/麦克风，均视为不合格。
 - 导演化字段：`material_note`/`note` 的 `@图N` 是全局图号，提示词 `<Picture n>` 是
-  本段启用顺序；`@音频N` 只有 mode2 可用；`ref_ids` 不能越界；`voices[]` 最多 6 个。
+  本段启用顺序；`@音频N` 只有 mode2 可用；`ref_ids` 不能越界；`voices[]` 最多 3 个参与生成。
 - 页面按钮与 `import_avatar_pack.py` 使用同一服务端 pack，导演化字段都会落库；
   要求 roundtrip 时用服务端 export + 技能校验器验证。
 - 数字人多人同框默认不分别对口型；按说话人拆音频/项目。
@@ -377,6 +413,14 @@ python scripts/env_check.py --project <h3-workbench 目录>
 - **两种包格式不能混**：MV 只产出 `h3-mv-pack`（`.h3pack.zip`）；数字人默认产出
   `h3-avatar-pack`（`.h3avatar.zip`）。只有用户明确要求兼容旧数字人时才给
   `.h3pack.zip`（`mode: speaking`）。
+- **段间模式必须符合项目规范**：MV 只能用 `hard/seam/mixed`；数字人 mode1 用
+  `hard/anchor/seam/mixed`、mode2 用 `hard/relay/seam/mixed`、mode3 用 `hard/relay/seam`；
+  `seam_second_pass` 只有数字人 mode1 的 seam/mixed 可用；`stitch=mixed` 必须逐段写
+  `segments[].stitch`，第 1 段不能是 `seam`。
+- **设计层字段不得手填冲突**：`design.route` 固定 `Ref2VA`；`design.audio_mode` 由 mode
+  唯一决定（runtime / reference / generated），不能为了“看起来更合适”改成别的腔。
+- **创作必须基于用户实际素材与明确要求**：先做素材事实表；人物/场景/道具/数字/品牌词
+  不得凭空编造，缺失信息先问或留空；每个关键设计决定能指回素材、用户要求或补图确认。
 - 不允许空 `final_prompt`（MV）或空 `segments[].prompt`（数字人）的设计包；
   `--require-prompts` 必须 PASS。
 - MV 不允许 `cuts_seconds` 缺失；数字人包不允许缺少 `design/beats` 与合法帧数。
@@ -392,8 +436,11 @@ python scripts/env_check.py --project <h3-workbench 目录>
 ## 7. 交付清单
 
 - [ ] 格式正确：MV `.h3pack.zip` / 数字人 `.h3avatar.zip`（或用户明确要求的兼容旧格式）
+- [ ] 已产出素材事实表；人物/场景/道具/数字/品牌词均来自实际素材或用户确认
 - [ ] MV：`validate_pack.py --require-prompts --require-cuts` 全 PASS
 - [ ] 数字人：`validate_avatar_pack.py --require-prompts` 全 PASS
+- [ ] `generation` 通过校验：stitch 属于该模式允许集合，seam_overlap / output_fps / 二采字段合法，mixed 行级 stitch 正确
+- [ ] `design.route=Ref2VA`，`design.audio_mode` 与 mode 一致
 - [ ] 包路径与 `design.md`（含创意方向、补图决策、用户审阅结论）
 - [ ] 至少向用户展示过 2–3 个整体创意方向或关键画面选项
 - [ ] 所有参考图缺口都有建议与用户决策记录；采纳的图已进包并更新提示词编号

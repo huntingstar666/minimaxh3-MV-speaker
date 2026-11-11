@@ -40,11 +40,15 @@ cp -r ./mv-pack-builder ~/.agents/skills/
 **数字人默认交付 `.h3avatar.zip`**（mode 1/2/3 + design + beats，对齐数字人实现契约）；
 旧 `.h3pack.zip`（`mode: speaking`）只作兼容，用户明确要求导入 MV 工作台时才用。
 数字人单段 124–719 帧（5+17k；15s 是推荐上限，30s 档可用 719 帧）；
-B 腔可传完整录音自动截 12s 音色样本；包可直接经页面「最近作品」或
+B 腔可传完整录音自动截 12s 音色样本；包可直接经页面顶栏「导入 .h3avatar 包」或
 `import_avatar_pack.py`/HTTP 导入数字人工作台。
 数字人还支持 `material_note`/每段 `note` 里的 `@图N`/`@音频N`、每段 `ref_ids` 选图、
-mode2 多音色 `voices[]`；这些导演化字段由服务端 pack import/export 原样携带，
+mode2 多音色 `voices[]`（最多 3 个参与生成）；这些导演化字段由服务端 pack import/export 原样携带，
 页面按钮与 `import_avatar_pack.py` 等价；多音色项目导出已修复。
+段间模式按项目类型收窄：MV `hard/seam/mixed`；数字人 mode1 `hard/anchor/seam/mixed`、
+mode2 `hard/relay/seam/mixed`、mode3 `hard/relay/seam`。包里的 `generation` 必须写
+`stitch`，seam/mixed 带 `seam_overlap`，`stitch=mixed` 时逐段写 `segments[].stitch`。
+设计前先做**素材事实表**：人物/场景/道具/数字/品牌词必须来自用户实际素材或明确要求。
 
 技能会先做环境自检，然后进入**设计流程**：拆歌/拆稿 → 自由创意发散 → 素材盘点与
 补图建议 → 画面设计/分镜表 → **交用户审阅、听取意见并修改** → 逐段提示词 →

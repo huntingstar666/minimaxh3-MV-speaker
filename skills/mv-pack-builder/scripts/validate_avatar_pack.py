@@ -24,6 +24,15 @@ IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 DOC_EXT = {".json", ".md", ".txt"}
 ROLES = {"performer", "environment", "appearance", "subject", "other"}
 MODES = {1: ("locked_audio", "runtime"), 2: ("ref_native", "reference"), 3: ("ref_native", "generated")}
+STITCH_BY_MODE = {
+    1: {"hard", "anchor", "seam", "mixed"},
+    2: {"hard", "relay", "seam", "mixed"},
+    3: {"hard", "relay", "seam"},
+}
+SEAM_OVERLAPS = {5, 22, 39}
+FPS_VALUES = {24, 25, 30}
+ANCHOR_MIDS = {"none", "center", "thirds", "custom"}
+ANCHOR_PREPROCESS = {"center_crop", "stretch", "none"}
 HEADINGS = ["subject_definitions", "summary", "retention_analysis",
             "detailed_description", "overall_soundscape", "non_diegetic_music"]
 # 与 backend/avatar/effect_catalog.py 保持一致（工作台导出的包必须能被自家校验器接受）
@@ -320,6 +329,84 @@ def check_segment(item: dict, index: int, mode: int, cps: float,
             warn(f"{label}.prompt_meta.speech_chars 与 chars 不一致")
 
 
+def check_generation(manifest: dict, mode: int, segments: list) -> None:
+    """校验数字人包的段间模式 / 二采 / 接缝重叠 / 锚定参数。"""
+    generation = manifest.get("generation") or {}
+    if not isinstance(generation, dict):
+        fail("generation 必须是对象")
+        return
+    allowed = STITCH_BY_MODE.get(mode, STITCH_BY_MODE[1])
+    stitch = str(generation.get("stitch") or "hard").strip().lower()
+    if stitch not in allowed:
+        fail(f"mode{mode} 的 generation.stitch 只能是 " + " / ".join(sorted(allowed)))
+    fps = generation.get("output_fps", generation.get("fps"))
+    if fps is not None:
+        try:
+            fps_value = int(fps)
+        except (TypeError, ValueError):
+            fail(f"generation.output_fps 不是整数：{fps!r}")
+        else:
+            if fps_value not in FPS_VALUES:
+                fail("generation.output_fps 必须是 24 / 25 / 30")
+    if stitch in {"seam", "mixed"}:
+        overlap = generation.get("seam_overlap", 22 if mode == 1 else 5)
+        try:
+            overlap_value = int(overlap)
+        except (TypeError, ValueError):
+            fail(f"generation.seam_overlap 不是整数：{overlap!r}")
+        else:
+            if overlap_value not in SEAM_OVERLAPS:
+                fail("generation.seam_overlap 必须是 5+17k（5 / 22 / 39）")
+            elif mode == 1 and overlap_value == 5:
+                warn("mode1 的接缝重叠建议 22 / 39；写 5 会被后端按 22 处理")
+    elif "seam_overlap" in generation:
+        warn("非 seam/mixed 下 seam_overlap 不生效")
+    for key in ("ref_second_pass", "seam_second_pass"):
+        if key in generation and not isinstance(generation[key], bool):
+            fail(f"generation.{key} 必须是布尔值")
+    if generation.get("seam_second_pass"):
+        if mode != 1:
+            fail("seam_second_pass 仅模式 1 可用（模式 2/3 的 seam/mixed 固定单采）")
+        if stitch not in {"seam", "mixed"}:
+            fail("seam_second_pass 只在 seam / mixed 下生效")
+        if not str(generation.get("upscaler_model") or "").strip():
+            warn("seam 二采需要潜空间放大器；包内未写 upscaler_model，导入后需在工作台选择")
+    if mode != 1:
+        anchor_keys = ("anchor_sampler", "anchor_seed", "anchor_mid", "anchor_mid_frames",
+                       "anchor_preprocess", "anchor_upscale", "anchor_pin_frames")
+        if any(generation.get(key) for key in anchor_keys):
+            warn("anchor_* 仅模式 1 生效")
+    if stitch == "anchor":
+        sampler = str(generation.get("anchor_sampler") or "plain").strip().lower()
+        if sampler not in {"plain", "selflift"}:
+            fail("anchor_sampler 必须是 plain / selflift")
+        mid = str(generation.get("anchor_mid") or "center").strip().lower()
+        if mid not in ANCHOR_MIDS:
+            fail("anchor_mid 必须是 none / center / thirds / custom")
+        preprocess = str(generation.get("anchor_preprocess") or "center_crop").strip().lower()
+        if preprocess not in ANCHOR_PREPROCESS:
+            fail("anchor_preprocess 必须是 center_crop / stretch / none")
+
+    if stitch == "mixed":
+        seam_count = 0
+        for index, item in enumerate(segments):
+            if not isinstance(item, dict):
+                continue
+            row = str(item.get("stitch") or "hard").strip().lower()
+            if row not in {"hard", "seam"}:
+                fail(f"segments[{index}].stitch 必须是 hard 或 seam")
+            if index == 0 and row == "seam":
+                fail("segments[0].stitch 不能是 seam（第 1 段没有上一段）")
+            if row == "seam":
+                seam_count += 1
+        if not seam_count:
+            warn("generation.stitch=mixed 但没有任何段选 seam，实际等同硬切")
+    else:
+        for index, item in enumerate(segments):
+            if isinstance(item, dict) and str(item.get("stitch") or "hard").lower() != "hard":
+                warn(f"segments[{index}].stitch 只在 generation.stitch=mixed 时生效")
+
+
 def _run(args) -> int:
     path = Path(args.path).resolve()
     if not path.exists():
@@ -375,6 +462,8 @@ def _run(args) -> int:
         if voices_raw:
             if len(voices_raw) > 6:
                 fail("voices 最多 6 个音色")
+            if len(voices_raw) > 3:
+                warn("工作台运行时最多使用前 3 个音色（MAX_VOICES=3）；建议把 voices 收窄到 3 个")
             for index, item in enumerate(voices_raw):
                 if not isinstance(item, dict) or not item.get("file"):
                     fail(f"voices[{index}].file 不能为空")
@@ -384,7 +473,7 @@ def _run(args) -> int:
                     fail(f"voices[{index}] 不是支持的音频格式")
                 if not str(item.get("name") or "").strip():
                     warn(f"voices[{index}] 建议填写 name")
-            voice_count = len(voices_raw)
+            voice_count = min(len(voices_raw), 3)
         elif isinstance(voice, dict) and voice.get("file"):
             check_exists(str(voice["file"]), "voice", root, names)
             voice_count = 1
@@ -436,7 +525,9 @@ def _run(args) -> int:
         fail("design 必须是对象")
     else:
         if design.get("route") not in (None, "Ref2VA"):
-            warn("design.route 当前应为 Ref2VA")
+            fail("design.route 固定为 Ref2VA（由工作台链路决定，不随包切换）")
+        elif not design.get("route"):
+            warn("design.route 建议写 Ref2VA（后端会按模式纠正）")
         if not str(design.get("audio_mode") or "").strip():
             fail(f"design.audio_mode 必填（mode{mode} 应为 {audio_mode}）")
         elif design["audio_mode"] != audio_mode:
@@ -505,6 +596,8 @@ def _run(args) -> int:
             fail(f"设计包缺少 prompt 的分段：{missing}")
     if not any(Path(name).name == "design.md" for name in names):
         warn("建议附 design.md（分镜/节拍/审阅记录）")
+
+    check_generation(manifest, mode, segments)
 
     if errors:
         if args.json:

@@ -28,6 +28,9 @@ HEADINGS = ["subject_definitions", "summary", "retention_analysis",
 MANIFEST_NAMES = ("manifest.json", "h3mv.json", "pack.json")
 MAX_ENTRIES = 400
 MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+MV_STITCHES = {"hard", "seam", "mixed"}
+MV_SEAM_OVERLAPS = {22, 39}
+FPS_VALUES = {24, 25, 30}
 
 errors: list[str] = []
 warnings: list[str] = []
@@ -149,6 +152,66 @@ def check_prompt(text: str, label: str, visual_type: str = "performance",
         fail(f"{label} 超过 20000 字符")
     elif len(value) < 300:
         warn(f"{label} 提示词偏短（{len(value)} 字符）")
+
+
+def check_generation(project: dict, segments: list) -> None:
+    """校验 MV 包里的段间模式 / 帧率 / 接缝重叠与行级接续。"""
+    generation = project.get("generation") if isinstance(project, dict) else None
+    if generation is None:
+        generation = {}
+    if not isinstance(generation, dict):
+        fail("project.generation 必须是对象")
+        return
+    stitch = str(generation.get("stitch") or "hard").strip().lower()
+    if stitch not in MV_STITCHES:
+        fail("project.generation.stitch 必须是 hard / seam / mixed")
+    fps = generation.get("output_fps", generation.get("fps"))
+    if fps is not None:
+        try:
+            fps_value = int(fps)
+        except (TypeError, ValueError):
+            fail(f"project.generation.output_fps 不是整数：{fps!r}")
+        else:
+            if fps_value not in FPS_VALUES:
+                fail("project.generation.output_fps 必须是 24 / 25 / 30")
+    if stitch in {"seam", "mixed"}:
+        overlap = generation.get("seam_overlap", 22)
+        try:
+            overlap_value = int(overlap)
+        except (TypeError, ValueError):
+            fail(f"project.generation.seam_overlap 不是整数：{overlap!r}")
+        else:
+            if overlap_value not in MV_SEAM_OVERLAPS:
+                fail("MV 的 seam_overlap 只支持 22 / 39（5 仅数字人模式 2 使用）")
+    elif "seam_overlap" in generation:
+        warn("非 seam/mixed 下 seam_overlap 不生效")
+    for key in ("ref_second_pass", "seam_second_pass"):
+        if key in generation and not isinstance(generation[key], bool):
+            fail(f"project.generation.{key} 必须是布尔值")
+    if stitch not in {"seam", "mixed"} and generation.get("seam_second_pass"):
+        warn("seam_second_pass 只在 seam/mixed 下生效")
+    if stitch in {"seam", "mixed"} and generation.get("seam_second_pass") \
+            and not str(generation.get("upscaler_model") or "").strip():
+        warn("seam 二采需要潜空间放大器；包里未写 upscaler_model，导入后需在工作台选择")
+
+    if stitch == "mixed":
+        seam_count = 0
+        for index, item in enumerate(segments):
+            if not isinstance(item, dict):
+                continue
+            row = str(item.get("stitch") or "hard").strip().lower()
+            if row not in {"hard", "seam"}:
+                fail(f"segments[{index}].stitch 必须是 hard 或 seam")
+            if index == 0 and row == "seam":
+                fail("segments[0].stitch 不能是 seam（第 1 段没有上一段）")
+            if row == "seam":
+                seam_count += 1
+        if not seam_count:
+            warn("generation.stitch=mixed 但没有任何段选 seam，实际等同硬切")
+    else:
+        for index, item in enumerate(segments):
+            if isinstance(item, dict) and str(item.get("stitch") or "hard").lower() != "hard":
+                warn(f"segments[{index}].stitch 只在 generation.stitch=mixed 时生效")
 
 
 def _run(args) -> int:
@@ -288,6 +351,7 @@ def _run(args) -> int:
                 fail(f"segments[{index}].ref_ids 必须是整数数组或 null")
             elif any(not 0 <= value < len(refs) for value in item["ref_ids"]):
                 fail(f"segments[{index}].ref_ids 越界")
+    check_generation(project, segments)
     if not segments and not cuts:
         warn("没有时间轴和分段覆盖：导入后将自动分析分段")
     if getattr(args, "require_prompts", False):

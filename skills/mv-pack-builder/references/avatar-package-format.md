@@ -96,7 +96,20 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
     "brand": {"palette": ["#FFB454"], "typography_note": "", "logo_refs": []}
   },
 
-  "generation": {"aspect_ratio": "9:16 (Portrait Widescreen)", "output_fps": 24, "stitch": "hard"},
+  "generation": {
+    "aspect_ratio": "9:16 (Portrait Widescreen)",
+    "output_fps": 24,
+    "stitch": "hard",
+    "seam_overlap": 22,
+    "ref_second_pass": true,
+    "seam_second_pass": false,
+    "anchor_sampler": "plain",
+    "anchor_mid": "center",
+    "anchor_preprocess": "center_crop",
+    "anchor_upscale": "lanczos",
+    "anchor_seed": 0,
+    "anchor_pin_frames": false
+  },
 
   "segments": [
     {
@@ -160,7 +173,35 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
 数字人提示词全部 **Ref2VA 六段式**，规则见 `digital-human/voices/A|B|C-*.md`；
 写完后用 `validate_digital_human_prompt.py --audio-mode runtime|reference|generated` 校验。
 
-## 3.1 导演化字段（创作要求 / 每段选图 / 多音色）
+`design.route` 固定 `Ref2VA`；`design.audio_mode` 由 mode 唯一决定，不要写成其他腔。
+mode 在项目创建时写入，导入后不可更改；要换腔请新建项目。
+
+## 3.1 生成参数（generation）
+
+包里的 `generation` 只保留工作台明确支持的字段；步数 / CFG / 模型 / LoRA / rho / 分块等
+不在包内，导入后使用工作台默认值或由用户调整。
+
+| 字段 | 取值 | 说明 |
+| --- | --- | --- |
+| `aspect_ratio` | 工作台画幅字符串 | 必须与参考图实际比例一致 |
+| `output_fps` | `24` / `25` / `30` | 成片输出帧率 |
+| `stitch` | mode1 `hard/anchor/seam/mixed`；mode2 `hard/relay/seam/mixed`；mode3 `hard/relay/seam` | 段间模式 |
+| `seam_overlap` | `5` / `22` / `39` | 仅 seam/mixed；mode1 建议 22/39，写 5 会按 22 处理 |
+| `seam_second_pass` | 布尔 | 仅 mode1 的 seam/mixed；需要 `upscaler_model` |
+| `ref_second_pass` | 布尔 | 硬切 / 尾帧接力的双采开关 |
+| `anchor_sampler` | `plain` / `selflift` | 仅 mode1 锚定 |
+| `anchor_mid` | `none/center/thirds/custom` | 仅 mode1 锚定 |
+| `anchor_mid_frames` | 整数数组 | `anchor_mid=custom` 时使用 |
+| `anchor_preprocess` | `center_crop/stretch/none` | 仅 mode1 锚定 |
+| `anchor_upscale` | 插值算法字符串 | 仅 mode1 锚定 |
+| `anchor_seed` | 整数 ≥0 | 0 = 项目固定种子 |
+| `anchor_pin_frames` | 布尔 | 首尾钉帧，默认 false |
+| `segments[].stitch` | `hard` / `seam` | 仅 `generation.stitch=mixed`；第 1 段必须 hard |
+
+`stitch=mixed` 时，连续 `segments[].stitch=seam` 的段组成一条续接链，链首为 hard；
+链内 latent 续接、链间硬切。
+
+## 3.2 导演化字段（创作要求 / 每段选图 / 多音色）
 
 工作台新增：
 
@@ -169,7 +210,7 @@ manifest 文件名可用 `manifest.json` / `h3avatar.json` / `avatar.json`：工
 | `material_note` | 项目级 | 全局创作要求；支持 `@图N`、模式 2 支持 `@音频N` |
 | `segments[].note` | 分段 | 本段创作要求；同样支持 `@图N`/`@音频N` |
 | `segments[].ref_ids` | 分段 | 本段启用的参考图（全局下标数组，`null`=全部）；决定提示词局部 `<Picture n>` 编号 |
-| `voices[]` | 项目级 | mode 2 多音色：`{file,name}`，最多 6 个；音色是素材，不与人物绑定 |
+| `voices[]` | 项目级 | mode 2 多音色：`{file,name}`，最多 3 个参与生成（旧包兼容 6 个，但只前 3 个生效）；音色是素材，不与人物绑定 |
 | `speakers[]` | 项目级 | 可选人物提示表（id/name/picture_index/voice_id）；服务端 import/export 原样保留 |
 
 `@图N` 与 `<Picture N>` 是两套编号：
@@ -222,7 +263,9 @@ mode 2 必须给 `voice.file` **或** `voices[]`（二者同时存在时以 `voi
 - `seconds ≈ frames/24`，`chars ≈ seconds × chars_per_second`；
 - `start_frame/end_frame` 连续覆盖全片（每段 `start_frame` 必须等于上一段 `end_frame`；
   校验器与后端都会拒绝重叠/留缝，导入后音画才不会错位）；
-- `design`、参考图角色、音频腔/文件一致；
+- `design`、参考图角色、音频腔/文件一致；`design.route=Ref2VA`，`design.audio_mode` 与 mode 一致；
+- `generation` 合法：stitch 属于该模式允许集合，seam_overlap / output_fps / 二采字段合法；
+  `stitch=mixed` 时每段 `stitch` 为 hard/seam，第 1 段必须 hard；
 - `design.md` 记录检查点、创意缺口、审阅记录。
 
 校验：
@@ -265,7 +308,7 @@ python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3a
 - `mode` 1/2/3，`workflow` 必须匹配（locked_audio / ref_native），`design.audio_mode` 匹配；
 - 每段 `frames` 必须是 H3 合法帧数 `5+17k`（124–719），`end_frame - start_frame == frames`；
 - mode1 必须有 `audio.file` 且包内存在；mode2 必须有 `voice.file`，或提供 `voices[]`
-  （多音色：每项 `{file, name}`，最多 6 个，文件必须在包内且为音频；旧包只有 `voice.file` 也兼容）；
+  （多音色：每项 `{file, name}`，最多 3 个参与生成；旧包兼容 6 个但只前 3 个生效，文件必须在包内且为音频；旧包只有 `voice.file` 也兼容）；
   mode3 不应有音频；mode1/mode3 出现 `voices` 视为非法；
 - `refs[].file` 必须在包内且是图片、role 合法、≤9 张；
 - 资源限制：参考图单文件 ≤50MB、音频 ≤200MB、包 ≤2GB；生成前工作台检查磁盘余量
@@ -289,8 +332,10 @@ python scripts/import_avatar_pack.py --project-id <id> --export-out exported.h3a
   音频长度得到 edit_frames（generation_frames=包内 frames）。包内总帧与音频时长差
   >24 帧会有 warning，但项目可用，成片时长=音频实际时长；
 - beats 原样保留（字段归一化，不丢 visible_copy/lifecycle 等）；
-- `generation` 目前只取 `aspect_ratio` / `output_fps`，其它字段忽略（生成参数用工作台
-  默认值 + 项目设置）；
+- `generation` 导入保留：`aspect_ratio`、`output_fps`/`fps`、`stitch`、`anchor_sampler`、
+  `anchor_mid`、`anchor_mid_frames`、`anchor_preprocess`、`anchor_upscale`、`anchor_seed`、
+  `anchor_pin_frames`、`ref_second_pass`、`custom_models`、`seam_overlap`、`seam_second_pass`；
+  其它字段忽略（用工作台默认值）；
 - 服务端 pack 会原样写回 `material_note`、每段 `note`、`ref_ids`、`speakers`；
   roundtrip 不再丢失这些字段。
 
@@ -302,7 +347,7 @@ job 自动走 `backend/avatar/overlay.py`（ffmpeg drawtext/overlay）叠加，t
 
 ### 页面入口
 
-数字人页面「最近作品」面板已提供「导入 .h3avatar 包 / 导出当前包」按钮；
+数字人页面顶栏已提供「导入 .h3avatar 包 / 导出创作包」按钮；
 也可以继续用 `import_avatar_pack.py` 或 curl（更稳、可脚本化），两者等价。
 注意：页面导入与 `import_avatar_pack.py` 走同一服务端 pack，导演化字段
 （`material_note`/`note`/`ref_ids`/`speakers`/`voices`）会一并落库，无需再手工补写。
