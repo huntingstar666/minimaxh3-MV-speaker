@@ -914,16 +914,17 @@ class AvatarRunner:
         用 `-sseof -1 -update 1` 从末尾 1 秒逐帧解码、覆盖写同一文件，
         最终留下的是真正的最后一帧；不用 `-sseof -0.1` 这种近似时间点。
         """
-        segments = project.get("segments") or []
+        segments = (store.get(project_id).get("segments")
+                    or project.get("segments") or [])
         previous = ""
         if 0 <= index - 1 < len(segments):
             previous = str(segments[index - 1].get("output") or "").strip()
         if not previous:
-            raise ValueError(f"第 {index} 段还没有可用片段，尾帧接力需要先生成上一段。")
+            raise ValueError(f"第 {index + 1} 段还没有可用片段，尾帧接力需要先生成上一段。")
         base = store.project_dir(project_id)
         source = base / previous
         if not source.is_file():
-            raise ValueError(f"第 {index} 段的片段文件不存在，请先生成上一段。")
+            raise ValueError(f"第 {index + 1} 段的片段文件不存在，请先生成上一段。")
         out = base / "takes" / "_relay" / f"tail_{index:04d}.jpg"
         out.parent.mkdir(parents=True, exist_ok=True)
         audio_utils.command([
@@ -1526,6 +1527,9 @@ class AvatarRunner:
                 raise ValueError(
                     f"第 {index + 1} 段的窗口长度已变化（{record.get('length')} → "
                     f"{window['length']} 帧），请重新生成该段后再合成。")
+            if str(record.get("take_id") or "") != str(row.get("selected_take") or ""):
+                raise ValueError(
+                    f"第 {index + 1} 段已换选片段，请在接缝接续下重新生成该段（下游 latent 也要重建）。")
             output = str(row.get("output") or "").strip()
             take_path = base / output if output else None
             if take_path is None or not take_path.is_file():

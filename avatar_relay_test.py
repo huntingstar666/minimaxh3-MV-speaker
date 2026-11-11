@@ -165,12 +165,41 @@ def test_relay_invalidates_downstream() -> None:
     require(runner._invalidate_relay_downstream(pid, 2) == 0, "最后一段没有下游")
 
 
+def test_tail_frame_uses_latest_store() -> None:
+    """_run 传入的是任务开始时的快照；上一段刚生成完，output 只在磁盘上更新。"""
+    import json  # noqa: PLC0415
+    project = avatar_store.create("relay 快照", 2)
+    pid = project["id"]
+    base = avatar_store.project_dir(pid)
+    take = base / "takes" / "seg_0000" / "clip.mp4"
+    take.parent.mkdir(parents=True, exist_ok=True)
+    audio.command([
+        audio.ffmpeg(), "-y", "-v", "error",
+        "-f", "lavfi", "-i", "testsrc=size=320x568:rate=24:duration=2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(take),
+    ], timeout=180)
+    project["segments"] = [
+        {"output": "takes/seg_0000/clip.mp4", "selected_take": "t1", "status": "completed"},
+        {"output": "", "selected_take": "", "status": "idle"},
+    ]
+    avatar_store.save(project)
+    stale = json.loads(json.dumps(project))
+    stale["segments"][0]["output"] = ""  # 模拟 _run 里那份过期快照
+
+    runner = avatar_job.AvatarRunner()
+    with mock.patch.object(avatar_job.comfy, "upload", lambda name, data: name):
+        uploaded = runner._tail_frame(pid, stale, 1)
+    require(uploaded.endswith("_relay_0001.jpg"),
+            f"应从磁盘读到上一段 output 并抽帧，实际：{uploaded}")
+
+
 def main() -> int:
     run("relay 开关识别", test_relay_flag)
     run("默认图不含 guide", test_graph_without_tail)
     run("relay 图插入 AddGuide", test_graph_with_tail)
     run("末帧抽取", test_tail_frame_extract)
     run("缺上一段报错", test_tail_frame_requires_previous)
+    run("快照过期仍能抽末帧", test_tail_frame_uses_latest_store)
     run("重跑上游作废下游", test_relay_invalidates_downstream)
 
     if failures:
