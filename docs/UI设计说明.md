@@ -43,10 +43,18 @@
 - MV：导入/导出从左侧栏移到顶栏，历史作品仍为弹窗。
 - 数字人：最近作品从左侧栏移除，改为顶栏「历史作品」弹窗；弹窗内保留搜索/排序、备份与恢复、回收站。
 - 数字人历史卡片封面取项目第一张参考图（人物参考优先）；没有参考图时不渲染封面占位。
-- 数字人左栏新增「作品设定」快速卡片与「新建作品」：卡片直接打开基础/音频/参考图/设计分页，避免把表单堆在左栏。
-- 两页顶栏「设置」统一为系统设置（ComfyUI/ffmpeg/LLM，共用 `data/settings.json`）；数字人创作设定仍由左栏卡片进入。
+- 数字人创作设定不再弹窗：左栏常驻「作品设定」dock（见 2.3）。
+- 两页顶栏「设置」统一为系统设置（ComfyUI/ffmpeg/LLM，共用 `data/settings.json`）。
 - 数字人时间线改为 sticky 吸顶，滚动分段时轨道常驻；MV 波形增加常驻分割线并加宽播放头命中带。
 - 布局与主题样式：`web/avatar/css/avatar-history.css`。
+
+### 2.3 数字人左栏：常驻作品设定 + 全局素材（2026-11）
+
+- **作品设定内嵌**：左栏结构改为 `创作模式 → 作品设定 → 全局素材`；`#settings-tabs` 与 `#settings-body` 启动时从隐藏源节点搬进 `#panel-settings-dock`，保留原有 id / 事件绑定。
+- **高度稳定**：dock 占满左栏剩余高度，`#settings-body` 固定区域内部滚动；实测四个分页切换时外框高度完全一致（1728×1080 下 body 242px），不再出现「选项不同、弹窗忽大忽小」。
+- **窄屏降级**：≤1200px 三栏堆叠时，设定区改为 `max-height:420px` 的独立滚动区，避免把舞台推到很远。
+- **全局素材**：左下角常驻参考图缩略图、段数与音色数摘要；拖拽 / 点击上传，按用途入库；全局图默认应用到全部段落（后端 `segment_ref_indices` 在 `ref_ids` 为空时返回全部），「全部段使用」用于清除个别段落的单独勾选。
+- 样式与结构：`web/avatar/index.html`（dock / assets 面板）、`web/avatar/js/avatar.js`（`mountSettingsDock` / `renderAssets` / `bindAssetDock` / `applyGlobalRefsToAll`）、`web/avatar/css/avatar-history.css`。
 
 ## 3. 版式与比例
 

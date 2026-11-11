@@ -728,12 +728,8 @@ body.av-body.av-light{
   .av-body.av-light .av-rail-left .av-project-list{max-height:calc(100vh - 220px)}
 }
 
-/* ---------- 21. 作品设定卡片弹窗 ---------- */
+/* ---------- 21. 作品设定 ---------- */
 .av-body.av-light .av-settings-card{width:min(900px,94vw);max-height:88vh;display:flex;flex-direction:column;background:#fff}
-/* 作品设定带分页签：固定外框高度，切换页签时弹窗不再忽大忽小，内容在框内滚动 */
-.av-body.av-light #modal-settings .av-settings-card{height:min(86vh,760px)}
-.av-body.av-light #modal-settings .av-settings-body{flex:1;min-height:0}
-.av-body.av-light #modal-settings .av-settings-pane{flex:1 1 auto}
 .av-body.av-light .av-settings-body{
   display:flex;flex-direction:column;gap:12px;padding:16px;
   background:#f5f5f7;overflow:auto;

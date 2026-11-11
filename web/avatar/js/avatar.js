@@ -1592,8 +1592,13 @@ const SETTINGS_TABS = ["content", "audio", "refs", "design"];
 function openSettingsTab(name, { open = false } = {}) {
   const tab = SETTINGS_TABS.includes(name) ? name : "content";
   if (open) {
-    const modal = $("#modal-settings");
-    if (modal) modal.hidden = false;
+    const dock = $("#panel-settings-dock");
+    if (dock) {
+      dock.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      dock.classList.remove("is-focus");
+      void dock.offsetWidth;
+      dock.classList.add("is-focus");
+    }
   }
   $$("#settings-tabs [data-settings-tab]").forEach((btn) => {
     const active = btn.dataset.settingsTab === tab;
@@ -4993,6 +4998,7 @@ function renderRefs() {
   emptyEl.classList.toggle("hidden", refs.length > 0);
   if (!refs.length) {
     grid.innerHTML = "";
+    renderAssets();
     return;
   }
   grid.innerHTML = refs
@@ -5013,21 +5019,67 @@ function renderRefs() {
       </div>`;
     })
     .join("");
+  renderAssets();
 }
 
-async function uploadRefs(files) {
+// 左下角「全局素材」：一眼看到当前项目用了哪些图 / 音色 / 段数
+function renderAssets() {
+  const p = state.project;
+  const grid = $("#asset-grid");
+  if (!grid) return;
+  const refs = p?.refs || [];
+  const segments = p?.segments || [];
+  const voices = (p?.voices || []).length || (p?.voice ? 1 : 0);
+  $("#asset-summary").textContent = p
+    ? `${refs.length} 图 · ${voices} 音色 · ${segments.length} 段`
+    : "未创建作品";
+  const note = $("#asset-note");
+  if (!p) {
+    grid.innerHTML = "";
+    if (note) note.textContent = "新建作品后，参考图会作为全局素材保存在项目里。";
+  } else if (!refs.length) {
+    grid.innerHTML = "";
+    if (note) note.textContent = "上传后，全局图默认应用到每一段。";
+  } else {
+    grid.innerHTML = refs.map((ref, index) => {
+      const role = ref.role && ROLE_LABEL[ref.role] ? ref.role : "other";
+      const src = mediaUrl(p.id, `refs/${ref.filename}`, ref.added);
+      const title = `图${index + 1} · ${ref.title || ref.filename || "参考图"}`;
+      return `<div class="av-asset-card" title="${esc(title)}">
+        <button class="av-asset-thumb" type="button" data-asset-preview data-src="${esc(src)}" data-title="${esc(title)}">
+          <img src="${esc(src)}" alt="${esc(title)}" loading="lazy">
+          <b>图${index + 1}</b>
+          <em>${ROLE_LABEL[role]}</em>
+        </button>
+        <button class="av-asset-del" type="button" data-action="asset-del" data-index="${index}" title="删除这张参考图">
+          <svg><use href="#i-close"/></svg>
+        </button>
+      </div>`;
+    }).join("");
+    if (note) {
+      const overridden = segments.filter((seg) => Array.isArray(seg.ref_ids) && seg.ref_ids.length).length;
+      note.textContent = overridden
+        ? `${segments.length} 段中 ${overridden} 段单独勾选；其余用全部全局图。`
+        : `已应用到全部 ${segments.length} 段 · 段卡可单独取消`;
+    }
+  }
+  const apply = $("#btn-asset-apply");
+  if (apply) apply.disabled = !p || !segments.some((seg) => Array.isArray(seg.ref_ids) && seg.ref_ids.length);
+}
+
+async function uploadRefs(files, { role = "", button = null } = {}) {
   const p = state.project;
   if (!p) {
     toast("请先新建作品，再上传参考图", "err");
     return;
   }
-  const role = $("#ref-role").value;
-  await withBusy($("#btn-ref-upload"), async () => {
+  const useRole = ROLE_LABEL[role] ? role : ($("#ref-role")?.value || "performer");
+  await withBusy(button || $("#btn-ref-upload"), async () => {
     let latest = p;
     for (const file of files) {
       try {
         const title = file.name.replace(/\.[^.]+$/, "").slice(0, 40);
-        latest = (await api.addRef(p.id, file, role, title, "")).project;
+        latest = (await api.addRef(p.id, file, useRole, title, "")).project;
       } catch (err) {
         toast(`「${file.name}」上传失败：${err.message}`, "err");
       }
@@ -5035,6 +5087,28 @@ async function uploadRefs(files) {
     applyProject(latest, { fill: false, segments: false });
     toast(`参考图已更新（${(latest.refs || []).length} 张）`, "ok");
   }).catch((err) => toast(`参考图上传失败：${err.message}`, "err"));
+}
+
+// 清掉每段的单独勾选，让所有段落重新使用全部全局参考图
+async function applyGlobalRefsToAll() {
+  const p = state.project;
+  if (!p) {
+    toast("请先新建作品", "err");
+    return;
+  }
+  const targets = (p.segments || []).filter((seg) => Array.isArray(seg.ref_ids) && seg.ref_ids.length);
+  if (!targets.length) {
+    toast("所有段落已经在使用全部全局参考图", "ok");
+    return;
+  }
+  await withBusy($("#btn-asset-apply"), async () => {
+    let latest = p;
+    for (const seg of targets) {
+      latest = (await api.patchSegment(p.id, seg.index, { ref_ids: null })).project;
+    }
+    applyProject(latest, { fill: false, segments: false });
+    toast(`已让 ${targets.length} 段重新使用全部全局参考图`, "ok");
+  }).catch((err) => toast(`应用失败：${err.message}`, "err"));
 }
 
 async function deleteRef(index) {
@@ -5599,6 +5673,7 @@ function syncButtons() {
   setDisabled("#btn-cancel", !active);
   setDisabled("#btn-ref-upload", !hasProject);
   setDisabled("#ref-role", !hasProject);
+  setDisabled("#asset-role", !hasProject);
   setDisabled("#btn-backup", !hasProject);
 
   setDisabled("#btn-analyze", !audioReady);
@@ -5757,10 +5832,9 @@ function bindDesignEvents() {
 }
 
 function bindEvents() {
-  $("#panel-workbench")?.addEventListener("click", (event) => {
-    const card = event.target.closest('[data-action="open-settings-tab"]');
-    if (!card) return;
-    openSettingsTab(card.dataset.tab || "content", { open: true });
+  $("#btn-settings")?.addEventListener("click", () => {
+    const active = $("#settings-tabs .is-active")?.dataset.settingsTab || "content";
+    openSettingsTab(active, { open: true });
   });
   $("#btn-new-work")?.addEventListener("click", startNewProject);
   $("#btn-save-sys-settings")?.addEventListener("click", saveSysSettings);
@@ -6148,10 +6222,63 @@ function mountHistoryPanel() {
   body.append(panel);
 }
 
+function mountSettingsDock() {
+  const slot = $("#settings-slot");
+  const source = $("#settings-source");
+  if (!slot || !source) return;
+  const tabs = source.querySelector("#settings-tabs");
+  const body = source.querySelector("#settings-body");
+  if (tabs) slot.appendChild(tabs);
+  if (body) slot.appendChild(body);
+  source.remove();
+}
+
+// 左下角全局素材：拖拽 / 点击上传，缩略图预览与删除
+function bindAssetDock() {
+  const drop = $("#asset-drop");
+  const input = $("#asset-input");
+  if (!drop || !input) return;
+  const clearDrag = () => drop.classList.remove("is-drag");
+  ["dragenter", "dragover"].forEach((type) => {
+    drop.addEventListener(type, (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      drop.classList.add("is-drag");
+    });
+  });
+  ["dragleave", "dragend", "drop"].forEach((type) => drop.addEventListener(type, clearDrag));
+  drop.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const files = Array.from(event.dataTransfer?.files || []).filter((f) => f.type.startsWith("image/"));
+    if (!files.length) {
+      toast("只支持图片文件", "err");
+      return;
+    }
+    uploadRefs(files, { role: $("#asset-role")?.value || "", button: drop });
+  });
+  input.addEventListener("change", () => {
+    const files = Array.from(input.files || []);
+    input.value = "";
+    if (files.length) uploadRefs(files, { role: $("#asset-role")?.value || "", button: drop });
+  });
+  $("#asset-grid")?.addEventListener("click", (event) => {
+    const del = event.target.closest('[data-action="asset-del"]');
+    if (del) {
+      deleteRef(Number(del.dataset.index));
+      return;
+    }
+    const thumb = event.target.closest("[data-asset-preview]");
+    if (thumb) openImagePreview(thumb.dataset.src, thumb.dataset.title);
+  });
+  $("#btn-asset-apply")?.addEventListener("click", applyGlobalRefsToAll);
+}
+
 async function boot() {
+  mountSettingsDock();
   mountHistoryPanel();
   buildVoiceCardFields();
   bindEvents();
+  bindAssetDock();
   initAnchorControls();
   initRightTabs();
   initSettingsTabs();

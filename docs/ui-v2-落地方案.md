@@ -49,6 +49,7 @@
 ### 工作台收口记录（R19–R22，2026-11-09）
 
 - 舞台只留工作台：`av-stage-head / #timeline / #seg-list`。创作模式、台词、驱动音频、参考图、设计全部移入 `#modal-settings`（工具栏「作品设定」打开）。
+  - **2026-11 更新**：作品设定已改为左栏常驻 dock（`#panel-settings-dock`），分页高度固定、内容内部滚动；左下角另设全局素材面板。`#modal-settings` 已移除，详见 `docs/UI设计说明.md` §2.3。
 - 音轨置顶：`#timeline` 用 CSS `order:0` + `position:sticky`，`top` 取 `--av-head-h`；该变量由 `avatar-polish.js` 的 `initStickyTimeline()` 用 ResizeObserver 同步 `.av-stage-head` 实际高度（实测 97px）。仅 ≥1201px 吸顶，窄屏标题栏是 `static`，避免音轨悬空。
 - 参数不再堆下拉：右栏只保留「段间模式」+ 三行设置入口（生成参数 / 高级生成参数 / 系统提示词），行内显示当前值，点开是 560/760px 的卡片弹窗；系统提示词由三个 `<details>` 改为三张平铺卡片。
 - 弹窗表单：弹窗在 `.av-workspace` 之外，浅色 input/select/range/btn/switch/pill 与新遮罩在 §22 单独覆盖；遮罩改为 `rgba(0,0,0,.24) + blur(6px)`。

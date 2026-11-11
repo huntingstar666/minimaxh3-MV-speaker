@@ -114,28 +114,34 @@
       </div>
       <p class="panel-note tiny" id="mode-hint">模式 2 / 3 的成片视频自带生成音频；模式 1 保留上传音频原声。</p>
     </section>
-    <section class="panel" id="panel-workbench">
-      <div class="panel-head"><h2>作品设定</h2><span class="hint">快速入口</span></div>
-      <div class="av-quick-grid">
-        <button class="av-quick-card" type="button" data-action="open-settings-tab" data-tab="content">
-          <svg><use href="#i-layers"/></svg>
-          <span><strong>基础 / 台词</strong><em>模式、口播稿、作品名</em></span>
-        </button>
-        <button class="av-quick-card" type="button" data-action="open-settings-tab" data-tab="audio">
-          <svg><use href="#i-wave"/></svg>
-          <span><strong>音频 / 音色</strong><em>驱动音频、参考音色</em></span>
-        </button>
-        <button class="av-quick-card" type="button" data-action="open-settings-tab" data-tab="refs">
-          <svg><use href="#i-human"/></svg>
-          <span><strong>参考图</strong><em>人物、场景、造型</em></span>
-        </button>
-        <button class="av-quick-card" type="button" data-action="open-settings-tab" data-tab="design">
-          <svg><use href="#i-spark"/></svg>
-          <span><strong>设计</strong><em>画面、字幕、品牌</em></span>
-        </button>
+    <section class="av-dock" id="panel-settings-dock">
+      <div class="av-dock-head">
+        <h2>作品设定</h2>
+        <button class="btn primary sm" type="button" id="btn-new-work"><svg><use href="#i-plus"/></svg>新建作品</button>
       </div>
-      <button class="btn primary av-quick-new" type="button" id="btn-new-work"><svg><use href="#i-plus"/></svg>新建作品</button>
-      <p class="panel-note tiny" id="workbench-hint">先选创作模式，再新建作品；已有作品从「历史作品」打开。</p>
+      <div class="av-dock-slot" id="settings-slot"></div>
+    </section>
+    <section class="panel av-assets" id="panel-assets">
+      <div class="panel-head"><h2>全局素材</h2><span class="hint" id="asset-summary">未创建作品</span></div>
+      <div class="av-asset-bar">
+        <label class="av-asset-drop" id="asset-drop" title="拖入或点击上传参考图">
+          <input type="file" id="asset-input" accept="image/*" multiple hidden>
+          <svg><use href="#i-upload"/></svg>
+          <span>拖图 / 点击上传</span>
+        </label>
+        <select id="asset-role" class="input" title="新上传图片的用途">
+          <option value="performer">人物</option>
+          <option value="environment">场景</option>
+          <option value="appearance">服装 / 造型</option>
+          <option value="subject">道具 / 主体</option>
+          <option value="other">其他</option>
+        </select>
+      </div>
+      <div class="av-asset-grid" id="asset-grid"></div>
+      <div class="av-asset-foot">
+        <span class="hint" id="asset-note">上传后，全局图默认应用到每一段。</span>
+        <button class="btn ghost sm" type="button" id="btn-asset-apply" title="清除每段的单独勾选，让所有段落重新使用全部全局参考图">全部段使用</button>
+      </div>
     </section>
     <section class="panel" id="panel-projects" hidden>
 
@@ -399,12 +405,7 @@
   </div>
 </div>
 
-<div class="modal av-settings-modal" id="modal-settings" hidden>
-  <div class="modal-card av-settings-card">
-    <div class="modal-head">
-      <h2>作品设定</h2>
-      <button class="icon-btn" data-close type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button>
-    </div>
+<div id="settings-source" hidden>
     <div class="av-settings-tabs" id="settings-tabs" role="tablist" aria-label="作品设定分页">
       <button type="button" class="av-settings-tab is-active" data-settings-tab="content" role="tab">基础</button>
       <button type="button" class="av-settings-tab" data-settings-tab="audio" role="tab">音频</button>
@@ -705,7 +706,6 @@
         </div>
     </section>
     </div>
-  </div>
 </div>
 
 <div class="modal av-settings-modal" id="modal-params" hidden>
