@@ -651,6 +651,8 @@ input[type=range]:active::-webkit-slider-thumb{transform:scale(1.02)}
 }
 .seg-stitch-select:hover{color:var(--text);border-color:rgba(255,255,255,.22)}
 .seg-stitch-select:disabled{opacity:.45;cursor:not-allowed}
+.pill.chain-tag{color:#b8c6d8;border-color:rgba(167,139,250,.26);background:rgba(167,139,250,.06)}
+.pill.chain-tag.chain-head{color:var(--violet);border-color:rgba(167,139,250,.45);background:rgba(167,139,250,.13)}
 .pill.ref-override{color:#d9c6ff;border-color:rgba(167,139,250,.45);background:rgba(167,139,250,.13)}
 .pill.status-completed{color:var(--ok);border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.08)}
 .pill.status-running{color:var(--amber);border-color:rgba(247,185,85,.35);background:rgba(247,185,85,.1)}

@@ -370,6 +370,7 @@ export function renderSegments() {
             <span class="pill ${refOverride ? "ref-override" : ""}">参考图 ${refsUsed.length}${refOverride ? " · 本段" : " · 全局"}</span>
             <span class="pill status-${status}">${STATUS_LABELS[status] || status}</span>
             <span class="pill">${Number(row.duration || 0).toFixed(1)}s · ${row.edit_frames || 0}/${row.generation_frames || 0} 帧</span>
+            ${isMixed ? chainTag(segments, row, index) : ""}
             ${isMixed ? stitchSelect(row, index) : ""}
           </div>
           <div class="seg-line">${escapeHtml(row.brief ? row.brief.split("\n")[0].replace(/^画面任务：/, "") : "等待导演简报")} · ${escapeHtml(row.camera_start || "")} ${escapeHtml(row.camera_start_angle || "")} → ${escapeHtml(row.camera_end || "")}</div>
@@ -408,6 +409,21 @@ export function renderSegments() {
       </article>
     `;
   }).join("");
+}
+
+function chainIndexOf(segments, index) {
+  // 与后端 seam.group_chains 一致：只有本段 stitch=seam 才并入上一链
+  let chain = 1;
+  for (let position = 1; position <= index; position += 1) {
+    if (segments[position]?.stitch !== "seam") chain += 1;
+  }
+  return chain;
+}
+
+function chainTag(segments, row, index) {
+  const chain = chainIndexOf(segments, index);
+  const head = index === 0 || row.stitch !== "seam";
+  return `<span class="pill chain-tag ${head ? "chain-head" : ""}" title="同链的段一次提交、链内 latent 续接；链间硬切">链 ${chain}${head ? " 起" : ""}</span>`;
 }
 
 function stitchSelect(row, index) {
