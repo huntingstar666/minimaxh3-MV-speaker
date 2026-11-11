@@ -85,7 +85,7 @@ def test_mode3_modes() -> None:
     require(patch(pid, {"stitch": "anchor"}) == 400, "模式 3 anchor 应拒绝")
 
 
-def test_mode1_rejects_other_modes() -> None:
+def test_mode1_stitch_choices() -> None:
     pid = create(1)
     require(patch(pid, {"stitch": "hard"}) == 200, "模式 1 hard 应允许")
     require(patch(pid, {"stitch": "anchor"}) == 200, "模式 1 anchor 应允许")
@@ -121,7 +121,7 @@ def main() -> int:
     run("seam_overlap 合法性", test_seam_overlap_values)
     run("模式 2 可选模式", test_mode2_modes)
     run("模式 3 可选模式", test_mode3_modes)
-    run("模式 1 拒绝 relay/seam", test_mode1_rejects_other_modes)
+    run("模式 1 允许 seam、拒绝 relay", test_mode1_stitch_choices)
     run("默认 overlap", test_default_overlap_recorded)
     run("按模式默认 stitch", test_default_stitch_by_mode)
 
