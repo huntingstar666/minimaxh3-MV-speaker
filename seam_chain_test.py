@@ -407,6 +407,36 @@ def test_plan_windows_overlap_39() -> None:
             "overlap 只影响 start / length，不改变 visible")
 
 
+def test_per_row_overlap() -> None:
+    rows = [
+        {"edit_frames": 120, "overlap": 39},   # 第 1 段没有上一段，忽略
+        {"edit_frames": 96, "overlap": 39},
+        {"edit_frames": 144},                  # 缺省回落到项目级 22
+    ]
+    windows = seam.plan_windows(rows, 24, 0, 22)
+    require(windows[0]["overlap"] == 0, "第 1 窗没有重叠")
+    require(windows[1]["overlap"] == 39, f"第 2 窗应应用行级 39：{windows[1]['overlap']}")
+    require(windows[2]["overlap"] == 22, f"第 3 窗应回落项目级 22：{windows[2]['overlap']}")
+    require(windows[1]["start"] == windows[0]["end"] - 39, "第 2 窗起点按 39 提前")
+    require(windows[2]["start"] == windows[1]["end"] - 22, "第 3 窗起点按 22 提前")
+    for window in windows:
+        require(legal(window["length"]), f"长度 {window['length']} 不是 5+17k")
+
+    plain = seam.plan_windows(
+        [{key: value for key, value in row.items() if key != "overlap"} for row in rows],
+        24, 0, 22)
+    require([w["visible"] for w in windows] == [w["visible"] for w in plain],
+            "行级 overlap 不应改变 visible")
+    require([w["end"] for w in windows] == [w["end"] for w in plain],
+            "行级 overlap 不应改变 end")
+
+
+def test_per_row_overlap_invalid() -> None:
+    rows = [{"edit_frames": 120}, {"edit_frames": 96, "overlap": 23}]
+    require(expect_value_error(lambda: seam.plan_windows(rows, 24, 0, 22)),
+            "行级 overlap=23 必须报错")
+
+
 def main() -> int:
     run("group_chains 空输入", test_group_chains_empty)
     run("group_chains 全 hard", test_group_chains_all_hard)
@@ -431,6 +461,8 @@ def main() -> int:
     run("拆链按输出帧率", test_split_respects_fps)
     run("链指纹", test_chain_fingerprint)
     run("plan_windows overlap=39", test_plan_windows_overlap_39)
+    run("行级 overlap", test_per_row_overlap)
+    run("行级 overlap 非法", test_per_row_overlap_invalid)
 
     if failures:
         print(f"\n{len(failures)} 项失败：" + ", ".join(failures))

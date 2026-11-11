@@ -123,6 +123,29 @@ def test_does_not_touch_prompt() -> None:
     require(not row.get("prompt_stale"), "接续方式不影响提示词，不应标过期")
 
 
+def test_set_overlap() -> None:
+    project_id = make_project()
+    api.patch_segment(project_id, 1, {"stitch": "seam", "overlap": 39})
+    row = store.get(project_id)["segments"][1]
+    require(row.get("overlap") == 39, f"应写入 overlap=39：{row}")
+    require(row.get("stitch") == "seam", "同一次请求也要写入 stitch")
+
+    api.patch_segment(project_id, 1, {"stitch": "hard"})
+    row = store.get(project_id)["segments"][1]
+    require("overlap" not in row, f"改回硬切应清掉 overlap：{row}")
+
+
+def test_overlap_invalid() -> None:
+    project_id = make_project()
+    for value in (5, 23, "abc", True):
+        message = expect_400(lambda v=value: api.patch_segment(
+            project_id, 1, {"overlap": v}))
+        require(message and not message.startswith("__WRONG__"),
+                f"overlap={value!r} 必须 400：{message}")
+    message = expect_400(lambda: api.patch_segment(project_id, 0, {"overlap": 22}))
+    require("第 1 段" in message, f"第 1 段不能设 overlap：{message}")
+
+
 def test_marks_final_stale() -> None:
     project_id = make_project()
     project = store.get(project_id)
@@ -145,6 +168,8 @@ def main() -> int:
     run("非法取值被拒绝", test_invalid_value)
     run("第 1 段只能 hard", test_first_segment_rule)
     run("不误伤提示词", test_does_not_touch_prompt)
+    run("行级 overlap 读写", test_set_overlap)
+    run("行级 overlap 非法值", test_overlap_invalid)
     run("改动让成片过期", test_marks_final_stale)
 
     if failures:

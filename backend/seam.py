@@ -89,15 +89,21 @@ def plan_windows(rows: list[dict[str, Any]], fps: int, total_target: int,
         if index and snapped - visible_end < 17:
             snapped = visible_end + 17
         visible = snapped - visible_end
-        start = 0 if index == 0 else previous_end - overlap
-        length = visible + (overlap if index else 0)
+        # 行级 overlap 可覆盖项目级取值（P2.5 可选）；仍必须是 5+17k，
+        # 否则 length = visible + overlap 会掉出网格
+        window_overlap = int(row.get("overlap") or overlap)
+        if index and (window_overlap < 5 or (window_overlap - 5) % 17):
+            raise ValueError(
+                f"第 {index + 1} 段的 overlap 必须是 5+17k，收到 {window_overlap}")
+        start = 0 if index == 0 else previous_end - window_overlap
+        length = visible + (window_overlap if index else 0)
         end = start + length
         windows.append({
             "index": index,
             "start": int(start),
             "end": int(end),
             "length": int(length),
-            "overlap": 0 if index == 0 else overlap,
+            "overlap": 0 if index == 0 else window_overlap,
             "visible": int(visible),
             "target_visible": int(base),
         })

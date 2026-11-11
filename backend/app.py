@@ -730,6 +730,22 @@ def patch_segment(project_id: str, index: int, payload: dict[str, Any]) -> dict[
             raise HTTPException(400, "第 1 段没有上一段，接续方式只能是 hard。")
         # 接续方式不影响提示词内容，不进 changed，避免把正文误标过期
         row["stitch"] = value
+        if value == "hard":
+            row.pop("overlap", None)  # 硬切没有重叠，避免残留旧值
+    if "overlap" in payload:
+        raw = payload["overlap"]
+        if raw is None or str(raw).strip() == "":
+            row.pop("overlap", None)
+        else:
+            try:
+                overlap = int(raw)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "overlap 必须是 22 或 39。") from None
+            if overlap not in {22, 39}:
+                raise HTTPException(400, "overlap 只能是 22 或 39（5 仅供数字人模式 2）。")
+            if index == 0:
+                raise HTTPException(400, "第 1 段没有上一段，不能设置 overlap。")
+            row["overlap"] = overlap
     if changed:
         # 只把本段提示词标记为过期，不清空；手写内容也不会再被无声删掉
         _invalidate_row_prompt(row, "、".join(changed) + "已修改", motion_changed)

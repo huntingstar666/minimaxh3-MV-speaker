@@ -545,14 +545,18 @@ async function mergeSegment(index, reason = "merge") {
 }
 
 // ------------------------------- 接续方式 -------------------------------
-async function setSegmentStitch(index, value) {
+async function setSegmentStitch(index, value, overlap = null) {
   if (!state.project) return;
   const label = `第 ${index + 1} 段`;
   try {
-    const data = await api.patchSegment(state.project.id, index, { stitch: value });
+    const patch = { stitch: value };
+    if (value === "seam" && overlap) patch.overlap = overlap;
+    const data = await api.patchSegment(state.project.id, index, patch);
     setProject(data.project);
     renderProject();
-    toast(value === "seam" ? `${label}将续接上一段` : `${label}改回硬切`, "ok");
+    toast(value === "seam"
+      ? `${label}将续接上一段（重叠 ${overlap || 22} 帧）`
+      : `${label}改回硬切`, "ok");
   } catch (error) {
     toast(error.message || "接续方式保存失败", "err");
     renderProject();  // 失败时把下拉恢复成项目里的值
@@ -1601,7 +1605,9 @@ function bindEvents() {
   $("#segment-list").addEventListener("change", (event) => {
     const select = event.target.closest("[data-act='stitch']");
     if (!select) return;
-    setSegmentStitch(Number(select.dataset.index), select.value);
+    const [kind, overlap] = String(select.value).split(":");
+    setSegmentStitch(Number(select.dataset.index), kind,
+                     overlap ? Number(overlap) : null);
   });
 
   $("#btn-assemble").addEventListener("click", assembleProject);

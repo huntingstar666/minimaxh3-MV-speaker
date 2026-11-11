@@ -432,13 +432,16 @@ function chainTag(segments, row, index) {
 }
 
 function stitchSelect(row, index) {
-  const value = row.stitch === "seam" ? "seam" : "hard";
+  const stitch = row.stitch === "seam" ? "seam" : "hard";
+  const overlap = Number(row.overlap) === 39 ? 39 : 22;
+  const value = stitch === "seam" ? `seam:${overlap}` : "hard";
   const locked = index === 0;
-  const title = locked ? "第 1 段没有上一段，只能是硬切" : "本段与上一段的接续方式";
+  const title = locked ? "第 1 段没有上一段，只能是硬切" : "本段与上一段的接续方式与重叠帧数";
   return `<label class="seg-stitch" title="${title}">
     <select class="seg-stitch-select" data-act="stitch" data-index="${index}" ${locked ? "disabled" : ""}>
       <option value="hard" ${value === "hard" ? "selected" : ""}>硬切</option>
-      <option value="seam" ${value === "seam" ? "selected" : ""}>续接上段</option>
+      <option value="seam:22" ${value === "seam:22" ? "selected" : ""}>续接 22</option>
+      <option value="seam:39" ${value === "seam:39" ? "selected" : ""}>续接 39</option>
     </select>
   </label>`;
 }
