@@ -151,8 +151,10 @@ def concat(clips: list[Path], audio_source: Path | None, out: Path, total_frames
     else:
         args += ["-map", "0:v:0", "-an"]
     seconds = frames.to_seconds(max(int(total_frames), 1))
-    args += ["-c:v", "copy", "-t", f"{seconds:.6f}",
-             "-movflags", "+faststart", str(out)]
+    # -t 按时间戳截断时，copy 模式会把跨过边界的那个 packet 也带进来（长片实测多 2 帧）；
+    # 再加 -frames:v 精确卡住帧数，保证成片帧数与账本一致。
+    args += ["-c:v", "copy", "-frames:v", str(max(int(total_frames), 1)),
+             "-t", f"{seconds:.6f}", "-movflags", "+faststart", str(out)]
     audio.command(args, timeout=1800)
 
 
