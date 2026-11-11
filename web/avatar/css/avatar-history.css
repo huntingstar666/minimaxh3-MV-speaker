@@ -51,6 +51,11 @@
 .av-timeline{position:sticky;top:0;z-index:14;
   box-shadow:0 12px 28px -18px rgba(0,0,0,.55),inset 0 1px 0 color-mix(in srgb,var(--text) 4%,transparent)}
 .av-body.av-8bit .av-timeline{box-shadow:4px 4px 0 rgba(23,19,13,.18)}
+.wave-wrap{height:200px}
+.wave-wrap canvas{height:100%!important}
+@media (max-width:1200px){
+  .wave-wrap{height:150px}
+}
 
 /* 左栏「作品设定」快速卡片 */
 .av-quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}

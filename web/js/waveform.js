@@ -3,7 +3,7 @@
 // 静态内容（标尺、波形、段底色、切点、段号）绘制一次后缓存在离屏 canvas；
 // 播放头、hover 参考线、切点高亮只重绘动态层（paint），不重画静态层。
 const FALLBACK_COLORS = { amber: "#f7b955", amber2: "#ff8a4c", mint: "#57e0c0", violet: "#a78bfa" };
-const RULER_H = 18;                       // 顶部时间标尺高度
+const RULER_H = 28;                       // 顶部时间标尺高度（加宽播放头拖拽区）
 const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
 const MONO = '"Cascadia Mono","Cascadia Code",Consolas,"JetBrains Mono",monospace';
 
@@ -68,7 +68,7 @@ export class Waveform {
     this.duration = 0;
     this.playhead = 0;
     this.width = 0;
-    this.height = 148;
+    this.height = 170;
     this.onSeek = null;
     this.onSplit = null;
     this.onBoundary = null;
@@ -271,23 +271,34 @@ export class Waveform {
       }
     }
 
-    // 段落分割线：常驻显示，比 hover 态更清楚
+    // 段落分割线：与琥珀波形区分开，使用薄荷青；深色描边保证任何背景都清楚
     if (this.segments.length > 1) {
       for (let index = 0; index < this.segments.length - 1; index += 1) {
         const x = Math.round(timeToX(Number(this.segments[index]?.end) || 0)) + 0.5;
         if (x < 0 || x > width) continue;
         ctx.save();
-        ctx.shadowColor = toRgba(colors.amber, .45);
-        ctx.shadowBlur = 4;
-        ctx.strokeStyle = toRgba(colors.amber, .62);
-        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = "rgba(3,8,10,.78)";
+        ctx.lineWidth = 5;
         ctx.beginPath();
         ctx.moveTo(x, bodyTop);
         ctx.lineTo(x, height);
         ctx.stroke();
         ctx.restore();
-        ctx.fillStyle = toRgba(colors.amber, .85);
-        this.roundRect(ctx, x - 2.5, bodyTop - 1, 5, 9, 2);
+        ctx.save();
+        ctx.shadowColor = toRgba(colors.mint, .9);
+        ctx.shadowBlur = 9;
+        ctx.strokeStyle = toRgba(colors.mint, .98);
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(x, bodyTop);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = toRgba(colors.mint, 1);
+        this.roundRect(ctx, x - 4, bodyTop - 2, 8, 13, 3);
+        ctx.fill();
+        ctx.fillStyle = "rgba(3,8,10,.82)";
+        this.roundRect(ctx, x - 1, bodyTop + 2, 2, 5, 1);
         ctx.fill();
       }
     }
@@ -296,27 +307,27 @@ export class Waveform {
     const px = clamp(timeToX(this.playhead), 0, width);
     if (this.duration > 0) {
       const active = this.scrubbing || this._hoverPlayhead;
-      const glow = ctx.createLinearGradient(px - 24, 0, px + 24, 0);
+      const glow = ctx.createLinearGradient(px - 28, 0, px + 28, 0);
       glow.addColorStop(0, toRgba(colors.amber, 0));
-      glow.addColorStop(0.5, toRgba(colors.amber, active ? .20 : .13));
+      glow.addColorStop(0.5, toRgba(colors.amber, active ? .22 : .15));
       glow.addColorStop(1, toRgba(colors.amber, 0));
       ctx.fillStyle = glow;
-      ctx.fillRect(px - 24, bodyTop, 48, height - bodyTop);
+      ctx.fillRect(px - 28, bodyTop, 56, height - bodyTop);
 
       ctx.save();
       ctx.shadowColor = toRgba(colors.amber, .85);
-      ctx.shadowBlur = active ? 14 : 9;
+      ctx.shadowBlur = active ? 16 : 10;
       ctx.strokeStyle = toRgba(colors.amber, .98);
-      ctx.lineWidth = active ? 3 : 2.4;
+      ctx.lineWidth = active ? 3.2 : 2.6;
       ctx.beginPath();
-      ctx.moveTo(px, 13);
+      ctx.moveTo(px, RULER_H - 6);
       ctx.lineTo(px, height);
       ctx.stroke();
       ctx.restore();
 
       // 抓手表头：圆角旗 + 向下小三角，明确「这里可以拖」
-      const headW = active ? 18 : 15;
-      const headH = active ? 16 : 14;
+      const headW = active ? 24 : 20;
+      const headH = active ? 21 : 18;
       const headTop = 2;
       ctx.save();
       ctx.shadowColor = toRgba(colors.amber, .8);
@@ -367,7 +378,7 @@ export class Waveform {
     if (!this.duration || !this.segments.length) return null;
     for (let index = 0; index < this.segments.length - 1; index += 1) {
       const position = (Number(this.segments[index].end) / this.duration) * this.width;
-      if (Math.abs(x - position) <= 10) return index;
+      if (Math.abs(x - position) <= 12) return index;
     }
     return null;
   }
@@ -681,9 +692,9 @@ export class Waveform {
     return { rect, width, x: event.clientX - rect.left, ratio: clamp((event.clientX - rect.left) / width, 0, 1) };
   }
 
-  // 播放头命中带：±16px 内视为抓到了播放头，光标变 ew-resize
+  // 播放头命中带：±24px 内视为抓到了播放头，光标变 ew-resize（手柄小，给足容错）
   _nearPlayhead(x) {
-    return this.duration > 0 && Math.abs(x - this.xOf(this.playhead)) <= 16;
+    return this.duration > 0 && Math.abs(x - this.xOf(this.playhead)) <= 24;
   }
 
   _onPointerDown(event) {

@@ -5997,6 +5997,7 @@ function bindEvents() {
     if (!id) return;
     if (el.dataset.action === "open-project") {
       if (state.project?.id !== id) openProject(id);
+      $("#modal-history").hidden = true;
     } else if (el.dataset.action === "del-project") {
       const item = state.projects.find((row) => row.id === id);
       removeProject(id, item?.name || id);
