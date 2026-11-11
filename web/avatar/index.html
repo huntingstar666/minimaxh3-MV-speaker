@@ -294,6 +294,15 @@
           <span class="av-setting-text"><b>锚定细节</b><em>预处理 · 采样 · 钉帧 · 缩放</em></span>
           <svg class="av-setting-arrow"><use href="#i-chevron"/></svg>
         </button>
+        <div class="av-setting-row av-secondpass-row" id="secondpass-row" hidden>
+          <span class="av-setting-icon"><svg><use href="#i-spark"/></svg></span>
+          <span class="av-setting-text"><b>二次采样（SelfLift）</b><em id="secondpass-summary">关闭 · 单采</em></span>
+          <button class="av-mini-btn" type="button" data-sheet="advanced" title="调整二采步数 / 低清比例 / 放大模型">参数</button>
+          <label class="av-switch" title="开启 / 关闭 SelfLift 二采">
+            <input type="checkbox" id="f-secondpass">
+            <i></i>
+          </label>
+        </div>
         <div class="av-workflow-note" id="workflow-note">
           <div class="wf-line"><b id="wf-title">Ref 模式 · 锁定音轨</b><span id="wf-template">提示词：Ref2VA 六段</span></div>
           <div class="wf-desc" id="wf-desc">参数：驱动音频 + 参考图 + 每段随机种子 → 锁定音轨工作流（SelfLift 双采）</div>
@@ -785,6 +794,11 @@
             <button type="button" class="av-seg-control-item" data-value="0.75">0.75 MP<span>草稿</span></button>
             <button type="button" class="av-seg-control-item active" data-value="1">1.0 MP<span>标准</span></button>
             <button type="button" class="av-seg-control-item" data-value="1.5">1.5 MP<span>高清</span></button>
+            <button type="button" class="av-seg-control-item" data-value="custom">自定义<span>任意 MP</span></button>
+          </div>
+          <div class="av-mp-custom" id="f-mp-custom-wrap" hidden>
+            <input id="f-mp-custom" class="input mono" type="number" min="0.1" max="4" step="0.05" inputmode="decimal" aria-label="自定义清晰度（MP）">
+            <span>MP · 0.1–4.0</span>
           </div>
         </div>
         <div class="field">
@@ -819,6 +833,10 @@
             </div>
             <div class="field"><label>LoRA 强度</label><input id="a-lora-strength" class="input mono" type="number" min="0" max="1.5" step="0.05"></div>
             <div id="anchor-selflift-wrap" hidden>
+              <div class="av-subsection-title">
+                <b>二次采样（SelfLift）</b>
+                <span>低清先铺结构，再高清二采；总步数不变</span>
+              </div>
               <div class="field-row">
                 <div class="field">
                   <label>低清步数 <span class="hint">二采前</span></label>

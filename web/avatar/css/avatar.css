@@ -1468,3 +1468,56 @@
 .av-body.av-8bit .av-role-chips button{border-radius:0;border:2px solid var(--text);background:#fffaf0}
 .av-body.av-8bit .av-aspect-card.active,
 .av-body.av-8bit .av-role-chips button.active{background:#fff0d2;border-color:var(--amber)}
+
+/* 清晰度自定义 */
+.av-mp-custom{display:flex;align-items:center;gap:8px;margin-top:8px}
+.av-mp-custom .input{flex:1;max-width:180px;height:34px}
+.av-mp-custom span{font-size:10px;color:var(--faint);white-space:nowrap}
+#f-mp-seg .av-seg-control-item{font-size:11px}
+
+/* 二采入口与高级弹窗分组 */
+.av-secondpass-row{cursor:default;flex-wrap:nowrap}
+.av-secondpass-row:hover{background:transparent}
+.av-secondpass-row .av-mini-btn{flex:none}
+.av-secondpass-row .av-switch{flex:0 0 auto;min-width:0;width:auto;gap:0;margin-left:2px;padding:0}
+.av-secondpass-row .av-switch i{flex:none}
+.av-secondpass-row .av-setting-text b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.av-subsection-title{
+  display:flex;flex-direction:column;gap:2px;margin:6px 0 10px;padding:8px 10px;
+  border-left:2px solid var(--amber);background:var(--av-amber-soft);
+  border-radius:0 8px 8px 0;
+}
+.av-subsection-title b{font-size:12px;font-weight:600;color:var(--text)}
+.av-subsection-title span{font-size:10px;line-height:1.45;color:var(--faint)}
+
+/* 系统提示词弹窗：固定高度、每份提示词独立卡片与全宽文本域 */
+#modal-prompts .av-settings-card{
+  width:min(880px,94vw);height:min(88vh,820px);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+#modal-prompts .av-settings-body{
+  flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:18px 20px 20px;
+  display:block;background:transparent;
+}
+#modal-prompts .av-prompt-modes{display:flex;flex-direction:column;gap:12px}
+#modal-prompts .av-prompt-item{
+  border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--av-card);
+}
+#modal-prompts .av-prompt-summary{
+  display:flex;align-items:center;gap:8px;padding:0 0 8px;
+  font-size:12.5px;color:var(--text);
+}
+#modal-prompts .av-prompt-summary strong{font-weight:650}
+#modal-prompts .av-prompt-summary .grow{flex:1}
+#modal-prompts .av-prompt-item textarea{
+  display:block;width:100%;box-sizing:border-box;min-height:150px;resize:vertical;
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+  font:11.5px/1.7 var(--mono);color:var(--text);outline:none;
+  white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:hidden;
+  transition:border-color .16s var(--av-ease),box-shadow .16s var(--av-ease);
+}
+#modal-prompts .av-prompt-item textarea:hover{border-color:var(--line-strong)}
+#modal-prompts .av-prompt-item textarea:focus{border-color:var(--av-amber-line);box-shadow:var(--av-ring-soft)}
+#modal-prompts .av-prompt-item textarea::placeholder{color:var(--faint)}
+#modal-prompts #btn-save-prompts{margin-top:12px}

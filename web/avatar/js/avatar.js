@@ -701,7 +701,7 @@ function readGeneration() {
   const gen = { ...defaults };
   gen.aspect_ratio = $("#f-aspect").value || gen.aspect_ratio || "9:16";
   const mp = Number($("#f-mp").value);
-  if (Number.isFinite(mp)) gen.megapixels = mp;
+  if (Number.isFinite(mp) && mp > 0) gen.megapixels = mp;
   const seed = Number($("#f-seed").value);
   gen.seed = Number.isFinite(seed) ? Math.max(0, Math.round(seed)) : 0;
 
@@ -760,9 +760,11 @@ function readGeneration() {
 function fillGeneration(gen) {
   const g = gen || {};
   setSelectValue($("#f-aspect"), g.aspect_ratio || "9:16");
-  setSelectValue($("#f-mp"), g.megapixels !== undefined && g.megapixels !== null ? String(Number(g.megapixels)) : "1");
+  const mpValue = g.megapixels !== undefined && g.megapixels !== null ? String(Number(g.megapixels)) : "1";
+  ensureMpOption(mpValue);
+  setSelectValue($("#f-mp"), mpValue);
   renderAspectCards();
-  setSegmented("f-mp-seg", $("#f-mp").value || "1");
+  syncMegapixelUI($("#f-mp").value || "1");
   $("#f-seed").value = (g.stitch === "anchor" ? (g.anchor_seed ?? g.seed) : g.seed) ?? 0;
   setSelectValue($("#a-unet"), g.unet);
   setSelectValue($("#a-clip"), g.clip);
@@ -882,6 +884,30 @@ function updateAnchorStepSplit() {
       : "低清步数必须小于总步数：请调低「低清步数」或调高总步数";
     hint.classList.toggle("is-invalid", high < 1);
   }
+  updateSecondpassSummary();
+}
+
+function updateSecondpassSummary() {
+  const summary = $("#secondpass-summary");
+  if (!summary) return;
+  const on = $("#f-stitch")?.value === "anchor" && Number(state.mode) === 1;
+  const selflift = ($("#f-anchor-sampler")?.value || "plain") === "selflift";
+  const toggle = $("#f-secondpass");
+  if (toggle) toggle.checked = on && selflift;
+  const row = $("#secondpass-row");
+  if (row) row.hidden = !on;
+  if (!on) {
+    summary.textContent = "仅首尾帧锚定可用";
+    return;
+  }
+  if (!selflift) {
+    summary.textContent = "关闭 · 单采";
+    return;
+  }
+  const total = Math.max(1, Number($("#a-steps")?.value || 6));
+  const low = Math.max(1, Number($("#f-anchor-transition")?.value || 4));
+  const high = Math.max(0, total - low);
+  summary.textContent = `开启 · 总 ${total} 步 = 低清 ${low} + 高清 ${high}`;
 }
 
 function syncAnchorUI() {
@@ -1550,12 +1576,26 @@ function initAnchorControls() {
   bindSegmented("f-stitch-seg", "f-stitch");
   bindSegmented("f-anchor-mid-seg", "f-anchor-mid");
   bindSegmented("f-anchor-pin-seg", "f-anchor-pin");
-  bindSegmented("f-mp-seg", "f-mp");
   bindSegmented("seam-overlap-seg", "f-seam-overlap");
   bindSegmented("design-platform-seg", "design-platform");
   bindSegmented("design-audio-mode-seg", "design-audio-mode");
   bindSegmented("asset-role-seg", "asset-role");
+  bindMegapixelControl();
   $("#f-anchor-sampler")?.addEventListener("change", syncAnchorUI);
+  $("#f-secondpass")?.addEventListener("change", (event) => {
+    const on = $("#f-stitch")?.value === "anchor" && Number(state.mode) === 1;
+    if (!on) {
+      event.target.checked = false;
+      toast("二次采样只在模式 1 的「首尾帧锚定」下可用", "warn", 5000);
+      return;
+    }
+    const sampler = $("#f-anchor-sampler");
+    if (sampler) {
+      sampler.value = event.target.checked ? "selflift" : "plain";
+      sampler.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    syncAnchorUI();
+  });
   $("#a-steps")?.addEventListener("input", updateAnchorStepSplit);
   $("#f-anchor-transition")?.addEventListener("input", updateAnchorStepSplit);
   $("#f-aspect-cards")?.addEventListener("click", (event) => {
@@ -1590,6 +1630,80 @@ function renderAspectCards() {
       <span class="av-aspect-text"><b>${esc(match ? `${w}:${h}` : value)}</b><em>${label}</em></span>
     </button>`;
   }).join("");
+}
+
+// 清晰度：预设 + 自定义 MP；底层仍是 #f-mp，读写逻辑不变
+function ensureMpOption(value) {
+  const select = $("#f-mp");
+  if (!select || !value) return;
+  if (![...select.options].some((option) => option.value === value)) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = `${value} MP`;
+    select.appendChild(option);
+  }
+}
+
+function syncMegapixelUI(value, { forceCustom = false, setInput = true } = {}) {
+  const presets = ["0.75", "1", "1.5"];
+  const numeric = String(value || "1");
+  const isPreset = presets.includes(numeric) && !forceCustom;
+  $$("#f-mp-seg [data-value]").forEach((btn) => {
+    btn.classList.toggle("active", isPreset ? btn.dataset.value === numeric : btn.dataset.value === "custom");
+  });
+  const wrap = $("#f-mp-custom-wrap");
+  const input = $("#f-mp-custom");
+  if (wrap) wrap.hidden = isPreset;
+  if (input && !isPreset && setInput) input.value = numeric;
+}
+
+function bindMegapixelControl() {
+  const seg = $("#f-mp-seg");
+  const select = $("#f-mp");
+  const wrap = $("#f-mp-custom-wrap");
+  const input = $("#f-mp-custom");
+  if (!seg || !select || !wrap || !input) return;
+  seg.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-value]");
+    if (!btn) return;
+    if (btn.dataset.value === "custom") {
+      wrap.hidden = false;
+      $$("#f-mp-seg [data-value]").forEach((item) => item.classList.toggle("active", item === btn));
+      if (!input.value) input.value = select.value || "1";
+      input.focus();
+      input.select();
+      return;
+    }
+    select.value = btn.dataset.value;
+    syncMegapixelUI(btn.dataset.value);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  input.addEventListener("input", () => {
+    const raw = input.value.trim();
+    const value = Number(raw);
+    if (!raw || !Number.isFinite(value) || value <= 0) return;
+    const clamped = Math.min(4, Math.max(0.1, value));
+    const text = String(clamped);
+    ensureMpOption(text);
+    select.value = text;
+    syncMegapixelUI(select.value, { forceCustom: true, setInput: false });
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  input.addEventListener("blur", () => {
+    const raw = input.value.trim();
+    if (!raw) {
+      input.value = select.value || "1";
+      return;
+    }
+    const value = Number(raw);
+    const clamped = Number.isFinite(value) && value > 0 ? Math.min(4, Math.max(0.1, value)) : Number(select.value) || 1;
+    const text = String(clamped);
+    input.value = text;
+    ensureMpOption(text);
+    select.value = text;
+    syncMegapixelUI(select.value, { forceCustom: true });
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 }
 
 /* 右栏：参数 / 运行结果 分页 */

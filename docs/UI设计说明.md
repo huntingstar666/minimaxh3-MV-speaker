@@ -54,6 +54,9 @@
 - **设定只放“要改什么”**：`#settings-tabs` 与 `#settings-body` 启动时搬入 `#modal-settings`；弹窗外框固定 `min(920px,94vw) × min(86vh,780px)`，四个分页内部滚动，实测切页高度恒定（756.6px）。
 - **设计页两栏**：左列固定预览（sticky），右列卡片化控制（密度/风格/配色/字体/效果/高级设计）；不再挤在 300px 左栏里。
 - **给下拉减负**：画幅改成 8 张比例卡片；清晰度、接缝重叠、设计平台、音频模式改成分段控件；参考图用途改成 chips。底层仍保留隐藏 `<select>` / `<input>` 供 `readGeneration/readDesign` 读写，避免动业务逻辑。
+- **清晰度可自定义**：0.75 / 1.0 / 1.5 MP 预设之外增加「自定义」输入（0.1–4.0 MP），自定义值自动补进隐藏 select 并同步右栏摘要。
+- **二采入口**：模式 1 选「首尾帧锚定」后，右栏出现「二次采样（SelfLift）」开关；开启即把 `anchor_sampler` 切到 `selflift`，「参数」按钮打开高级生成参数里的二采分组（低清步数/高清二采步数/低清比例/放大模型/rho/分块）。
+- **系统提示词弹窗**：固定 880px 卡片，三份提示词各一张卡 + 全宽等宽文本域，纵向滚动，修复窄栏截断与横向滚动条。
 - **键盘与焦点**：弹窗打开时焦点进入标题，Esc 关闭并回焦触发按钮，Tab 在弹窗内循环。
 - 全局参考图默认应用到全部段落（后端 `segment_ref_indices` 在 `ref_ids` 为空时返回全部），「全部段使用」清除个别段落的单独勾选。
 - 样式与结构：`web/avatar/index.html`、`web/avatar/js/avatar.js`（`mountSettingsModal` / `renderAssetMaterials` / `renderAspectCards` / `applyGlobalRefsToAll`）、`web/avatar/css/avatar-history.css`、`web/avatar/css/avatar.css`。

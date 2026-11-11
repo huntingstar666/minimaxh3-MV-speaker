@@ -236,4 +236,10 @@
 .av-body.av-light .av-setting-icon{
   border-radius:0;border:2px solid var(--text);background:#fffaf0;color:var(--text);
 }
+.av-body.av-light #modal-prompts .av-prompt-item{
+  background:#fffaf0;border:2px solid var(--text);border-radius:0;
+}
+.av-body.av-light #modal-prompts .av-prompt-item textarea{
+  background:#fffdf5;border:2px solid var(--text);border-radius:0;color:var(--text);
+}
 .av-sys-card{width:min(640px,94vw)}
