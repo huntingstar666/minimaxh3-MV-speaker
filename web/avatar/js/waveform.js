@@ -89,7 +89,9 @@ export class Waveform {
     this.duration = 0;
     this.playhead = 0;
     this.width = 0;
-    this.height = 200;
+    // 以容器实际高度为准：主题/CSS 可能把 .wave-wrap 拉到 150/200px，
+    // 位图高度必须跟 CSS 一致，否则会被拉伸放大、文字和柱体发糊。
+    this.height = Math.max(60, Math.round(wrap.clientHeight || 200));
     this.onSeek = null;
     this.onSplit = null;
     this.onBoundary = null;
@@ -127,7 +129,8 @@ export class Waveform {
 
     this.resizeObserver = new ResizeObserver(() => {
       const width = Math.round(this.wrap.clientWidth || 0);
-      if (width && width !== this.width) this.draw();
+      const height = Math.round(this.wrap.clientHeight || 0);
+      if ((width && width !== this.width) || (height && height !== this.height)) this.draw();
     });
     this.resizeObserver.observe(wrap);
 
@@ -163,7 +166,8 @@ export class Waveform {
 
   resize() {
     const width = Math.max(1, Math.round(this.wrap.clientWidth || this.canvas.clientWidth || 800));
-    const height = this.height;
+    const height = Math.max(60, Math.round(this.wrap.clientHeight || this.height));
+    this.height = height;
     const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
     const pixelWidth = Math.max(1, Math.round(width * dpr));
     const pixelHeight = Math.max(1, Math.round(height * dpr));

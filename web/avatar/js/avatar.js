@@ -3275,8 +3275,6 @@ function ensureWaveform() {
   const wrap = $("#wave-wrap");
   if (!canvas || !wrap) return null;
   waveform = new Waveform(canvas, wrap);
-  waveform.height = 96;
-  waveform.canvas.style.height = "96px";
   waveform.onSeek = (seconds) => {
     setPlayhead(seconds);
     const audio = $("#av-audio");
