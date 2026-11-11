@@ -5341,7 +5341,7 @@ function renderAssetMaterials() {
             <button class="av-mini-btn" type="button" data-asset-action="voice-play" data-voice-index="${index}">试听</button>
           </div>`;
         }).join("") + `<button class="av-asset-empty compact" type="button" data-asset-action="voice-add">
-          <svg><use href="#i-plus"/></svg><span>添加参考音色<em>最多 3 个</em></span>
+          <svg><use href="#i-plus"/></svg><span>${p ? "添加参考音色<em>最多 3 个</em>" : "替换参考音色<em>创建后可继续添加</em>"}</span>
         </button>`
         : `<button class="av-asset-empty" type="button" data-asset-action="voice-add">
           <svg><use href="#i-mic"/></svg><span>上传参考音色<em>2–15 秒，生成该音色台词</em></span>
@@ -5367,9 +5367,13 @@ function renderAssets() {
   const refs = p?.refs || [];
   const segments = p?.segments || [];
   const voices = (p?.voices || []).length || (p?.voice ? 1 : 0);
+  const pendingVoice = !p && state.pendingVoice ? 1 : 0;
+  const pendingAudio = !p && state.pendingAudio ? 1 : 0;
   $("#asset-summary").textContent = p
     ? `${refs.length} 图 · ${voices} 音色 · ${segments.length} 段`
-    : "未创建作品";
+    : (pendingVoice || pendingAudio
+      ? `待创建 · 0 图 · ${pendingVoice} 音色 · 0 段`
+      : "未创建作品");
   renderAssetMaterials();
   const note = $("#asset-note");
   if (!p) {
